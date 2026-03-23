@@ -201,6 +201,12 @@ docker run --rm -d --name ak-forward \
 # Clean up: docker rm -f ak-forward
 ```
 
+## Node-RED
+
+Node-RED is available at `http://localhost:1880` (or `https://nodered.<FQDN>` via Caddy in production).
+
+On first boot, FastTAK pre-installs `node-red-contrib-postgresql` and `node-red-contrib-tak`, and configures a PostGIS database connection. A `nodered` LDAP user is automatically created in the `tak_ROLE_ADMIN` group so CoT messages from Node-RED flows reach all TAK clients.
+
 ## Updating
 
 ```bash

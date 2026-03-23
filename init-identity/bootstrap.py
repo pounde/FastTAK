@@ -256,6 +256,51 @@ def ensure_webadmin_user() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 3b: Create/ensure nodered service user
+# ---------------------------------------------------------------------------
+
+
+def ensure_nodered_user() -> None:
+    """Create nodered user in Authentik with tak_ROLE_ADMIN group.
+
+    Node-RED connects to TAK Server via client cert (CN=nodered). TAK Server
+    looks up the CN in LDAP to determine group membership. Without a matching
+    LDAP user, CoT messages from Node-RED flows are silently dropped because
+    TAK Server can't route them to any group.
+    """
+    log.info("Ensuring nodered user...")
+    users = api_get("core/users/?search=nodered").get("results", [])
+    user = next((u for u in users if u.get("username") == "nodered"), None)
+
+    if not user:
+        user = api_post("core/users/", {
+            "username": "nodered",
+            "name": "Node-RED Service Account",
+            "is_active": True,
+            "type": "service_account",
+            "path": "users",
+        })
+        log.info("Created nodered user (pk=%s)", user["pk"])
+    else:
+        log.info("nodered user exists (pk=%s)", user["pk"])
+
+    # Add to tak_ROLE_ADMIN group (create if needed)
+    groups = api_get("core/groups/?search=tak_ROLE_ADMIN").get("results", [])
+    admin_group = next((g for g in groups if g.get("name") == "tak_ROLE_ADMIN"), None)
+    if not admin_group:
+        admin_group = api_post("core/groups/", {"name": "tak_ROLE_ADMIN"})
+        log.info("Created tak_ROLE_ADMIN group")
+
+    member_pks = [
+        u.get("pk") if isinstance(u, dict) else u
+        for u in (admin_group.get("users") or [])
+    ]
+    if user["pk"] not in member_pks:
+        api_post(f"core/groups/{admin_group['pk']}/add_user/", {"pk": user["pk"]})
+        log.info("Added nodered to tak_ROLE_ADMIN")
+
+
+# ---------------------------------------------------------------------------
 # Step 4: Configure LDAP authentication flow with 3 stages
 # ---------------------------------------------------------------------------
 
@@ -542,6 +587,9 @@ def main() -> None:
 
     # 3. Webadmin user
     ensure_webadmin_user()
+
+    # 3b. Node-RED service user (maps nodered cert CN to LDAP group)
+    ensure_nodered_user()
 
     # 4. LDAP authentication flow with 3 stages
     flow_pk = ensure_ldap_flow()
