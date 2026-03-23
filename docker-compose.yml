@@ -1,0 +1,284 @@
+# =============================================================================
+# FastTAK — Docker Compose Stack
+# =============================================================================
+# All services start together. No profiles needed.
+#   ./start.sh              # or: docker compose up -d --build
+#
+# Prerequisites:
+#   1. Run ./setup.sh <takserver-docker-X.X.zip> to extract tak/ and build images
+#   2. cp .env.example .env && vim .env
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Shared fragments (YAML anchors)
+# ---------------------------------------------------------------------------
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+x-tak-mount: &tak-mount ./tak:/opt/tak
+
+x-authentik-env: &authentik-env
+  AUTHENTIK_POSTGRESQL__HOST: app-db
+  AUTHENTIK_POSTGRESQL__USER: fastak
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${APP_DB_PASSWORD}
+  AUTHENTIK_REDIS__HOST: redis
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+  AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_ADMIN_PASSWORD}
+  AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_API_TOKEN}
+  AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_ADMIN_EMAIL:-admin@takwerx.local}
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  tak-db-data:
+  app-db-data:
+  nodered-data:
+  caddy-data:
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  default:
+
+# =============================================================================
+# Services
+# =============================================================================
+services:
+
+  # ── TAK Database (official tak.gov image — PostgreSQL 15 + PostGIS) ──────
+  tak-database:
+    image: takserver-database:${TAK_VERSION}
+    entrypoint: ["/start.sh"]
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
+    volumes:
+      - tak-db-data:/var/lib/postgresql/data
+      - *tak-mount
+      - ./tak-database/start.sh:/start.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "martiuser", "-d", "cot"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Init: config (one-shot config patching) ──────────────────────────────
+  init-config:
+    build: ./init-config
+    restart: "no"
+    logging: *default-logging
+    depends_on:
+      tak-database:
+        condition: service_healthy
+    environment:
+      TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
+      FQDN: ${FQDN}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+      LDAP_HOST: ${LDAP_HOST:-authentik-ldap}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
+    volumes:
+      - *tak-mount
+
+  # ── TAK Server (official tak.gov image) ──────────────────────────────────
+  tak-server:
+    image: takserver:${TAK_VERSION}
+    entrypoint: ["/start.sh"]
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      tak-database:
+        condition: service_healthy
+      init-config:
+        condition: service_completed_successfully
+      init-identity:
+        condition: service_completed_successfully
+    ports:
+      - "8089:8089"
+      - "8443:8443"
+      - "8446:8446"
+    volumes:
+      - *tak-mount
+      - ./tak-server/start.sh:/start.sh:ro
+      - ./tak-server/healthcheck.sh:/opt/tak/healthcheck.sh:ro
+    healthcheck:
+      test: ["CMD", "/opt/tak/healthcheck.sh"]
+      interval: 60s
+      retries: 3
+      start_period: 240s
+
+  # ── Caddy (reverse proxy + SSL) ─────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      FQDN: ${FQDN}
+      TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
+      MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
+      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
+      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
+      NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+  # ── MediaMTX (video streaming) ──────────────────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:${MEDIAMTX_VERSION}
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "8554:8554"   # RTSP — video ingress from ATAK cameras, drones, body cams
+      - "1935:1935"   # RTMP — video ingress from OBS, encoders
+      - "8888:8888"   # HLS  — browser playback (also proxied via Caddy)
+
+  # ── Identity (Authentik, LDAP, TAK Portal) ──────────────────────────────
+
+  app-db:
+    image: postgis/postgis:15-3.4-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    entrypoint: ["/start.sh"]
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: fastak
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - app-db-data:/var/lib/postgresql/data
+      - ./app-db/start.sh:/start.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "fastak", "-d", "authentik"]
+      interval: 10s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION}
+    command: server
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      app-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *authentik-env
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 15s
+      start_period: 120s
+      retries: 5
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION}
+    command: worker
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      app-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *authentik-env
+
+  init-identity:
+    build: ./init-identity
+    restart: "no"
+    logging: *default-logging
+    depends_on:
+      init-config:
+        condition: service_completed_successfully
+      authentik-server:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_URL: http://authentik-server:9000
+      AUTHENTIK_API_TOKEN: ${AUTHENTIK_API_TOKEN}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
+      TAK_WEBADMIN_PASSWORD: ${TAK_WEBADMIN_PASSWORD}
+      LDAP_HOST: authentik-ldap
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
+      FQDN: ${FQDN}
+      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN:-portal}
+      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN:-auth}
+    volumes:
+      - *tak-mount
+
+  authentik-ldap:
+    image: ghcr.io/goauthentik/ldap:${AUTHENTIK_VERSION}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      init-identity:
+        condition: service_completed_successfully
+    environment:
+      AUTHENTIK_HOST: http://authentik-server:9000
+      AUTHENTIK_TOKEN: ${AUTHENTIK_API_TOKEN}
+    # ports:
+    #   - "389:3389"  # Uncomment for external LDAP clients (TAK Server uses Docker DNS internally)
+
+  tak-portal:
+    build: https://github.com/AdventureSeeker423/TAK-Portal.git#${TAK_PORTAL_VERSION:-main}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      init-identity:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"    # Direct access — bypasses Caddy auth. Remove for production.
+    volumes:
+      - *tak-mount
+      - ./tak-portal/start.sh:/usr/src/app/start.sh:ro
+    environment:
+      FQDN: ${FQDN}
+    entrypoint: ["/bin/sh", "/usr/src/app/start.sh"]
+
+  # ── Automation ─────────────────────────────────────────────────────────
+
+  nodered:
+    image: nodered/node-red:${NODERED_VERSION}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      init-config:
+        condition: service_completed_successfully
+      app-db:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/opt/fastak/start.sh"]
+    ports:
+      - "1880:1880"    # Direct access — bypasses Caddy auth. Remove for production.
+    environment:
+      DB_HOST: app-db
+      DB_PORT: "5432"
+      DB_NAME: nodered
+      DB_USER: fastak
+      DB_PASSWORD: ${APP_DB_PASSWORD}
+      TAK_HOST: tak-server
+      TAK_PORT: "8089"
+    volumes:
+      - nodered-data:/data
+      - ./nodered/flows.json:/opt/fastak/flows.json:ro
+      - ./nodered/start.sh:/opt/fastak/start.sh:ro
+      - ./tak/certs/files/nodered.p12:/opt/tak/certs/nodered.p12:ro
+      - ./tak/certs/files/truststore-root.jks:/opt/tak/certs/truststore-root.jks:ro
+      - ./tak/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro

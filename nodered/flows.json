@@ -1,0 +1,39 @@
+[
+    {
+        "id": "fastak-tab",
+        "type": "tab",
+        "label": "FastTAK",
+        "disabled": false,
+        "info": "Pre-configured connections for FastTAK.\n\nPostgreSQL (PostGIS) is ready to use. TAK Server connection details are provided as environment variables.",
+        "env": []
+    },
+    {
+        "id": "fastak-postgres-config",
+        "type": "postgreSQLConfig",
+        "name": "FastTAK PostGIS",
+        "host": "DB_HOST",
+        "hostFieldType": "env",
+        "port": "DB_PORT",
+        "portFieldType": "env",
+        "database": "DB_NAME",
+        "databaseFieldType": "env",
+        "ssl": false,
+        "user": "DB_USER",
+        "userFieldType": "env",
+        "password": "DB_PASSWORD",
+        "passwordFieldType": "env",
+        "max": "10",
+        "idleTimeout": "1000",
+        "connectionTimeout": "10000"
+    },
+    {
+        "id": "fastak-comment",
+        "type": "comment",
+        "z": "fastak-tab",
+        "name": "FastTAK Connections",
+        "info": "## PostGIS Database\n\nThe **FastTAK PostGIS** config node is pre-configured and available to all flows.\nSelect \"FastTAK PostGIS\" as the server in any postgresql node.\n\n## TAK Server\n\nTo send/receive CoT messages, use a **tcp** node with:\n- Host: `tak-server` (use env var `TAK_HOST`)\n- Port: `8089` (use env var `TAK_PORT`)\n- TLS: enable, with client cert `/opt/tak/certs/nodered.p12` (password: `atakatak`)\n- CA cert: `/opt/tak/certs/ca.pem`",
+        "x": 250,
+        "y": 60,
+        "wires": []
+    }
+]
