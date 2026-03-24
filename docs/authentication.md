@@ -30,7 +30,7 @@ TAK Server ←→ Authentik LDAP Outpost ←→ Authentik Server ←→ Authenti
    - Creates LDAP provider (base DN: `DC=takldap`)
    - Creates LDAP application and outpost
    - Generates TAK Portal `settings.json`
-3. **LDAP outpost starts** — listens on port 3389 (internal)
+3. **LDAP outpost starts** — listens on ports 3389/6636 (internal)
 4. **TAK Server reads CoreConfig.xml** — connects to LDAP outpost for auth
 
 ### How a user logs in (web admin on 8446)
@@ -73,7 +73,7 @@ Only groups with the `tak_` prefix appear as TAK channels. Create groups in Auth
 | Component | What it does | Runs on |
 |-----------|-------------|---------|
 | `authentik-server` | SSO provider, user database, admin UI | Port 9000 (internal) |
-| `authentik-ldap` | LDAP protocol frontend for Authentik | Port 3389 (internal) |
+| `authentik-ldap` | LDAP protocol frontend for Authentik | Ports 3389, 6636 (internal) |
 | `init-identity` | One-shot bootstrap of LDAP config | Exits after setup |
 | `adm_ldapservice` | Service account TAK Server uses to query LDAP | Authentik user |
 | `CoreConfig.xml` | TAK Server config with LDAP connection details | `/opt/tak/` |

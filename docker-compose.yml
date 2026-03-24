@@ -69,7 +69,7 @@ services:
       retries: 5
       start_period: 30s
 
-  # ── Init: config (one-shot config patching) ──────────────────────────────
+  # ── Init: config (one-shot config patching) ────────────────────────────
   init-config:
     build: ./init-config
     restart: "no"
@@ -86,7 +86,7 @@ services:
     volumes:
       - *tak-mount
 
-  # ── TAK Server (official tak.gov image) ──────────────────────────────────
+  # ── TAK Server (official tak.gov image) ────────────────────────────────
   tak-server:
     image: takserver:${TAK_VERSION}
     entrypoint: ["/start.sh"]
@@ -113,40 +113,7 @@ services:
       retries: 3
       start_period: 240s
 
-  # ── Caddy (reverse proxy + SSL) ─────────────────────────────────────────
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    logging: *default-logging
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      FQDN: ${FQDN}
-      TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
-      MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
-      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
-      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
-      NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
-      MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-
-  # ── MediaMTX (video streaming) ──────────────────────────────────────────
-  mediamtx:
-    image: bluenviron/mediamtx:${MEDIAMTX_VERSION}
-    restart: unless-stopped
-    logging: *default-logging
-    # No healthcheck — scratch-based image has no shell/tools.
-    # Monitor checks via Docker API container status instead.
-    ports:
-      - "8554:8554"   # RTSP — video ingress from ATAK cameras, drones, body cams
-      - "1935:1935"   # RTMP — video ingress from OBS, encoders
-      - "8888:8888"   # HLS  — browser playback (also proxied via Caddy)
-
-  # ── Identity (Authentik, LDAP, TAK Portal) ──────────────────────────────
-
+  # ── App Database (PostgreSQL — shared by Authentik + Node-RED) ─────────
   app-db:
     image: postgis/postgis:15-3.4-alpine
     restart: unless-stopped
@@ -164,6 +131,9 @@ services:
       interval: 10s
       retries: 5
       start_period: 10s
+
+  # ── Identity (Authentik SSO, LDAP, TAK Portal) ────────────────────────
+  # Start order: redis → authentik-server/worker → init-identity → authentik-ldap → tak-portal
 
   redis:
     image: redis:7-alpine
@@ -261,8 +231,39 @@ services:
       FQDN: ${FQDN}
     entrypoint: ["/bin/sh", "/usr/src/app/start.sh"]
 
-  # ── Automation ─────────────────────────────────────────────────────────
+  # ── Networking (reverse proxy + SSL) ───────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      FQDN: ${FQDN}
+      TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
+      MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
+      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
+      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
+      NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
+      MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
 
+  # ── Streaming (video ingress + playback) ───────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:${MEDIAMTX_VERSION}
+    restart: unless-stopped
+    logging: *default-logging
+    # No healthcheck — scratch-based image has no shell/tools.
+    # Monitor checks via Docker API container status instead.
+    ports:
+      - "8554:8554"   # RTSP — video ingress from ATAK cameras, drones, body cams
+      - "1935:1935"   # RTMP — video ingress from OBS, encoders
+      - "8888:8888"   # HLS  — browser playback (also proxied via Caddy)
+
+  # ── Automation ─────────────────────────────────────────────────────────
   nodered:
     image: nodered/node-red:${NODERED_VERSION}
     restart: unless-stopped
@@ -296,7 +297,7 @@ services:
       - ./tak/certs/files/truststore-root.jks:/opt/tak/certs/truststore-root.jks:ro
       - ./tak/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro
 
-  # ── Monitor (health dashboard + alerting) ────────────────────────────────
+  # ── Monitor (health API + operations dashboard) ────────────────────────
   monitor:
     build: ./monitor
     restart: unless-stopped
@@ -317,6 +318,7 @@ services:
       AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
       TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
       NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
+      MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -328,7 +330,7 @@ services:
       SMS_FROM: ${SMS_FROM:-}
       SMS_TO: ${SMS_TO:-}
     ports:
-      - "8180:8080"
+      - "8180:8080"    # Direct access. Remove for production (use Caddy + Authentik).
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./tak/certs:/opt/tak/certs:ro
