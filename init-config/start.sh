@@ -11,6 +11,14 @@ CERT_FILES="${CERT_DIR}/files"
 
 # ── Validate inputs ─────────────────────────────────────────────────────────
 
+for var in FQDN TAK_DB_PASSWORD; do
+  eval val=\$$var
+  if [ -z "$val" ]; then
+    echo "[init] ERROR: $var is not set. Check your .env file." >&2
+    exit 1
+  fi
+done
+
 if [ ! -d "${TAK_DIR}" ]; then
   echo "[init] ERROR: ${TAK_DIR} not found. Did you run setup.sh?" >&2
   exit 1
@@ -145,7 +153,7 @@ if [ -n "${FQDN}" ] && [ "${FQDN}" != "localhost" ] && [ -f "${CERT_FILES}/ca.pe
   fi
 fi
 
-# ── 8. Patch LDAP auth (if identity profile vars are set) ────────────────────
+# ── 8. Patch LDAP auth (if LDAP vars are set) ────────────────────────────────
 
 if [ -n "${LDAP_BIND_PASSWORD}" ]; then
   LDAP_HOST="${LDAP_HOST:-authentik-ldap}"
