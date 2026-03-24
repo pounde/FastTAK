@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Test ───────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: extractions/setup-just@v3
+
+      - run: uv sync
+      - run: just test
+
+  # ── Release ────────────────────────────────────────────────────────────
+  release:
+    name: Release
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check if release-worthy files changed
+        id: check
+        run: |
+          # Use push range; fall back to assuming release-worthy on first push / force push
+          RELEASE_WORTHY=false
+          CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null) || RELEASE_WORTHY=true
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # Check if ALL changed files are in excluded paths
+          if [ "$RELEASE_WORTHY" != "true" ]; then
+          while IFS= read -r file; do
+            case "$file" in
+              tests/*|docs/*|.github/*|*.md) ;;  # excluded
+              *) RELEASE_WORTHY=true; break ;;
+            esac
+          done <<< "$CHANGED"
+          fi
+
+          echo "release_worthy=$RELEASE_WORTHY" >> "$GITHUB_OUTPUT"
+
+      - name: Install python-semantic-release
+        if: steps.check.outputs.release_worthy == 'true'
+        run: pip install python-semantic-release
+
+      - name: Run semantic-release
+        if: steps.check.outputs.release_worthy == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          semantic-release version
+          semantic-release publish
+
+  # ── Docs ───────────────────────────────────────────────────────────────
+  docs:
+    name: Deploy Docs
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install mkdocs-material
+        run: pip install mkdocs-material
+
+      - name: Build docs
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+
+  # ── Integration (placeholder) ──────────────────────────────────────────
+  # Requires TAK Server images in a private container registry (GHCR).
+  # To enable:
+  #   1. Push TAK Server images to ghcr.io/pounde/takserver
+  #   2. Change `if: false` to `if: github.ref == 'refs/heads/main'`
+  #   3. Add GHCR credentials as repository secrets
+  integration:
+    name: Integration Test
+    needs: test
+    if: false  # Enable when TAK Server images are in GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: extractions/setup-just@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: uv sync
+      - run: just test-integration
