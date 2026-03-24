@@ -1,0 +1,32 @@
+site_name: FastTAK
+site_description: TAK Server deployment stack with Docker Compose
+repo_url: https://github.com/pounde/FastTAK
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep purple
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started: quickstart-walkthrough.md
+  - Guides:
+    - Authentication: authentication.md
+    - Certificates: certificates.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+exclude_docs: |
+  plans/
