@@ -128,6 +128,7 @@ services:
       AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
       TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
       NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
+      MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -137,6 +138,8 @@ services:
     image: bluenviron/mediamtx:${MEDIAMTX_VERSION}
     restart: unless-stopped
     logging: *default-logging
+    # No healthcheck — scratch-based image has no shell/tools.
+    # Monitor checks via Docker API container status instead.
     ports:
       - "8554:8554"   # RTSP — video ingress from ATAK cameras, drones, body cams
       - "1935:1935"   # RTMP — video ingress from OBS, encoders
@@ -241,6 +244,11 @@ services:
     build: https://github.com/AdventureSeeker423/TAK-Portal.git#${TAK_PORTAL_VERSION:-main}
     restart: unless-stopped
     logging: *default-logging
+    healthcheck:
+      test: ["CMD", "node", "-e", "const h=require('http');h.get('http://localhost:3000',r=>{process.exit(r.statusCode<400?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 30s
+      retries: 3
+      start_period: 30s
     depends_on:
       init-identity:
         condition: service_completed_successfully
@@ -259,6 +267,11 @@ services:
     image: nodered/node-red:${NODERED_VERSION}
     restart: unless-stopped
     logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:1880/"]
+      interval: 30s
+      retries: 3
+      start_period: 30s
     depends_on:
       init-config:
         condition: service_completed_successfully
@@ -282,3 +295,41 @@ services:
       - ./tak/certs/files/nodered.p12:/opt/tak/certs/nodered.p12:ro
       - ./tak/certs/files/truststore-root.jks:/opt/tak/certs/truststore-root.jks:ro
       - ./tak/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro
+
+  # ── Monitor (health dashboard + alerting) ────────────────────────────────
+  monitor:
+    build: ./monitor
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      tak-server:
+        condition: service_healthy
+    environment:
+      TAK_VERSION: ${TAK_VERSION}
+      TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
+      AUTHENTIK_VERSION: ${AUTHENTIK_VERSION}
+      MEDIAMTX_VERSION: ${MEDIAMTX_VERSION}
+      NODERED_VERSION: ${NODERED_VERSION}
+      TAK_PORTAL_VERSION: ${TAK_PORTAL_VERSION}
+      FQDN: ${FQDN}
+      TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
+      MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
+      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
+      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
+      NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      SMS_PROVIDER: ${SMS_PROVIDER:-}
+      SMS_API_KEY: ${SMS_API_KEY:-}
+      SMS_FROM: ${SMS_FROM:-}
+      SMS_TO: ${SMS_TO:-}
+    ports:
+      - "8180:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./tak/certs:/opt/tak/certs:ro
+      - .:/opt/fastak:ro  # For .env change detection (directory mount survives file rewrites)

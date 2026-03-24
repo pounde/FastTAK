@@ -62,3 +62,15 @@
 		reverse_proxy nodered:1880
 	}
 }
+
+# FastTAK Monitor with Authentik forward auth
+{$MONITOR_SUBDOMAIN}.{$FQDN} {
+	route {
+		reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
+		forward_auth authentik-server:9000 {
+			uri /outpost.goauthentik.io/auth/caddy
+			trusted_proxies private_ranges
+		}
+		reverse_proxy monitor:8080
+	}
+}
