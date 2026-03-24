@@ -1,6 +1,6 @@
 [project]
 name = "fastak-dev"
-version = "0.0.0"
+version = "0.1.0"
 requires-python = ">=3.12"
 
 # Mirror of monitor/requirements.txt so tests can import monitor code.
@@ -37,7 +37,7 @@ line-length = 99
 select = ["E", "F", "I", "W", "UP"]
 
 [tool.semantic_release]
-version_variables = ["pyproject.toml:project.version"]
+version_toml = ["pyproject.toml:project.version"]
 commit_message = "chore(release): v{version}"
 allow_zero_version = true
 major_on_zero = false
