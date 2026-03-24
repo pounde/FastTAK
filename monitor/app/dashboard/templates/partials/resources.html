@@ -1,0 +1,24 @@
+{% if resources %}
+<table>
+    <thead>
+        <tr>
+            <th>Container</th>
+            <th>CPU %</th>
+            <th>Memory (MB)</th>
+            <th>Mem %</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in resources %}
+        <tr>
+            <td>{{ r.name }}</td>
+            <td {% if r.cpu_percent > 80 %}class="text-red"{% elif r.cpu_percent > 50 %}class="text-yellow"{% endif %}>{{ r.cpu_percent }}</td>
+            <td>{{ r.memory_mb }} / {{ r.memory_limit_mb }}</td>
+            <td {% if r.memory_percent > 85 %}class="text-red"{% elif r.memory_percent > 65 %}class="text-yellow"{% endif %}>{{ r.memory_percent }}%</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<span class="text-muted">No resource data available. Containers may not be running.</span>
+{% endif %}

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Container Logs</h1>
+
+<div
+    class="card"
+    x-data="{
+        container: '',
+        tail: '100',
+        loading: false,
+        logText: 'Select a container above to load logs.',
+        async fetchLogs() {
+            if (!this.container) return;
+            this.loading = true;
+            try {
+                const resp = await fetch(`/api/ops/service/${this.container}/logs?tail=${this.tail}`);
+                const data = await resp.json();
+                this.logText = data.logs || data.error || 'No output.';
+            } catch(e) {
+                this.logText = 'Error fetching logs: ' + e.message;
+            } finally {
+                this.loading = false;
+            }
+        }
+    }">
+
+    <div class="card-title">Log Viewer</div>
+
+    <div class="flex mb-16" style="flex-wrap: wrap; gap: 12px;">
+
+        <!-- Container selector -->
+        <div>
+            <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">Container</label>
+            <select x-model="container" @change="fetchLogs()">
+                <option value="">-- select container --</option>
+                {% for name in containers %}
+                <option value="{{ name }}">{{ name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Tail length -->
+        <div>
+            <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">Lines</label>
+            <select x-model="tail">
+                <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+            </select>
+        </div>
+
+        <!-- Fetch button -->
+        <div style="align-self: flex-end;">
+            <button :disabled="!container || loading" @click="fetchLogs()">
+                <span x-text="loading ? 'Loading...' : 'Fetch Logs'">Fetch Logs</span>
+            </button>
+        </div>
+
+    </div>
+
+    <pre x-text="logText" style="max-height: 600px; overflow-y: auto;"></pre>
+
+</div>
+{% endblock %}

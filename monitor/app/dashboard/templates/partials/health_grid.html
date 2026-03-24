@@ -1,0 +1,28 @@
+{% if containers %}
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px;">
+    {% for c in containers %}
+    {% set status = c.status %}
+    {% set health = c.health %}
+    {% if status == 'running' and health in ('healthy', 'unknown', 'none') %}
+        {% set color = 'green' %}
+    {% elif status == 'running' and health == 'starting' %}
+        {% set color = 'yellow' %}
+    {% elif status == 'running' and health == 'unhealthy' %}
+        {% set color = 'red' %}
+    {% elif status in ('exited', 'not_found', 'dead') %}
+        {% set color = 'red' %}
+    {% else %}
+        {% set color = 'yellow' %}
+    {% endif %}
+    <div style="background: #111; border: 1px solid #2a2a2a; border-radius: 3px; padding: 8px 10px;">
+        <div style="font-size: 12px; color: #aaa; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ c.name }}">{{ c.name }}</div>
+        <span class="badge badge-{{ color }}">{{ status }}</span>
+        {% if health not in ('unknown', 'none') %}
+        <span class="badge badge-{{ color }}" style="margin-left: 2px;">{{ health }}</span>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<span class="text-muted">No container data available.</span>
+{% endif %}

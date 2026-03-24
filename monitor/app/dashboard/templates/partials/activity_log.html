@@ -1,0 +1,34 @@
+{% if events %}
+<table>
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>Source</th>
+            <th>Level</th>
+            <th>Message</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for e in events %}
+        {% set level = e.level | lower %}
+        {% if level in ('unhealthy', 'critical', 'expired', 'not_found', 'exited', 'error') %}
+            {% set lvl_color = 'text-red' %}
+        {% elif level in ('warning', 'starting') %}
+            {% set lvl_color = 'text-yellow' %}
+        {% elif level in ('recovered', 'healthy', 'ok') %}
+            {% set lvl_color = 'text-green' %}
+        {% else %}
+            {% set lvl_color = 'text-muted' %}
+        {% endif %}
+        <tr>
+            <td style="white-space: nowrap; color: #555; font-size: 12px;">{{ e.time | ts }}</td>
+            <td style="white-space: nowrap;">{{ e.source }}</td>
+            <td class="{{ lvl_color }}" style="white-space: nowrap;">{{ e.level }}</td>
+            <td style="color: #bbb;">{{ e.message }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<span class="text-muted">No activity recorded yet.</span>
+{% endif %}

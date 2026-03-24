@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="grid-2">
+
+    <!-- Health Status -->
+    <div class="card">
+        <div class="card-title">
+            Health Status
+            <span class="htmx-indicator text-muted" id="health-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/health-grid"
+            hx-trigger="load, every 30s"
+            hx-indicator="#health-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Resource Usage -->
+    <div class="card">
+        <div class="card-title">
+            Resource Usage
+            <span class="htmx-indicator text-muted" id="resources-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/resources"
+            hx-trigger="load, every 30s"
+            hx-indicator="#resources-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Certificate Status -->
+    <div class="card">
+        <div class="card-title">
+            Certificate Status
+            <span class="htmx-indicator text-muted" id="certs-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/cert-status"
+            hx-trigger="load, every 60s"
+            hx-indicator="#certs-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Available Updates -->
+    <div class="card">
+        <div class="card-title">
+            Available Updates
+            <span class="htmx-indicator text-muted" id="updates-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/update-status"
+            hx-trigger="load, every 3600s"
+            hx-indicator="#updates-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Disk Usage -->
+    <div class="card">
+        <div class="card-title">
+            Disk Usage
+            <span class="htmx-indicator text-muted" id="disk-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/disk-usage"
+            hx-trigger="load, every 60s"
+            hx-indicator="#disk-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- TLS Certificates (Let's Encrypt) -->
+    <div class="card">
+        <div class="card-title">
+            TLS Certificates
+            <span class="htmx-indicator text-muted" id="tls-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/tls-status"
+            hx-trigger="load, every 3600s"
+            hx-indicator="#tls-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Config Drift Detection (full width) -->
+    <div class="card col-span-2">
+        <div class="card-title">
+            Configuration
+            <span class="htmx-indicator text-muted" id="config-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/config-status"
+            hx-trigger="load, every 30s"
+            hx-indicator="#config-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Activity Log (full width) -->
+    <div class="card col-span-2">
+        <div class="card-title">
+            Activity Log
+            <span class="htmx-indicator text-muted" id="activity-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/activity-log"
+            hx-trigger="load, every 10s"
+            hx-indicator="#activity-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

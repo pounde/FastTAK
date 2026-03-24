@@ -1,0 +1,26 @@
+{% if tls_certs %}
+<table>
+    <tr>
+        <th>Hostname</th>
+        <th>CN</th>
+        <th>Expires</th>
+        <th>Days Left</th>
+        <th>Status</th>
+    </tr>
+    {% for c in tls_certs %}
+    <tr>
+        <td>{{ c.hostname }}</td>
+        <td>{{ c.cn }}</td>
+        <td>{{ c.expires[:10] }}</td>
+        <td>{{ c.days_left }}</td>
+        <td>
+            <span class="badge {% if c.status == 'ok' %}badge-green{% elif c.status == 'warning' %}badge-yellow{% else %}badge-red{% endif %}">
+                {{ c.status }}
+            </span>
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+<span class="text-muted">No TLS endpoints reachable (FQDN may not resolve from container)</span>
+{% endif %}

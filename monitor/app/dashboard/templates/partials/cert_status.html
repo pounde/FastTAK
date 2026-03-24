@@ -1,0 +1,35 @@
+{% if certs %}
+<table>
+    <thead>
+        <tr>
+            <th>File</th>
+            <th>Subject</th>
+            <th>Expires</th>
+            <th>Days Left</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cert in certs %}
+        {% if cert.status == 'ok' %}
+            {% set badge = 'green' %}
+        {% elif cert.status == 'warning' %}
+            {% set badge = 'yellow' %}
+        {% elif cert.status in ('critical', 'expired') %}
+            {% set badge = 'red' %}
+        {% else %}
+            {% set badge = 'gray' %}
+        {% endif %}
+        <tr>
+            <td>{{ cert.file }}</td>
+            <td style="font-size: 12px; color: #888; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ cert.subject }}">{{ cert.subject }}</td>
+            <td>{{ cert.expires[:10] if cert.expires else '—' }}</td>
+            <td {% if cert.days_left <= 14 %}class="text-red"{% elif cert.days_left <= 30 %}class="text-yellow"{% endif %}>{{ cert.days_left }}</td>
+            <td><span class="badge badge-{{ badge }}">{{ cert.status }}</span></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<span class="text-muted">No certificates found at /opt/tak/certs/files/</span>
+{% endif %}

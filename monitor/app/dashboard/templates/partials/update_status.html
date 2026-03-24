@@ -1,0 +1,35 @@
+{% if updates %}
+<table>
+    <thead>
+        <tr>
+            <th>Component</th>
+            <th>Current</th>
+            <th>Latest</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in updates %}
+        <tr>
+            <td>{{ u.name }}</td>
+            <td>{{ u.current or '—' }}</td>
+            <td>{{ u.latest or '—' }}</td>
+            <td>
+                {% if u.update_available %}
+                    <span class="badge badge-yellow">update available</span>
+                    {% if u.release_url %}
+                    <a href="{{ u.release_url }}" target="_blank" style="font-size: 11px; margin-left: 4px;">release</a>
+                    {% endif %}
+                {% elif u.get('error') %}
+                    <span class="badge badge-gray" title="{{ u.error }}">error</span>
+                {% else %}
+                    <span class="badge badge-green">up to date</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<span class="text-muted">No update data available.</span>
+{% endif %}

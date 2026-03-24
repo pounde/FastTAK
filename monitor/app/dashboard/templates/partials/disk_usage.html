@@ -1,0 +1,28 @@
+{% if disks %}
+<table>
+    <tr>
+        <th>Mount</th>
+        <th>Used</th>
+        <th>Free</th>
+        <th>Total</th>
+        <th>Usage</th>
+        <th>Status</th>
+    </tr>
+    {% for d in disks %}
+    <tr>
+        <td>{{ d.mount }}</td>
+        <td>{{ d.used_gb }} GB</td>
+        <td>{{ d.free_gb }} GB</td>
+        <td>{{ d.total_gb }} GB</td>
+        <td>{{ d.percent }}%</td>
+        <td>
+            <span class="badge {% if d.status == 'ok' %}badge-green{% elif d.status == 'warning' %}badge-yellow{% else %}badge-red{% endif %}">
+                {{ d.status }}
+            </span>
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+<span class="text-muted">No disk info available</span>
+{% endif %}
