@@ -19,6 +19,7 @@ TIMEOUT=300  # 5 minutes max for healthchecks
 FAILURES=0
 
 # ── Cleanup on exit ────────────────────────────────────────────────────
+# shellcheck disable=SC2317,SC2329  # invoked via trap
 cleanup() {
     echo ""
     echo "=== Cleaning up ==="

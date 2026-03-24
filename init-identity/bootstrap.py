@@ -17,11 +17,10 @@ Environment variables:
     LDAP_BASE_DN           — LDAP base DN (default: DC=takldap)
 """
 
+import logging
 import os
-import re
 import sys
 import time
-import logging
 
 import requests
 
@@ -171,13 +170,16 @@ def ensure_service_account(ldap_password: str) -> int:
     user = next((u for u in users if u.get("username") == LDAP_SERVICE_USER), None)
 
     if not user:
-        user = api_post("core/users/", {
-            "username": LDAP_SERVICE_USER,
-            "name": "LDAP Service Account",
-            "is_active": True,
-            "type": "service_account",
-            "path": "users",
-        })
+        user = api_post(
+            "core/users/",
+            {
+                "username": LDAP_SERVICE_USER,
+                "name": "LDAP Service Account",
+                "is_active": True,
+                "type": "service_account",
+                "path": "users",
+            },
+        )
         log.info("Created %s (pk=%s)", LDAP_SERVICE_USER, user["pk"])
     else:
         # Ensure path is 'users' (not 'service-accounts') for correct LDAP DN
@@ -200,8 +202,7 @@ def ensure_service_account(ldap_password: str) -> int:
     admins = next((g for g in groups if "admins" in g.get("name", "").lower()), None)
     if admins:
         member_pks = [
-            u.get("pk") if isinstance(u, dict) else u
-            for u in (admins.get("users") or [])
+            u.get("pk") if isinstance(u, dict) else u for u in (admins.get("users") or [])
         ]
         if uid not in member_pks:
             api_post(f"core/groups/{admins['pk']}/add_user/", {"pk": uid})
@@ -229,12 +230,15 @@ def ensure_webadmin_user() -> None:
     user = next((u for u in users if u.get("username") == "webadmin"), None)
 
     if not user:
-        user = api_post("core/users/", {
-            "username": "webadmin",
-            "name": "TAK Web Admin",
-            "is_active": True,
-            "path": "users",
-        })
+        user = api_post(
+            "core/users/",
+            {
+                "username": "webadmin",
+                "name": "TAK Web Admin",
+                "is_active": True,
+                "path": "users",
+            },
+        )
         log.info("Created webadmin (pk=%s)", user["pk"])
 
     # Set password
@@ -248,8 +252,7 @@ def ensure_webadmin_user() -> None:
         log.info("Created tak_ROLE_ADMIN group")
 
     member_pks = [
-        u.get("pk") if isinstance(u, dict) else u
-        for u in (admin_group.get("users") or [])
+        u.get("pk") if isinstance(u, dict) else u for u in (admin_group.get("users") or [])
     ]
     if user["pk"] not in member_pks:
         api_post(f"core/groups/{admin_group['pk']}/add_user/", {"pk": user["pk"]})
@@ -273,13 +276,16 @@ def ensure_nodered_user() -> None:
     user = next((u for u in users if u.get("username") == "nodered"), None)
 
     if not user:
-        user = api_post("core/users/", {
-            "username": "nodered",
-            "name": "Node-RED Service Account",
-            "is_active": True,
-            "type": "service_account",
-            "path": "users",
-        })
+        user = api_post(
+            "core/users/",
+            {
+                "username": "nodered",
+                "name": "Node-RED Service Account",
+                "is_active": True,
+                "type": "service_account",
+                "path": "users",
+            },
+        )
         log.info("Created nodered user (pk=%s)", user["pk"])
     else:
         log.info("nodered user exists (pk=%s)", user["pk"])
@@ -292,8 +298,7 @@ def ensure_nodered_user() -> None:
         log.info("Created tak_ROLE_ADMIN group")
 
     member_pks = [
-        u.get("pk") if isinstance(u, dict) else u
-        for u in (admin_group.get("users") or [])
+        u.get("pk") if isinstance(u, dict) else u for u in (admin_group.get("users") or [])
     ]
     if user["pk"] not in member_pks:
         api_post(f"core/groups/{admin_group['pk']}/add_user/", {"pk": user["pk"]})
@@ -315,16 +320,19 @@ def ensure_ldap_flow() -> str:
         flow = flows[0]
         api_patch("flows/instances/ldap-authentication-flow/", {"authentication": "none"})
     else:
-        flow = api_post("flows/instances/", {
-            "name": "ldap-authentication-flow",
-            "slug": "ldap-authentication-flow",
-            "title": "ldap-authentication-flow",
-            "designation": "authentication",
-            "authentication": "none",
-            "layout": "stacked",
-            "denied_action": "message_continue",
-            "policy_engine_mode": "any",
-        })
+        flow = api_post(
+            "flows/instances/",
+            {
+                "name": "ldap-authentication-flow",
+                "slug": "ldap-authentication-flow",
+                "title": "ldap-authentication-flow",
+                "designation": "authentication",
+                "authentication": "none",
+                "layout": "stacked",
+                "denied_action": "message_continue",
+                "policy_engine_mode": "any",
+            },
+        )
         log.info("Created ldap-authentication-flow")
 
     flow_pk = flow["pk"]
@@ -341,7 +349,11 @@ def ensure_ldap_flow() -> str:
 
     flow_bindings = [b for b in all_bindings if str(b.get("target")) == str(flow_pk)]
     stage_names = {(b.get("stage_obj") or {}).get("name", "") for b in flow_bindings}
-    need_names = {"ldap-identification-stage", "ldap-authentication-password", "ldap-authentication-login"}
+    need_names = {
+        "ldap-identification-stage",
+        "ldap-authentication-password",
+        "ldap-authentication-login",
+    }
 
     if len(flow_bindings) < 3 or need_names != stage_names:
         # Delete wrong bindings
@@ -349,37 +361,60 @@ def ensure_ldap_flow() -> str:
             api_delete(f"flows/bindings/{b['pk']}/")
 
         # Find or create the 3 LDAP stages
-        id_stage = find_or_create_stage("stages/identification/", "ldap-identification-stage", {
-            "case_insensitive_matching": True,
-            "pretend_user_exists": True,
-            "show_matched_user": True,
-            "user_fields": ["username"],
-        })
-        pw_stage = find_or_create_stage("stages/password/", "ldap-authentication-password", {
-            "backends": ["authentik.core.auth.InbuiltBackend", "authentik.core.auth.TokenBackend"],
-            "failed_attempts_before_cancel": 5,
-        })
-        login_stage = find_or_create_stage("stages/user_login/", "ldap-authentication-login", {
-            "session_duration": "seconds=0",
-            "remember_me_offset": "seconds=0",
-        })
+        id_stage = find_or_create_stage(
+            "stages/identification/",
+            "ldap-identification-stage",
+            {
+                "case_insensitive_matching": True,
+                "pretend_user_exists": True,
+                "show_matched_user": True,
+                "user_fields": ["username"],
+            },
+        )
+        pw_stage = find_or_create_stage(
+            "stages/password/",
+            "ldap-authentication-password",
+            {
+                "backends": [
+                    "authentik.core.auth.InbuiltBackend",
+                    "authentik.core.auth.TokenBackend",
+                ],
+                "failed_attempts_before_cancel": 5,
+            },
+        )
+        login_stage = find_or_create_stage(
+            "stages/user_login/",
+            "ldap-authentication-login",
+            {
+                "session_duration": "seconds=0",
+                "remember_me_offset": "seconds=0",
+            },
+        )
 
         if not all([id_stage, pw_stage, login_stage]):
-            log.error("Could not create stages: id=%s pw=%s login=%s", id_stage, pw_stage, login_stage)
+            log.error(
+                "Could not create stages: id=%s pw=%s login=%s",
+                id_stage,
+                pw_stage,
+                login_stage,
+            )
             sys.exit(1)
 
         # Bind stages to flow
         for order, stage_pk in [(10, id_stage), (15, pw_stage), (20, login_stage)]:
             try:
-                api_post("flows/bindings/", {
-                    "target": flow_pk,
-                    "stage": stage_pk,
-                    "order": order,
-                    "evaluate_on_plan": True,
-                    "re_evaluate_policies": True,
-                    "policy_engine_mode": "any",
-                    "invalid_response_action": "retry",
-                })
+                api_post(
+                    "flows/bindings/",
+                    {
+                        "target": flow_pk,
+                        "stage": stage_pk,
+                        "order": order,
+                        "evaluate_on_plan": True,
+                        "re_evaluate_policies": True,
+                        "policy_engine_mode": "any",
+                        "invalid_response_action": "retry",
+                    },
+                )
             except requests.HTTPError:
                 pass  # binding may already exist
 
@@ -389,10 +424,13 @@ def ensure_ldap_flow() -> str:
     id_stage_pk = find_stage("stages/identification/", "ldap-identification-stage")
     if id_stage_pk:
         try:
-            api_patch(f"stages/identification/{id_stage_pk}/", {
-                "password_stage": None,
-                "user_fields": ["username"],
-            })
+            api_patch(
+                f"stages/identification/{id_stage_pk}/",
+                {
+                    "password_stage": None,
+                    "user_fields": ["username"],
+                },
+            )
         except Exception:
             pass
 
@@ -423,24 +461,30 @@ def ensure_ldap_provider(base_dn: str, flow_pk: str) -> int:
 
     if ldap_prov:
         pk = ldap_prov["pk"]
-        api_patch(f"providers/ldap/{pk}/", {
-            "authentication_flow": flow_pk,
-            "authorization_flow": flow_pk,
-        })
+        api_patch(
+            f"providers/ldap/{pk}/",
+            {
+                "authentication_flow": flow_pk,
+                "authorization_flow": flow_pk,
+            },
+        )
         log.info("LDAP provider exists (pk=%s), updated flow", pk)
         return pk
 
     invalidation_flow = get_invalidation_flow()
     log.info("Creating LDAP provider...")
-    r = api_post("providers/ldap/", {
-        "name": LDAP_PROVIDER_NAME,
-        "authorization_flow": flow_pk,
-        "authentication_flow": flow_pk,
-        "invalidation_flow": invalidation_flow,
-        "base_dn": base_dn,
-        "bind_mode": "cached",
-        "search_mode": "cached",
-    })
+    r = api_post(
+        "providers/ldap/",
+        {
+            "name": LDAP_PROVIDER_NAME,
+            "authorization_flow": flow_pk,
+            "authentication_flow": flow_pk,
+            "invalidation_flow": invalidation_flow,
+            "base_dn": base_dn,
+            "bind_mode": "cached",
+            "search_mode": "cached",
+        },
+    )
     pk = r["pk"]
     log.info("LDAP provider created (pk=%s)", pk)
     return pk
@@ -455,11 +499,14 @@ def ensure_ldap_application(provider_pk: int) -> str:
         return results[0]["slug"]
 
     log.info("Creating application '%s' ...", LDAP_APP_SLUG)
-    api_post("core/applications/", {
-        "name": LDAP_APP_NAME,
-        "slug": LDAP_APP_SLUG,
-        "provider": provider_pk,
-    })
+    api_post(
+        "core/applications/",
+        {
+            "name": LDAP_APP_NAME,
+            "slug": LDAP_APP_SLUG,
+            "provider": provider_pk,
+        },
+    )
     log.info("Application '%s' created.", LDAP_APP_SLUG)
     return LDAP_APP_SLUG
 
@@ -481,15 +528,18 @@ def ensure_ldap_outpost(provider_pk: int) -> None:
         return
 
     log.info("Creating outpost '%s' ...", LDAP_OUTPOST_NAME)
-    api_post("outposts/instances/", {
-        "name": LDAP_OUTPOST_NAME,
-        "type": "ldap",
-        "providers": [provider_pk],
-        "config": {
-            "authentik_host": AUTHENTIK_URL,
-            "log_level": "info",
+    api_post(
+        "outposts/instances/",
+        {
+            "name": LDAP_OUTPOST_NAME,
+            "type": "ldap",
+            "providers": [provider_pk],
+            "config": {
+                "authentik_host": AUTHENTIK_URL,
+                "log_level": "info",
+            },
         },
-    })
+    )
     log.info("Outpost '%s' created and linked.", LDAP_OUTPOST_NAME)
 
 

@@ -5,9 +5,9 @@ certificate expiry. This is separate from the TAK cert monitoring
 (health/certs.py) which reads PEM files from disk.
 """
 
-import ssl
 import socket
-from datetime import datetime, timezone
+import ssl
+from datetime import UTC, datetime
 
 from app.config import settings
 
@@ -25,8 +25,8 @@ def _probe_tls_expiry(hostname: str, port: int = 443) -> dict | None:
                 not_after = cert.get("notAfter", "")
                 # Format: "Mar 23 12:00:00 2027 GMT"
                 expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
-                expiry = expiry.replace(tzinfo=timezone.utc)
-                now = datetime.now(timezone.utc)
+                expiry = expiry.replace(tzinfo=UTC)
+                now = datetime.now(UTC)
                 days_left = (expiry - now).days
 
                 subject = dict(x[0] for x in cert.get("subject", ()))
@@ -38,9 +38,12 @@ def _probe_tls_expiry(hostname: str, port: int = 443) -> dict | None:
                     "expires": expiry.isoformat(),
                     "days_left": days_left,
                     "status": (
-                        "expired" if days_left <= 0
-                        else "critical" if days_left <= 7
-                        else "warning" if days_left <= 14
+                        "expired"
+                        if days_left <= 0
+                        else "critical"
+                        if days_left <= 7
+                        else "warning"
+                        if days_left <= 14
                         else "ok"
                     ),
                 }

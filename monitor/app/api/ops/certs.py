@@ -37,13 +37,23 @@ def _upgrade_p12(container, name: str) -> dict | None:
     name is never interpolated into the shell command string.
     """
     exit_code, output = container.exec_run(
-        ["sh", "-c", """
-            openssl pkcs12 -in ${CERT_FILES}/"$1".p12 -passin pass:atakatak -nokeys -out /tmp/cert.pem -legacy 2>/dev/null && \
-            openssl pkcs12 -in ${CERT_FILES}/"$1".p12 -passin pass:atakatak -nocerts -nodes -out /tmp/key.pem -legacy 2>/dev/null && \
-            openssl pkcs12 -export -in /tmp/cert.pem -inkey /tmp/key.pem -out ${CERT_FILES}/"$1".p12 \
-              -passout pass:atakatak -certpbe AES-256-CBC -keypbe AES-256-CBC -macalg SHA256 2>/dev/null && \
+        [
+            "sh",
+            "-c",
+            """
+            openssl pkcs12 -in ${CERT_FILES}/"$1".p12 -passin pass:atakatak \
+              -nokeys -out /tmp/cert.pem -legacy 2>/dev/null && \
+            openssl pkcs12 -in ${CERT_FILES}/"$1".p12 -passin pass:atakatak \
+              -nocerts -nodes -out /tmp/key.pem -legacy 2>/dev/null && \
+            openssl pkcs12 -export -in /tmp/cert.pem -inkey /tmp/key.pem \
+              -out ${CERT_FILES}/"$1".p12 \
+              -passout pass:atakatak -certpbe AES-256-CBC \
+              -keypbe AES-256-CBC -macalg SHA256 2>/dev/null && \
             rm -f /tmp/cert.pem /tmp/key.pem
-        """, "--", name],
+        """,
+            "--",
+            name,
+        ],
         environment={"CERT_FILES": CERT_FILES},
     )
     if exit_code != 0:

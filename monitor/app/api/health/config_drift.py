@@ -18,7 +18,7 @@ def _hash_file(path: Path) -> str | None:
     """Return SHA-256 hex digest of a file, or None if unreadable."""
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()
-    except (OSError, IOError):
+    except OSError:
         return None
 
 

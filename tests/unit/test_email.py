@@ -39,9 +39,7 @@ class TestSendAlertEmail:
         mock_server.send_message.assert_called_once()
 
     @patch("app.api.alerts.email.smtplib.SMTP", side_effect=ConnectionRefusedError)
-    def test_returns_false_on_connection_error(
-        self, mock_smtp, mock_settings, monkeypatch
-    ):
+    def test_returns_false_on_connection_error(self, mock_smtp, mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.alerts.email.settings", mock_settings)
         mock_settings.smtp_host = "smtp.example.com"
         mock_settings.alert_email = "ops@example.com"

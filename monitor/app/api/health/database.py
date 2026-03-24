@@ -16,8 +16,19 @@ def get_cot_db_size() -> dict:
 
     try:
         exit_code, output = container.exec_run(
-            ["psql", "-h", "localhost", "-U", "martiuser", "-d", "cot",
-             "-t", "-A", "-c", "SELECT pg_database_size('cot')"],
+            [
+                "psql",
+                "-h",
+                "localhost",
+                "-U",
+                "martiuser",
+                "-d",
+                "cot",
+                "-t",
+                "-A",
+                "-c",
+                "SELECT pg_database_size('cot')",
+            ],
             environment={"PGPASSWORD": _get_db_password()},
         )
         if exit_code != 0:
@@ -28,8 +39,10 @@ def get_cot_db_size() -> dict:
             "size_bytes": size_bytes,
             "size_human": _human_size(size_bytes),
             "status": (
-                "critical" if size_bytes > 40_000_000_000
-                else "warning" if size_bytes > 25_000_000_000
+                "critical"
+                if size_bytes > 40_000_000_000
+                else "warning"
+                if size_bytes > 25_000_000_000
                 else "ok"
             ),
         }

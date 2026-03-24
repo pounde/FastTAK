@@ -35,9 +35,7 @@ class TestHealthContainers:
 
 class TestHealthResources:
     @patch("app.api.health.containers.find_container")
-    @patch(
-        "app.api.health.router.discover_running_services", return_value=["tak-server"]
-    )
+    @patch("app.api.health.router.discover_running_services", return_value=["tak-server"])
     def test_returns_stats(self, mock_discover, mock_find, client):
         container = MagicMock()
         container.status = "running"
@@ -98,9 +96,7 @@ class TestHealthDisk:
 
 
 class TestHealthUpdates:
-    @patch(
-        "app.api.health.updates.check_updates", new_callable=AsyncMock, return_value=[]
-    )
+    @patch("app.api.health.updates.check_updates", new_callable=AsyncMock, return_value=[])
     def test_returns_update_list(self, mock_updates, client):
         resp = client.get("/api/health/updates")
         assert resp.status_code == 200

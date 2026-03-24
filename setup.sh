@@ -15,7 +15,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORK_DIR=$(mktemp -d)
-trap "rm -rf $WORK_DIR" EXIT
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
@@ -33,7 +33,7 @@ if [ -z "$RELEASE_DIR" ]; then
   exit 1
 fi
 
-VERSION=$(cat "$RELEASE_DIR/tak/version.txt" 2>/dev/null | tr -d '[:space:]')
+VERSION=$(tr -d '[:space:]' < "$RELEASE_DIR/tak/version.txt" 2>/dev/null)
 if [ -z "$VERSION" ]; then
   echo "  ERROR: Could not read version from tak/version.txt" >&2
   exit 1

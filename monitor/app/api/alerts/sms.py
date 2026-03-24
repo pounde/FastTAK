@@ -30,11 +30,15 @@ async def _send_twilio(message: str, numbers: list[str]) -> bool:
     success = True
     async with httpx.AsyncClient(timeout=10) as client:
         for number in numbers:
-            resp = await client.post(url, auth=(account_sid, auth_token), data={
-                "From": settings.sms_from,
-                "To": number,
-                "Body": message[:1600],
-            })
+            resp = await client.post(
+                url,
+                auth=(account_sid, auth_token),
+                data={
+                    "From": settings.sms_from,
+                    "To": number,
+                    "Body": message[:1600],
+                },
+            )
             if resp.status_code >= 400:
                 success = False
     return success
@@ -47,12 +51,16 @@ async def _send_brevo(message: str, numbers: list[str]) -> bool:
     success = True
     async with httpx.AsyncClient(timeout=10) as client:
         for number in numbers:
-            resp = await client.post(url, headers=headers, json={
-                "type": "transactional",
-                "sender": settings.sms_from[:11],
-                "recipient": number,
-                "content": message[:1600],
-            })
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={
+                    "type": "transactional",
+                    "sender": settings.sms_from[:11],
+                    "recipient": number,
+                    "content": message[:1600],
+                },
+            )
             if resp.status_code >= 400:
                 success = False
     return success

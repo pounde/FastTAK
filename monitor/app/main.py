@@ -7,14 +7,15 @@ This is the application entrypoint. It wires together:
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
 from app.api.health.config_drift import init_config_hash
 from app.api.health.router import router as health_router
 from app.api.ops.router import router as ops_router
-from app.dashboard.routes import router as dashboard_router, templates
+from app.dashboard.routes import router as dashboard_router
+from app.dashboard.routes import templates
 from app.scheduler import start_scheduler, stop_scheduler
 
 
@@ -39,7 +40,7 @@ app.include_router(dashboard_router)
 # Jinja2 filters
 def _format_timestamp(ts: float) -> str:
     try:
-        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return str(ts)
 

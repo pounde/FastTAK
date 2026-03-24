@@ -16,12 +16,14 @@ def get_all_container_health() -> list[dict]:
         if container.attrs.get("State", {}).get("Health"):
             health = container.attrs["State"]["Health"].get("Status", "unknown")
 
-        results.append({
-            "name": name,
-            "status": container.status,  # running, exited, etc.
-            "health": health,  # healthy, unhealthy, starting, none
-            "image": container.image.tags[0] if container.image.tags else "",
-        })
+        results.append(
+            {
+                "name": name,
+                "status": container.status,  # running, exited, etc.
+                "health": health,  # healthy, unhealthy, starting, none
+                "image": container.image.tags[0] if container.image.tags else "",
+            }
+        )
     return results
 
 
@@ -33,10 +35,13 @@ def get_container_stats(name: str) -> dict | None:
     try:
         stats = container.stats(stream=False)
         # Calculate CPU % — keys may be missing on freshly started containers
-        cpu_delta = stats["cpu_stats"]["cpu_usage"]["total_usage"] - \
-                    stats["precpu_stats"]["cpu_usage"]["total_usage"]
-        system_delta = stats["cpu_stats"]["system_cpu_usage"] - \
-                       stats["precpu_stats"]["system_cpu_usage"]
+        cpu_delta = (
+            stats["cpu_stats"]["cpu_usage"]["total_usage"]
+            - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+        )
+        system_delta = (
+            stats["cpu_stats"]["system_cpu_usage"] - stats["precpu_stats"]["system_cpu_usage"]
+        )
         num_cpus = stats["cpu_stats"].get("online_cpus", 1)
         cpu_pct = (cpu_delta / system_delta) * num_cpus * 100.0 if system_delta > 0 else 0.0
 

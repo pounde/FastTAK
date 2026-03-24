@@ -31,9 +31,7 @@ class TestSendAlertSms:
         with patch("app.api.alerts.sms.httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
-            mock_client_class.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = await send_alert_sms("test message")
@@ -60,9 +58,7 @@ class TestSendAlertSms:
         with patch("app.api.alerts.sms.httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
-            mock_client_class.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
-            )
+            mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = await send_alert_sms("test message")

@@ -5,7 +5,7 @@
 #   ./start.sh --test <zip>          Greenfield: setup → start → verify → teardown
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR" || exit 1
 
 TEST=false
 ZIP=""
@@ -138,8 +138,8 @@ docker compose up -d > /dev/null 2>&1
 
 echo "  ⏳ Waiting for tak-server..."
 STATUS="unknown"
-for i in $(seq 1 48); do
-  STATUS=$(docker inspect --format='{{.State.Health.Status}}' $(docker compose ps -q tak-server 2>/dev/null) 2>/dev/null || echo "unknown")
+for _ in $(seq 1 48); do
+  STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo "unknown")
   if [ "$STATUS" = "healthy" ]; then break; fi
   if [ "$STATUS" = "unhealthy" ]; then
     echo "  ❌ tak-server failed — run: docker compose logs tak-server"
@@ -165,22 +165,22 @@ log "────────"
 
 assert "$STATUS" "healthy" "TAK Server healthy"
 
-DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' $(docker compose ps -q tak-database 2>/dev/null) 2>/dev/null)
+DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
 assert "$DB_STATUS" "healthy" "TAK Database healthy"
 
-INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' $(docker compose ps -aq init-config 2>/dev/null) 2>/dev/null)
+INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(docker compose ps -aq init-config 2>/dev/null)" 2>/dev/null)
 assert "$INIT_EXIT" "0" "init-config exited 0"
 
-ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' $(docker compose ps -aq init-identity 2>/dev/null) 2>/dev/null)
+ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(docker compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
 assert "$ID_EXIT" "0" "init-identity exited 0"
 
-AK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' $(docker compose ps -q authentik-server 2>/dev/null) 2>/dev/null)
+AK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q authentik-server 2>/dev/null)" 2>/dev/null)
 assert "$AK_STATUS" "healthy" "Authentik healthy"
 
-LDAP_STATE=$(docker inspect --format='{{.State.Status}}' $(docker compose ps -q authentik-ldap 2>/dev/null) 2>/dev/null)
+LDAP_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q authentik-ldap 2>/dev/null)" 2>/dev/null)
 assert "$LDAP_STATE" "running" "LDAP outpost running"
 
-PORTAL_STATE=$(docker inspect --format='{{.State.Status}}' $(docker compose ps -q tak-portal 2>/dev/null) 2>/dev/null)
+PORTAL_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q tak-portal 2>/dev/null)" 2>/dev/null)
 assert "$PORTAL_STATE" "running" "TAK Portal running"
 
 log ""
@@ -227,18 +227,18 @@ log ""
 log "Health"
 log "──────"
 
-JAVA_COUNT=$(docker exec $(docker compose ps -q tak-server) sh -c "ps aux | grep java | grep -v grep | wc -l" 2>/dev/null | tr -d ' ')
+JAVA_COUNT=$(docker exec "$(docker compose ps -q tak-server)" sh -c "ps aux | grep java | grep -v grep | wc -l" 2>/dev/null | tr -d ' ')
 assert "$JAVA_COUNT" "5" "Java processes: $JAVA_COUNT/5"
 
-DB_FAILS=$(docker exec $(docker compose ps -q tak-server) grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+DB_FAILS=$(docker exec "$(docker compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 DB_FAILS="${DB_FAILS:-0}"
 if [ "$DB_FAILS" -le 2 ] 2>/dev/null; then pass "DB auth (failures: $DB_FAILS)"; else fail "DB auth failures: $DB_FAILS"; fi
 
-OOM=$(docker exec $(docker compose ps -q tak-server) grep -c "OutOfMemoryError" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+OOM=$(docker exec "$(docker compose ps -q tak-server)" grep -c "OutOfMemoryError" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 OOM="${OOM:-0}"
 assert "$OOM" "0" "No OutOfMemoryError"
 
-SEC_COUNT=$(docker exec $(docker compose ps -q tak-server) grep -c "Security status" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+SEC_COUNT=$(docker exec "$(docker compose ps -q tak-server)" grep -c "Security status" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 SEC_COUNT="${SEC_COUNT:-0}"
 if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Multiple starts ($SEC_COUNT)"; fi
 
@@ -251,7 +251,7 @@ assert_file "tak/portal/certs/tak-ca.pem" "Portal CA cert"
 assert_file "tak/portal/certs/webadmin.p12" "Portal admin cert"
 
 PORTAL_HTTP="000"
-for i in $(seq 1 12); do
+for _ in $(seq 1 12); do
   PORTAL_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:3000 2>/dev/null)
   if [ "$PORTAL_HTTP" != "000" ]; then break; fi
   sleep 5

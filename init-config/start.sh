@@ -168,6 +168,7 @@ if [ -n "${LDAP_BIND_PASSWORD}" ]; then
         <File location="UserAuthenticationFile.xml"/>\
     </auth>'
 
+    # shellcheck disable=SC1003  # intentional sed quoting for XML block replacement
     sed -i '/<auth/,/<\/auth>/c\'"${AUTH_BLOCK}" "${CONFIG}"
     echo "[init] LDAP auth configured"
   else

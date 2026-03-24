@@ -36,9 +36,7 @@ class TestGetAllContainerHealth:
     @patch("app.api.health.containers.discover_services", return_value=["mediamtx"])
     @patch("app.api.health.containers.find_container")
     def test_handles_no_healthcheck(self, mock_find, mock_discover):
-        mock_find.return_value = make_fake_container(
-            "mediamtx", status="running", health="none"
-        )
+        mock_find.return_value = make_fake_container("mediamtx", status="running", health="none")
         from app.api.health.containers import get_all_container_health
 
         result = get_all_container_health()
@@ -108,9 +106,7 @@ class TestGetContainerStats:
     def test_handles_zero_system_delta(self, mock_find):
         container = MagicMock()
         container.status = "running"
-        container.stats.return_value = self._make_stats(
-            sys_cpu=1000000, presys_cpu=1000000
-        )
+        container.stats.return_value = self._make_stats(sys_cpu=1000000, presys_cpu=1000000)
         mock_find.return_value = container
 
         from app.api.health.containers import get_container_stats

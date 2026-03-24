@@ -7,9 +7,9 @@ preventing the event loop from blocking.
 
 from fastapi import APIRouter
 
-from app.api.health.containers import get_all_container_health, get_container_stats
 from app.api.health.certs import get_cert_status
 from app.api.health.config_drift import check_config_drift
+from app.api.health.containers import get_all_container_health, get_container_stats
 from app.api.health.database import get_cot_db_size
 from app.api.health.disk import get_disk_usage
 from app.api.health.tls import get_tls_status

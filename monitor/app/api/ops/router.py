@@ -9,14 +9,16 @@ Container lifecycle management (restart/stop/start) is intentionally excluded.
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.api.alerts.email import send_alert_email
+from app.api.alerts.sms import send_alert_sms
 from app.api.ops.certs import (
     create_client_cert,
     create_server_cert,
-    revoke_cert,
     list_certs,
+    revoke_cert,
 )
 from app.api.ops.database import vacuum_database
-from app.docker_client import find_container, discover_services
+from app.docker_client import discover_services, find_container
 
 router = APIRouter(prefix="/api/ops", tags=["operations"])
 
@@ -99,15 +101,13 @@ def db_vacuum(full: bool = False):
 
 # ── Alert Testing ────────────────────────────────────────────────────────────
 
-from app.api.alerts.email import send_alert_email
-from app.api.alerts.sms import send_alert_sms
-
 
 @router.post("/alerts/test-email")
 def test_email():
     ok = send_alert_email(
         "Test Alert",
-        "This is a test alert from FastTAK Monitor. If you received this, email alerting is working.",
+        "This is a test alert from FastTAK Monitor."
+        " If you received this, email alerting is working.",
     )
     return {"success": ok}
 

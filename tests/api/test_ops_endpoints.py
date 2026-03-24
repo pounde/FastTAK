@@ -57,9 +57,7 @@ class TestOpsAlertTest:
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
-    @patch(
-        "app.api.ops.router.send_alert_sms", new_callable=AsyncMock, return_value=True
-    )
+    @patch("app.api.ops.router.send_alert_sms", new_callable=AsyncMock, return_value=True)
     def test_test_sms(self, mock_sms, client):
         resp = client.post("/api/ops/alerts/test-sms")
         assert resp.status_code == 200

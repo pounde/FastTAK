@@ -1,7 +1,7 @@
 """Parse x509 certificate files and report expiry status."""
 
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import settings
@@ -13,9 +13,10 @@ def _parse_cert_expiry(pem_path: Path) -> dict | None:
     """Parse a PEM file and return name + expiry info."""
     try:
         result = subprocess.run(
-            ["openssl", "x509", "-in", str(pem_path), "-noout",
-             "-subject", "-enddate"],
-            capture_output=True, text=True, timeout=5,
+            ["openssl", "x509", "-in", str(pem_path), "-noout", "-subject", "-enddate"],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode != 0:
             return None
@@ -33,8 +34,8 @@ def _parse_cert_expiry(pem_path: Path) -> dict | None:
 
         # Parse: "Mar 23 12:00:00 2027 GMT"
         expiry = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
-        expiry = expiry.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
+        expiry = expiry.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
         days_left = (expiry - now).days
 
         return {
@@ -43,9 +44,12 @@ def _parse_cert_expiry(pem_path: Path) -> dict | None:
             "expires": expiry.isoformat(),
             "days_left": days_left,
             "status": (
-                "expired" if days_left <= 0
-                else "critical" if days_left <= 14
-                else "warning" if days_left <= settings.cert_warn_days
+                "expired"
+                if days_left <= 0
+                else "critical"
+                if days_left <= 14
+                else "warning"
+                if days_left <= settings.cert_warn_days
                 else "ok"
             ),
         }

@@ -19,9 +19,7 @@ class TestProbeTlsExpiry:
         mock_ctx.return_value.wrap_socket.return_value.__enter__ = MagicMock(
             return_value=mock_ssock
         )
-        mock_ctx.return_value.wrap_socket.return_value.__exit__ = MagicMock(
-            return_value=False
-        )
+        mock_ctx.return_value.wrap_socket.return_value.__exit__ = MagicMock(return_value=False)
         mock_conn.return_value.__enter__ = MagicMock()
         mock_conn.return_value.__exit__ = MagicMock(return_value=False)
 

@@ -43,11 +43,13 @@ def _refresh_cache() -> list[str]:
         all=True,
         filters={"label": f"com.docker.compose.project={project}"},
     )
-    services = sorted({
-        c.labels["com.docker.compose.service"]
-        for c in containers
-        if "com.docker.compose.service" in c.labels
-    })
+    services = sorted(
+        {
+            c.labels["com.docker.compose.service"]
+            for c in containers
+            if "com.docker.compose.service" in c.labels
+        }
+    )
 
     with _cache_lock:
         _cached_services = services
