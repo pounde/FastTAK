@@ -1,12 +1,12 @@
 """Container health status via Docker API."""
 
-from app.docker_client import FASTTAK_CONTAINERS, find_container
+from app.docker_client import discover_services, find_container
 
 
 def get_all_container_health() -> list[dict]:
     """Return health status for all FastTAK containers."""
     results = []
-    for name in FASTTAK_CONTAINERS:
+    for name in discover_services():
         container = find_container(name)
         if container is None:
             results.append({"name": name, "status": "not_found", "health": "unknown"})

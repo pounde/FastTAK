@@ -14,7 +14,7 @@ from app.api.health.database import get_cot_db_size
 from app.api.health.disk import get_disk_usage
 from app.api.health.tls import get_tls_status
 from app.api.health.updates import check_updates
-from app.docker_client import FASTTAK_CONTAINERS
+from app.docker_client import discover_running_services
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -29,7 +29,7 @@ def containers():
 def resources():
     """CPU/memory stats for all running containers."""
     results = []
-    for name in FASTTAK_CONTAINERS:
+    for name in discover_running_services():
         stats = get_container_stats(name)
         if stats:
             results.append(stats)

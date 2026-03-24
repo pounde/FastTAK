@@ -36,9 +36,9 @@ async def ops_page(request: Request):
 
 @router.get("/logs")
 async def logs_page(request: Request):
-    from app.docker_client import FASTTAK_CONTAINERS
+    from app.docker_client import discover_services
     return templates.TemplateResponse("logs.html",
-                                      _page_context(request, containers=FASTTAK_CONTAINERS))
+                                      _page_context(request, containers=discover_services()))
 
 
 # --- UI Partials (HTMX fragments) ---
@@ -70,9 +70,9 @@ async def ui_update_status(request: Request):
 @router.get("/ui/partials/resources")
 def ui_resources(request: Request):
     from app.api.health.containers import get_container_stats
-    from app.docker_client import FASTTAK_CONTAINERS
+    from app.docker_client import discover_running_services
     results = []
-    for name in FASTTAK_CONTAINERS:
+    for name in discover_running_services():
         stats = get_container_stats(name)
         if stats:
             results.append(stats)

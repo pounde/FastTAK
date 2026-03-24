@@ -5,26 +5,29 @@ Docker SDK calls are blocking. FastAPI runs sync endpoints in a threadpool
 automatically, preventing the event loop from blocking.
 
 Container lifecycle management (restart/stop/start) is intentionally excluded.
-Containers self-heal via Docker restart policies and healthchecks.
 """
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.api.ops.certs import create_client_cert, create_server_cert, revoke_cert, list_certs
+from app.api.ops.certs import (
+    create_client_cert,
+    create_server_cert,
+    revoke_cert,
+    list_certs,
+)
 from app.api.ops.database import vacuum_database
-from app.docker_client import find_container, FASTTAK_CONTAINERS
+from app.docker_client import find_container, discover_services
 
 router = APIRouter(prefix="/api/ops", tags=["operations"])
 
-ALLOWED_CONTAINERS = set(FASTTAK_CONTAINERS)
-
 
 def _validate_container(name: str):
-    if name not in ALLOWED_CONTAINERS:
+    if name not in discover_services():
         raise HTTPException(400, f"Unknown container: {name}")
 
 
 # ── Logs ────────────────────────────────────────────────────────────────
+
 
 @router.get("/service/{name}/logs")
 def svc_logs(name: str, tail: int = Query(default=200, ge=1, le=5000)):
@@ -41,6 +44,7 @@ def svc_logs(name: str, tail: int = Query(default=200, ge=1, le=5000)):
 
 # ── Certs ───────────────────────────────────────────────────────────────
 
+
 @router.get("/certs/list")
 def certs_list():
     result = list_certs()
@@ -53,8 +57,10 @@ def certs_list():
 def certs_create_client(name: str):
     result = create_client_cert(name)
     if not result.get("success", True):
-        raise HTTPException(400 if "Name must" in result.get("error", "") else 500,
-                            result.get("error", "Unknown error"))
+        raise HTTPException(
+            400 if "Name must" in result.get("error", "") else 500,
+            result.get("error", "Unknown error"),
+        )
     return result
 
 
@@ -62,8 +68,10 @@ def certs_create_client(name: str):
 def certs_create_server(name: str):
     result = create_server_cert(name)
     if not result.get("success", True):
-        raise HTTPException(400 if "Name must" in result.get("error", "") else 500,
-                            result.get("error", "Unknown error"))
+        raise HTTPException(
+            400 if "Name must" in result.get("error", "") else 500,
+            result.get("error", "Unknown error"),
+        )
     return result
 
 
@@ -71,12 +79,15 @@ def certs_create_server(name: str):
 def certs_revoke(name: str):
     result = revoke_cert(name)
     if not result.get("success", True):
-        raise HTTPException(400 if "Name must" in result.get("error", "") else 500,
-                            result.get("error", "Unknown error"))
+        raise HTTPException(
+            400 if "Name must" in result.get("error", "") else 500,
+            result.get("error", "Unknown error"),
+        )
     return result
 
 
 # ── Database ────────────────────────────────────────────────────────────
+
 
 @router.post("/database/vacuum")
 def db_vacuum(full: bool = False):
@@ -96,7 +107,7 @@ from app.api.alerts.sms import send_alert_sms
 def test_email():
     ok = send_alert_email(
         "Test Alert",
-        "This is a test alert from FastTAK Monitor. If you received this, email alerting is working."
+        "This is a test alert from FastTAK Monitor. If you received this, email alerting is working.",
     )
     return {"success": ok}
 
