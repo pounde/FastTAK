@@ -1,20 +1,90 @@
-# Environment
+# =============================================================================
+# Environment & Secrets
+# =============================================================================
 .env
+*.pem
+*.p12
+*.jks
+*.key
 
+# =============================================================================
 # TAK Server release and application directory
+# =============================================================================
 tak/
 *.zip
 
+# =============================================================================
 # Plans (local working docs, not shipped)
+# =============================================================================
 docs/plans/
 
-# Python
+# =============================================================================
+# Python (https://github.com/github/gitignore/blob/main/Python.gitignore)
+# =============================================================================
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
 .venv/
+venv/
+ENV/
+env/
+.python-version
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.log
+.mypy_cache/
+.ruff_cache/
+.pytype/
 
+# =============================================================================
+# Docker (https://github.com/github/gitignore/blob/main/community/Golang/Docker.gitignore)
+# =============================================================================
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# =============================================================================
+# Editors & IDEs
+# =============================================================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains
+.idea/
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# =============================================================================
 # OS
+# =============================================================================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
-
+ehthumbs.db
+Desktop.ini
