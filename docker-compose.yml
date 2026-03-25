@@ -289,12 +289,12 @@ services:
       DB_PASSWORD: ${APP_DB_PASSWORD}
       TAK_HOST: tak-server
       TAK_PORT: "8089"
+      FQDN: ${FQDN}
     volumes:
       - nodered-data:/data
       - ./nodered/flows.json:/opt/fastak/flows.json:ro
       - ./nodered/start.sh:/opt/fastak/start.sh:ro
       - ./tak/certs/files/nodered.p12:/opt/tak/certs/nodered.p12:ro
-      - ./tak/certs/files/truststore-root.jks:/opt/tak/certs/truststore-root.jks:ro
       - ./tak/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro
 
   # ── Monitor (health API + operations dashboard) ────────────────────────

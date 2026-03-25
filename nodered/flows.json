@@ -4,7 +4,7 @@
         "type": "tab",
         "label": "FastTAK",
         "disabled": false,
-        "info": "Pre-configured connections for FastTAK.\n\nPostgreSQL (PostGIS) is ready to use. TAK Server connection details are provided as environment variables.",
+        "info": "Pre-configured connections for FastTAK.\n\nPostgreSQL (PostGIS) and TAK Server TLS are ready to use as config nodes.",
         "env": []
     },
     {
@@ -27,11 +27,25 @@
         "connectionTimeout": "10000"
     },
     {
+        "id": "fastak-tls",
+        "type": "tls-config",
+        "name": "FastTAK Server TLS",
+        "cert": "/data/nodered.cert.pem",
+        "key": "/data/nodered.key.pem",
+        "ca": "/opt/tak/certs/ca.pem",
+        "certname": "nodered.cert.pem",
+        "keyname": "nodered.key.pem",
+        "caname": "ca.pem",
+        "servername": "",
+        "verifyservercert": true,
+        "alpnprotocol": ""
+    },
+    {
         "id": "fastak-comment",
         "type": "comment",
         "z": "fastak-tab",
         "name": "FastTAK Connections",
-        "info": "## PostGIS Database\n\nThe **FastTAK PostGIS** config node is pre-configured and available to all flows.\nSelect \"FastTAK PostGIS\" as the server in any postgresql node.\n\n## TAK Server\n\nTo send/receive CoT messages, use a **tcp** node with:\n- Host: `tak-server` (use env var `TAK_HOST`)\n- Port: `8089` (use env var `TAK_PORT`)\n- TLS: enable, with client cert `/opt/tak/certs/nodered.p12` (password: `atakatak`)\n- CA cert: `/opt/tak/certs/ca.pem`",
+        "info": "Two config nodes are pre-configured and ready to use:\n\n## PostGIS Database\n\nAdd a **postgresql** node to any flow and select **FastTAK PostGIS** as the server.\nCredentials and connection details are already set.\n\n## TAK Server (TLS)\n\nAdd a **tcp out** or **tcp in** node to any flow and:\n1. Set host to `tak-server`, port to `8089`\n2. Enable TLS and select **FastTAK Server TLS**\n\nThe client certificate, private key, and CA are already configured.",
         "x": 250,
         "y": 60,
         "wires": []
