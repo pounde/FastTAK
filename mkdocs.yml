@@ -18,6 +18,7 @@ nav:
   - Guides:
     - Authentication: authentication.md
     - Certificates: certificates.md
+    - Node-RED: nodered.md
 
 markdown_extensions:
   - admonition
