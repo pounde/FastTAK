@@ -80,8 +80,8 @@ if [ ! -f "${CERT_FILES}/ca.pem" ]; then
   cd "${CERT_DIR}"
   bash ./makeRootCa.sh --ca-name FastTAK-CA 2>&1 | tail -3
   bash ./makeCert.sh server takserver 2>&1 | tail -2
-  bash ./makeCert.sh client admin 2>&1 | tail -2
-  bash ./makeCert.sh client nodered 2>&1 | tail -2
+  bash ./makeCert.sh client svc_fasttakapi 2>&1 | tail -2
+  bash ./makeCert.sh client svc_nodered 2>&1 | tail -2
   cd /
 
   echo "[init] Certificates generated"
