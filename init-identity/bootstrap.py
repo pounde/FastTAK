@@ -608,14 +608,14 @@ def configure_tak_portal(token: str) -> None:
     else:
         log.warning("CA cert not found at %s — portal cert features may not work", ca_src)
 
-    # Copy admin.p12 for TAK API access
-    p12_src = f"{TAK_DIR}/certs/files/admin.p12"
+    # Copy svc_fasttakapi.p12 for TAK API access
+    p12_src = f"{TAK_DIR}/certs/files/svc_fasttakapi.p12"
     p12_dst = f"{certs_dir}/webadmin.p12"
     if os.path.isfile(p12_src):
         shutil.copy2(p12_src, p12_dst)
-        log.info("Copied admin.p12 to %s", p12_dst)
+        log.info("Copied svc_fasttakapi.p12 to %s", p12_dst)
     else:
-        log.warning("admin.p12 not found at %s — portal TAK API access may not work", p12_src)
+        log.warning("svc_fasttakapi.p12 not found at %s — portal TAK API access may not work", p12_src)
 
     fqdn = os.environ.get("FQDN", "localhost")
     portal_subdomain = os.environ.get("TAKPORTAL_SUBDOMAIN", "portal")

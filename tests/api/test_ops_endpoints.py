@@ -70,7 +70,7 @@ class TestOpsCerts:
         container = MagicMock()
         container.exec_run.return_value = (
             0,
-            b"-rw-r--r-- 1 root root 1234 admin.pem\n",
+            b"-rw-r--r-- 1 root root 1234 svc_fasttakapi.pem\n",
         )
         mock_find.return_value = container
 
