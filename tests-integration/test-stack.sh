@@ -159,6 +159,82 @@ assert_endpoint "/api/ops/service/tak-server/logs?tail=10" \
     "print('true' if 'logs' in data and len(data['logs']) > 0 else 'false')" \
     "GET /api/ops/service/tak-server/logs returns logs"
 
+# ── Service account cert registration ────────────────────────────────
+echo ""
+echo "=== Testing service account cert registration ==="
+
+# Test: svc_fasttakapi cert can call TAK Server API
+HTTP_CODE=$(${COMPOSE} exec -T tak-server \
+  curl -sk --cert-type P12 \
+    --cert /opt/tak/certs/files/svc_fasttakapi.p12:atakatak \
+    "https://localhost:8443/Marti/api/plugins/info/all" \
+    -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+if [ "${HTTP_CODE}" = "200" ]; then
+  echo "  PASS: svc_fasttakapi cert gets 200 from TAK Server API"
+else
+  echo "  FAIL: svc_fasttakapi cert got HTTP ${HTTP_CODE} (expected 200)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+# ── Passwordless users cannot authenticate via LDAP ──────────────────
+echo ""
+echo "=== Testing passwordless users cannot authenticate ==="
+
+# Create a temporary user with no password, get the pk for cleanup
+AUTHENTIK_TOKEN=$(grep AUTHENTIK_API_TOKEN "${TMPDIR}/.env" | cut -d= -f2)
+TEST_USER_PK=$(${COMPOSE} exec -T monitor python3 -c "
+import urllib.request, json
+data = json.dumps({'username':'test_nopassword','name':'Test','is_active':True,'path':'users'}).encode()
+req = urllib.request.Request('http://authentik-server:9000/api/v3/core/users/',
+    data=data, headers={'Authorization': 'Bearer ${AUTHENTIK_TOKEN}', 'Content-Type': 'application/json'})
+resp = json.loads(urllib.request.urlopen(req).read())
+print(resp['pk'])
+" 2>/dev/null)
+
+# Attempt LDAP bind with empty password — should fail
+BIND_RESULT=$(${COMPOSE} exec -T monitor python3 -c "
+import socket
+s = socket.socket()
+s.settimeout(5)
+s.connect(('authentik-ldap', 3389))
+dn = b'cn=test_nopassword,ou=users,dc=takldap'
+pw = b''
+version = b'\x02\x01\x03'
+name = bytes([0x04, len(dn)]) + dn
+auth = bytes([0x80, len(pw)]) + pw
+bind_req = version + name + auth
+bind_app = bytes([0x60, len(bind_req)]) + bind_req
+msg_id = b'\x02\x01\x01'
+msg = msg_id + bind_app
+envelope = bytes([0x30, len(msg)]) + msg
+s.send(envelope)
+resp = s.recv(1024)
+s.close()
+for i in range(len(resp)):
+    if resp[i] == 0x61:
+        j = i + 2
+        if resp[j] in (0x0a, 0x02):
+            print(resp[j+2])
+            break
+" 2>/dev/null || echo "error")
+
+if [ "${BIND_RESULT}" = "49" ]; then
+  echo "  PASS: Passwordless user correctly rejected by LDAP (code 49)"
+else
+  echo "  FAIL: Passwordless user LDAP bind returned ${BIND_RESULT} (expected 49)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+# Clean up test user by pk
+if [ -n "${TEST_USER_PK}" ]; then
+  ${COMPOSE} exec -T monitor python3 -c "
+import urllib.request
+req = urllib.request.Request('http://authentik-server:9000/api/v3/core/users/${TEST_USER_PK}/',
+    method='DELETE', headers={'Authorization': 'Bearer ${AUTHENTIK_TOKEN}'})
+urllib.request.urlopen(req)
+" 2>/dev/null || true
+fi
+
 # ── Summary ────────────────────────────────────────────────────────────
 echo ""
 if [ "$FAILURES" -eq 0 ]; then
