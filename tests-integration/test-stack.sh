@@ -163,6 +163,18 @@ assert_endpoint "/api/ops/service/tak-server/logs?tail=10" \
 echo ""
 echo "=== Testing service account cert registration ==="
 
+# Wait for register-api-cert.sh to complete (it runs in the background after TAK Server starts)
+echo "  Waiting for cert registration (up to 90s)..."
+REG_WAITED=0
+while [ $REG_WAITED -lt 90 ]; do
+  if ${COMPOSE} exec -T tak-server grep -q "register-api-cert.*Done" /opt/tak/logs/takserver-messaging.log 2>/dev/null || \
+     ${COMPOSE} exec -T tak-server java -jar /opt/tak/utils/UserManager.jar certmod -s /opt/tak/certs/files/svc_fasttakapi.pem 2>/dev/null | grep -q "ROLE_ADMIN"; then
+    break
+  fi
+  sleep 5
+  REG_WAITED=$((REG_WAITED + 5))
+done
+
 # Test: svc_fasttakapi cert can call TAK Server API
 HTTP_CODE=$(${COMPOSE} exec -T tak-server \
   curl -sk --cert-type P12 \
