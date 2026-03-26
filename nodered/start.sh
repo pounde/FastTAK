@@ -17,12 +17,12 @@ P12_PASSWORD="${P12_PASSWORD:-atakatak}"
 
 if ! command -v openssl >/dev/null 2>&1; then
   echo "[nodered] WARNING: openssl not found — cannot extract PEM from .p12"
-elif [ -f /opt/tak/certs/nodered.p12 ]; then
-  if openssl pkcs12 -in /opt/tak/certs/nodered.p12 -nokeys -clcerts \
-       -passin "pass:${P12_PASSWORD}" -out /data/nodered.cert.pem 2>/dev/null && \
-     openssl pkcs12 -in /opt/tak/certs/nodered.p12 -nocerts -nodes \
-       -passin "pass:${P12_PASSWORD}" -out /data/nodered.key.pem 2>/dev/null; then
-    chmod 600 /data/nodered.key.pem
+elif [ -f /opt/tak/certs/svc_nodered.p12 ]; then
+  if openssl pkcs12 -in /opt/tak/certs/svc_nodered.p12 -nokeys -clcerts \
+       -passin "pass:${P12_PASSWORD}" -out /data/svc_nodered.cert.pem 2>/dev/null && \
+     openssl pkcs12 -in /opt/tak/certs/svc_nodered.p12 -nocerts -nodes \
+       -passin "pass:${P12_PASSWORD}" -out /data/svc_nodered.key.pem 2>/dev/null; then
+    chmod 600 /data/svc_nodered.key.pem
     # Set TLS servername to match the TAK Server certificate's SAN
     if [ -n "${FQDN}" ] && [ -f /data/flows.json ]; then
       node -e "
@@ -32,9 +32,9 @@ const tls = flows.find(n => n.id === 'fastak-tls');
 if (tls) { tls.servername = process.env.FQDN; fs.writeFileSync('/data/flows.json', JSON.stringify(flows, null, 4)); }
 "
     fi
-    echo "[nodered] Extracted PEM cert/key from nodered.p12"
+    echo "[nodered] Extracted PEM cert/key from svc_nodered.p12"
   else
-    echo "[nodered] WARNING: Failed to extract PEM from nodered.p12 — TLS config will not work"
+    echo "[nodered] WARNING: Failed to extract PEM from svc_nodered.p12 — TLS config will not work"
   fi
 fi
 
