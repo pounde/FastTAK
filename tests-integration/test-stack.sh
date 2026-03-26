@@ -167,8 +167,10 @@ echo "=== Testing service account cert registration ==="
 echo "  Waiting for cert registration (up to 90s)..."
 REG_WAITED=0
 while [ $REG_WAITED -lt 90 ]; do
-  if ${COMPOSE} exec -T tak-server grep -q "register-api-cert.*Done" /opt/tak/logs/takserver-messaging.log 2>/dev/null || \
-     ${COMPOSE} exec -T tak-server java -jar /opt/tak/utils/UserManager.jar certmod -s /opt/tak/certs/files/svc_fasttakapi.pem 2>/dev/null | grep -q "ROLE_ADMIN"; then
+  CERTMOD_OUT=$(${COMPOSE} exec -T tak-server \
+    java -jar /opt/tak/utils/UserManager.jar certmod -s /opt/tak/certs/files/svc_fasttakapi.pem 2>&1) || true
+  if echo "${CERTMOD_OUT}" | grep -q "ROLE_ADMIN"; then
+    echo "  Cert registered after ${REG_WAITED}s"
     break
   fi
   sleep 5
@@ -180,7 +182,9 @@ HTTP_CODE=$(${COMPOSE} exec -T tak-server \
   curl -sk --cert-type P12 \
     --cert /opt/tak/certs/files/svc_fasttakapi.p12:atakatak \
     "https://localhost:8443/Marti/api/plugins/info/all" \
-    -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+    -w "%{http_code}" -o /dev/null 2>&1) || true
+# Strip to last 3 chars (the HTTP code) in case of extra output
+HTTP_CODE="${HTTP_CODE: -3}"
 if [ "${HTTP_CODE}" = "200" ]; then
   echo "  PASS: svc_fasttakapi cert gets 200 from TAK Server API"
 else
