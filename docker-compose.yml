@@ -99,6 +99,8 @@ services:
         condition: service_completed_successfully
       init-identity:
         condition: service_completed_successfully
+      authentik-ldap:
+        condition: service_healthy
     ports:
       - "8089:8089"
       - "8443:8443"
@@ -208,6 +210,13 @@ services:
     environment:
       AUTHENTIK_HOST: http://authentik-server:9000
       AUTHENTIK_TOKEN: ${AUTHENTIK_API_TOKEN}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q",
+             "http://localhost:9300/outpost.goauthentik.io/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     # ports:
     #   - "389:3389"  # Uncomment for external LDAP clients (TAK Server uses Docker DNS internally)
 
