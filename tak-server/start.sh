@@ -26,5 +26,8 @@ if [ ! -f /opt/tak/TAKIgniteConfig.xml ] && [ -f /opt/tak/TAKIgniteConfig.exampl
   echo "[tak-server] Created TAKIgniteConfig.xml"
 fi
 
+# Register API service cert after TAK Server is ready (background, idempotent)
+/opt/tak/register-api-cert.sh &
+
 # Hand off to the official TAK Server startup
 exec /opt/tak/configureInDocker.sh init

@@ -107,6 +107,7 @@ services:
       - *tak-mount
       - ./tak-server/start.sh:/start.sh:ro
       - ./tak-server/healthcheck.sh:/opt/tak/healthcheck.sh:ro
+      - ./tak-server/register-api-cert.sh:/opt/tak/register-api-cert.sh:ro
     healthcheck:
       test: ["CMD", "/opt/tak/healthcheck.sh"]
       interval: 60s
