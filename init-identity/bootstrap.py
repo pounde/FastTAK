@@ -615,7 +615,9 @@ def configure_tak_portal(token: str) -> None:
         shutil.copy2(p12_src, p12_dst)
         log.info("Copied svc_fasttakapi.p12 to %s", p12_dst)
     else:
-        log.warning("svc_fasttakapi.p12 not found at %s — portal TAK API access may not work", p12_src)
+        log.warning(
+            "svc_fasttakapi.p12 not found at %s — portal TAK API access may not work", p12_src
+        )
 
     fqdn = os.environ.get("FQDN", "localhost")
     portal_subdomain = os.environ.get("TAKPORTAL_SUBDOMAIN", "portal")
