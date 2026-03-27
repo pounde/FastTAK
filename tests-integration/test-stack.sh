@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # test-stack.sh — Stand up the FastTAK stack, validate APIs, tear down.
 #
-# Isolated: uses a unique project name and temp .env so it won't
-# interfere with a running stack or modify the working directory.
+# Fully isolated: runs setup.sh -d to extract tak/ from the ZIP into a temp
+# directory, uses a unique project name and generated .env. Won't interfere
+# with a running stack or modify the working directory.
 #
 # Usage: ./tests-integration/test-stack.sh
 
@@ -13,10 +14,16 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TS=$(date +%s)
 PROJECT="fastak-test-${TS}"
-TMPDIR="/tmp/${PROJECT}"
-COMPOSE="docker compose -p ${PROJECT} -f ${REPO_DIR}/docker-compose.yml --env-file ${TMPDIR}/.env"
+TEST_DIR="/tmp/${PROJECT}"
 TIMEOUT=300  # 5 minutes max for healthchecks
+INTERVAL=10
 FAILURES=0
+
+# Isolate tak/ directory so tests don't depend on or pollute host state.
+# See TAK_HOST_PATH in docker-compose.yml for details.
+export TAK_HOST_PATH="${TEST_DIR}/tak"
+
+COMPOSE="docker compose -p ${PROJECT} -f ${REPO_DIR}/docker-compose.yml --env-file ${TEST_DIR}/.env"
 
 # ── Cleanup on exit ────────────────────────────────────────────────────
 # shellcheck disable=SC2317,SC2329  # invoked via trap
@@ -24,38 +31,19 @@ cleanup() {
     echo ""
     echo "=== Cleaning up ==="
     ${COMPOSE} down -v --remove-orphans 2>/dev/null || true
-    rm -rf "${TMPDIR}"
+    rm -rf "${TEST_DIR}"
 }
 trap cleanup EXIT INT TERM
 
-# ── Generate test .env ─────────────────────────────────────────────────
-echo "=== Generating test environment ==="
-mkdir -p "${TMPDIR}"
-cp "${REPO_DIR}/.env.example" "${TMPDIR}/.env"
-
-# Fill in required secrets with random values
-sed -i.bak \
-    -e "s/^TAK_DB_PASSWORD=.*/TAK_DB_PASSWORD=$(openssl rand -hex 16)/" \
-    -e "s/^AUTHENTIK_SECRET_KEY=.*/AUTHENTIK_SECRET_KEY=$(openssl rand -hex 32)/" \
-    -e "s/^APP_DB_PASSWORD=.*/APP_DB_PASSWORD=$(openssl rand -hex 16)/" \
-    -e "s/^AUTHENTIK_API_TOKEN=.*/AUTHENTIK_API_TOKEN=$(openssl rand -hex 32)/" \
-    -e "s/^LDAP_BIND_PASSWORD=.*/LDAP_BIND_PASSWORD=$(openssl rand -hex 16)/" \
-    -e "s/^FQDN=.*/FQDN=test.fastak.local/" \
-    "${TMPDIR}/.env"
-rm -f "${TMPDIR}/.env.bak"
-
-# ── Build and start ────────────────────────────────────────────────────
-echo "=== Starting stack (project: ${PROJECT}) ==="
-${COMPOSE} up -d --build
-
-# ── Wait for healthchecks ──────────────────────────────────────────────
-echo "=== Waiting for services to become healthy (timeout: ${TIMEOUT}s) ==="
-ELAPSED=0
-INTERVAL=10
-while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-    # Check if all services with healthchecks are healthy
-    UNHEALTHY=$(${COMPOSE} ps --format json 2>/dev/null | \
-        python3 -c "
+# ── Helper: wait for all services to become healthy ───────────────────
+wait_healthy() {
+    local label="${1:-services}"
+    echo "  Waiting for ${label} to become healthy (timeout: ${TIMEOUT}s)..."
+    local elapsed=0
+    while [ "$elapsed" -lt "$TIMEOUT" ]; do
+        local unhealthy
+        unhealthy=$(${COMPOSE} ps --format json 2>/dev/null | \
+            python3 -c "
 import sys, json
 unhealthy = []
 for line in sys.stdin:
@@ -79,18 +67,41 @@ for line in sys.stdin:
 print(','.join(unhealthy))
 " 2>/dev/null || echo "parse-error")
 
-    if [ -z "$UNHEALTHY" ]; then
-        echo "All services healthy after ${ELAPSED}s"
-        break
-    fi
-    echo "  Waiting... (${ELAPSED}s) unhealthy: ${UNHEALTHY}"
-    sleep "$INTERVAL"
-    ELAPSED=$((ELAPSED + INTERVAL))
-done
+        if [ -z "$unhealthy" ]; then
+            echo "  All ${label} healthy after ${elapsed}s"
+            return 0
+        fi
+        echo "  Waiting... (${elapsed}s) unhealthy: ${unhealthy}"
+        sleep "$INTERVAL"
+        elapsed=$((elapsed + INTERVAL))
+    done
 
-if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-    echo "FAIL: Timed out waiting for services"
+    echo "FAIL: Timed out waiting for ${label}"
     ${COMPOSE} ps
+    return 1
+}
+
+# ── Run setup.sh to extract tak/ and generate .env in isolated dir ────
+echo "=== Running setup.sh into isolated directory ==="
+ZIP=$(find "${REPO_DIR}" -maxdepth 1 -name 'takserver-docker-*.zip' | head -1)
+if [ -z "${ZIP}" ]; then
+    echo "FAIL: No takserver-docker-*.zip found in ${REPO_DIR}"
+    echo "  Run setup.sh first or place the ZIP in the repo root."
+    exit 1
+fi
+"${REPO_DIR}/setup.sh" -d "${TEST_DIR}" "${ZIP}"
+
+# Override FQDN for test environment
+sed -i.bak "s/^FQDN=.*/FQDN=test.fastak.local/" "${TEST_DIR}/.env"
+rm -f "${TEST_DIR}/.env.bak"
+
+# ── Build and start ────────────────────────────────────────────────────
+echo "=== Starting stack (project: ${PROJECT}) ==="
+${COMPOSE} up -d --build
+
+# ── Wait for healthchecks ──────────────────────────────────────────────
+echo "=== Waiting for services to become healthy ==="
+if ! wait_healthy "services"; then
     exit 1
 fi
 
@@ -187,8 +198,8 @@ if [ $REG_WAITED -ge 300 ]; then
 fi
 
 # Test: svc_fasttakapi cert can call TAK Server API.
-# Use host curl against the published port (8443) with the cert from the host-side tak/ directory.
-CERT_P12="${REPO_DIR}/tak/certs/files/svc_fasttakapi.p12"
+# Use host curl against the published port (8443) with the cert from the isolated tak/ directory.
+CERT_P12="${TAK_HOST_PATH}/certs/files/svc_fasttakapi.p12"
 if [ ! -f "${CERT_P12}" ]; then
   echo "  FAIL: svc_fasttakapi.p12 not found at ${CERT_P12}"
   FAILURES=$((FAILURES + 1))
@@ -213,7 +224,7 @@ echo ""
 echo "=== Testing passwordless users cannot authenticate ==="
 
 # Create a temporary user with no password, get the pk for cleanup
-AUTHENTIK_TOKEN=$(grep AUTHENTIK_API_TOKEN "${TMPDIR}/.env" | cut -d= -f2)
+AUTHENTIK_TOKEN=$(grep AUTHENTIK_API_TOKEN "${TEST_DIR}/.env" | cut -d= -f2)
 TEST_USER_PK=$(${COMPOSE} exec -T monitor python3 -c "
 import urllib.request, json
 data = json.dumps({'username':'test_nopassword','name':'Test','is_active':True,'path':'users'}).encode()
@@ -221,7 +232,7 @@ req = urllib.request.Request('http://authentik-server:9000/api/v3/core/users/',
     data=data, headers={'Authorization': 'Bearer ${AUTHENTIK_TOKEN}', 'Content-Type': 'application/json'})
 resp = json.loads(urllib.request.urlopen(req).read())
 print(resp['pk'])
-" 2>/dev/null)
+" 2>/dev/null) || TEST_USER_PK=""
 
 # Attempt LDAP bind with empty password — should fail
 BIND_RESULT=$(${COMPOSE} exec -T monitor python3 -c "
@@ -265,6 +276,158 @@ req = urllib.request.Request('http://authentik-server:9000/api/v3/core/users/${T
     method='DELETE', headers={'Authorization': 'Bearer ${AUTHENTIK_TOKEN}'})
 urllib.request.urlopen(req)
 " 2>/dev/null || true
+fi
+
+# ── User Management API tests ─────────────────────────────────────────
+echo ""
+echo "=== Testing User Management API ==="
+
+# List users
+assert_endpoint "/api/users" \
+    "print('true' if data.get('count', -1) >= 0 else 'false')" \
+    "GET /api/users returns paginated list"
+
+# Search users
+assert_endpoint "/api/users?search=webadmin" \
+    "print('true' if data.get('count', 0) >= 1 else 'false')" \
+    "GET /api/users?search=webadmin finds the bootstrapped user"
+
+# Hidden prefix users should not appear
+assert_endpoint "/api/users?search=svc_" \
+    "print('true' if data.get('count', -1) == 0 else 'false')" \
+    "Hidden prefix users excluded from search results"
+
+# Create a test user via the API
+CREATE_RESP=$(${COMPOSE} exec -T monitor curl -sf \
+    -X POST "http://localhost:8080/api/users" \
+    -H "Content-Type: application/json" \
+    -d '{"username":"test_integ_user","name":"Integration Test User"}' 2>/dev/null) || CREATE_RESP=""
+
+if echo "$CREATE_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if d.get('username')=='test_integ_user' else 'false')" 2>/dev/null | grep -q "true"; then
+    echo "PASS: POST /api/users creates user"
+    TEST_USER_ID=$(echo "$CREATE_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+    # Get user detail
+    assert_endpoint "/api/users/${TEST_USER_ID}" \
+        "print('true' if data.get('username') == 'test_integ_user' else 'false')" \
+        "GET /api/users/{id} returns user detail"
+
+    # Set password
+    PW_RESP=$(${COMPOSE} exec -T monitor curl -sf \
+        -X POST "http://localhost:8080/api/users/${TEST_USER_ID}/password" \
+        -H "Content-Type: application/json" \
+        -d '{"password":"TestPass123!"}' 2>/dev/null) || PW_RESP=""
+    if echo "$PW_RESP" | python3 -c "import sys,json; print('true' if json.load(sys.stdin).get('success') else 'false')" 2>/dev/null | grep -q "true"; then
+        echo "PASS: POST /api/users/{id}/password sets password"
+    else
+        echo "FAIL: POST /api/users/{id}/password"
+        FAILURES=$((FAILURES + 1))
+    fi
+
+    # Generate enrollment URL
+    ENROLL_RESP=$(${COMPOSE} exec -T monitor curl -sf \
+        -X POST "http://localhost:8080/api/users/${TEST_USER_ID}/enroll" 2>/dev/null) || ENROLL_RESP=""
+    if echo "$ENROLL_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if 'tak://' in d.get('enrollment_url','') else 'false')" 2>/dev/null | grep -q "true"; then
+        echo "PASS: POST /api/users/{id}/enroll returns tak:// URL"
+    else
+        echo "FAIL: POST /api/users/{id}/enroll"
+        echo "  Response: ${ENROLL_RESP:0:200}"
+        FAILURES=$((FAILURES + 1))
+    fi
+
+    # Re-enroll — should return same token
+    ENROLL_RESP2=$(${COMPOSE} exec -T monitor curl -sf \
+        -X POST "http://localhost:8080/api/users/${TEST_USER_ID}/enroll" 2>/dev/null) || ENROLL_RESP2=""
+    URL1=$(echo "$ENROLL_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('enrollment_url',''))" 2>/dev/null)
+    URL2=$(echo "$ENROLL_RESP2" | python3 -c "import sys,json; print(json.load(sys.stdin).get('enrollment_url',''))" 2>/dev/null)
+    if [ -n "$URL1" ] && [ "$URL1" = "$URL2" ]; then
+        echo "PASS: Re-enrollment returns same token"
+    else
+        echo "FAIL: Re-enrollment returned different token"
+        FAILURES=$((FAILURES + 1))
+    fi
+
+    # Deactivate user
+    DEL_RESP=$(${COMPOSE} exec -T monitor curl -sf \
+        -X DELETE "http://localhost:8080/api/users/${TEST_USER_ID}" 2>/dev/null) || DEL_RESP=""
+    if echo "$DEL_RESP" | python3 -c "import sys,json; print('true' if json.load(sys.stdin).get('success') else 'false')" 2>/dev/null | grep -q "true"; then
+        echo "PASS: DELETE /api/users/{id} deactivates user"
+    else
+        echo "FAIL: DELETE /api/users/{id}"
+        FAILURES=$((FAILURES + 1))
+    fi
+
+    # Enrollment should fail for deactivated user
+    ENROLL_FAIL=$(${COMPOSE} exec -T monitor curl -s -o /dev/null -w "%{http_code}" \
+        -X POST "http://localhost:8080/api/users/${TEST_USER_ID}/enroll" 2>/dev/null) || ENROLL_FAIL=""
+    if [ "${ENROLL_FAIL}" = "400" ]; then
+        echo "PASS: Enrollment rejected for deactivated user (400)"
+    else
+        echo "FAIL: Enrollment for deactivated user returned ${ENROLL_FAIL} (expected 400)"
+        FAILURES=$((FAILURES + 1))
+    fi
+
+    # Reactivate user
+    REACT_RESP=$(${COMPOSE} exec -T monitor curl -sf \
+        -X PATCH "http://localhost:8080/api/users/${TEST_USER_ID}" \
+        -H "Content-Type: application/json" \
+        -d '{"is_active":true}' 2>/dev/null) || REACT_RESP=""
+    if echo "$REACT_RESP" | python3 -c "import sys,json; print('true' if json.load(sys.stdin).get('is_active') else 'false')" 2>/dev/null | grep -q "true"; then
+        echo "PASS: PATCH /api/users/{id} reactivates user"
+
+        # Re-enroll after reactivation — should get a new enrollment URL
+        ENROLL_RESP3=$(${COMPOSE} exec -T monitor curl -sf \
+            -X POST "http://localhost:8080/api/users/${TEST_USER_ID}/enroll" 2>/dev/null) || ENROLL_RESP3=""
+        if echo "$ENROLL_RESP3" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if 'tak://' in d.get('enrollment_url','') else 'false')" 2>/dev/null | grep -q "true"; then
+            echo "PASS: Re-enrollment after reactivation returns tak:// URL"
+        else
+            echo "FAIL: Re-enrollment after reactivation"
+            echo "  Response: ${ENROLL_RESP3:0:200}"
+            FAILURES=$((FAILURES + 1))
+        fi
+    else
+        echo "FAIL: PATCH /api/users/{id} reactivation"
+        echo "  Response: ${REACT_RESP:0:200}"
+        FAILURES=$((FAILURES + 1))
+    fi
+else
+    echo "FAIL: POST /api/users — could not create test user"
+    echo "  Response: ${CREATE_RESP:0:200}"
+    FAILURES=$((FAILURES + 1))
+fi
+
+# Groups
+assert_endpoint "/api/groups" \
+    "print('true' if isinstance(data, list) else 'false')" \
+    "GET /api/groups returns list"
+
+# Note: TTL expiry test intentionally omitted — requires waiting for the scheduler
+# to fire (configurable interval, default 60s) which is too slow for this test.
+# TTL enforcement is thoroughly covered by unit tests in tests/unit/test_ttl_task.py.
+
+# ── Idempotency test: restart and re-validate ─────────────────────────
+echo ""
+echo "=== Testing idempotency (restart stack) ==="
+${COMPOSE} down
+${COMPOSE} up -d
+
+if ! wait_healthy "services after restart"; then
+    FAILURES=$((FAILURES + 1))
+else
+    echo "PASS: Stack restarts cleanly"
+
+    # Re-run basic health checks after restart
+    assert_endpoint "/api/ping" \
+        "print('true' if data.get('status') == 'ok' else 'false')" \
+        "GET /api/ping returns ok after restart"
+
+    assert_endpoint "/api/health/containers" \
+        "print('true' if isinstance(data, list) and len(data) > 0 else 'false')" \
+        "GET /api/health/containers healthy after restart"
+
+    assert_endpoint "/api/users" \
+        "print('true' if data.get('count', -1) >= 0 else 'false')" \
+        "GET /api/users works after restart"
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────

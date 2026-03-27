@@ -18,7 +18,12 @@ x-logging: &default-logging
     max-size: "50m"
     max-file: "3"
 
-x-tak-mount: &tak-mount ./tak:/opt/tak
+# TAK host path — defaults to ./tak. Override with TAK_HOST_PATH env var to:
+#   - Run integration tests against an isolated copy (avoids collisions with running stack)
+#   - Test against different TAK Server versions (e.g., TAK_HOST_PATH=./tak-5.7)
+# Any new bind mounts referencing TAK files should use ${TAK_HOST_PATH:-./tak} as the
+# base path, not ./tak directly, so the override works consistently.
+x-tak-mount: &tak-mount ${TAK_HOST_PATH:-./tak}:/opt/tak
 
 x-authentik-env: &authentik-env
   AUTHENTIK_POSTGRESQL__HOST: app-db
@@ -29,7 +34,7 @@ x-authentik-env: &authentik-env
   AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
   AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_ADMIN_PASSWORD}
   AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_API_TOKEN}
-  AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_ADMIN_EMAIL:-admin@takwerx.local}
+  AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_ADMIN_EMAIL:-admin@example.com}
 
 # =============================================================================
 # Volumes
@@ -304,8 +309,8 @@ services:
       - nodered-data:/data
       - ./nodered/flows.json:/opt/fastak/flows.json:ro
       - ./nodered/start.sh:/opt/fastak/start.sh:ro
-      - ./tak/certs/files/svc_nodered.p12:/opt/tak/certs/svc_nodered.p12:ro
-      - ./tak/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro
+      - ${TAK_HOST_PATH:-./tak}/certs/files/svc_nodered.p12:/opt/tak/certs/svc_nodered.p12:ro
+      - ${TAK_HOST_PATH:-./tak}/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro
 
   # ── Monitor (health API + operations dashboard) ────────────────────────
   monitor:
@@ -339,9 +344,19 @@ services:
       SMS_API_KEY: ${SMS_API_KEY:-}
       SMS_FROM: ${SMS_FROM:-}
       SMS_TO: ${SMS_TO:-}
+      # User management API (DD-025)
+      AUTHENTIK_URL: http://authentik-server:9000
+      AUTHENTIK_API_TOKEN: ${AUTHENTIK_API_TOKEN}
+      TAK_SERVER_URL: https://tak-server:8443
+      TAK_API_CERT_PATH: /opt/tak/certs/files/svc_fasttakapi.p12
+      TAK_API_CERT_PASSWORD: atakatak
+      USERS_HIDDEN_PREFIXES: ${USERS_HIDDEN_PREFIXES:-ak-,adm_,svc_,ma-}
+      USER_EXPIRY_CHECK_INTERVAL: ${USER_EXPIRY_CHECK_INTERVAL:-60}
+      ENROLLMENT_TTL_MINUTES: ${ENROLLMENT_TTL_MINUTES:-15}
+      TAK_ENROLLMENT_PORT: ${TAK_ENROLLMENT_PORT:-8446}
     ports:
       - "8180:8080"    # Direct access. Remove for production (use Caddy + Authentik).
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./tak/certs:/opt/tak/certs:ro
+      - ${TAK_HOST_PATH:-./tak}/certs:/opt/tak/certs:ro
       - .:/opt/fastak:ro  # For .env change detection (directory mount survives file rewrites)

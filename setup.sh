@@ -1,19 +1,34 @@
 #!/bin/bash
 # setup.sh — Set up FastTAK from a tak.gov Docker release ZIP.
-# Usage: ./setup.sh <takserver-docker-X.X-RELEASE-X.zip>
+# Usage: ./setup.sh [-d <target-dir>] <takserver-docker-X.X-RELEASE-X.zip>
+#
+# Options:
+#   -d <dir>  Target directory for tak/ and .env (default: script's directory).
+#             Used by integration tests to set up an isolated environment.
 #
 # Fresh install:  extracts tak/, builds images, creates .env with generated secrets
 # Upgrade:        updates application files, preserves certs/config/logs
 set -e
 
-ZIP="${1:?Usage: ./setup.sh <takserver-docker-X.X-RELEASE-X.zip>}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TARGET_DIR="$SCRIPT_DIR"
+
+while getopts "d:" opt; do
+  case $opt in
+    d) TARGET_DIR="$OPTARG" ;;
+    *) echo "Usage: ./setup.sh [-d <target-dir>] <zip>" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+ZIP="${1:?Usage: ./setup.sh [-d <target-dir>] <takserver-docker-X.X-RELEASE-X.zip>}"
 
 if [ ! -f "$ZIP" ]; then
   echo "ERROR: File not found: $ZIP" >&2
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$TARGET_DIR"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -53,56 +68,56 @@ docker build -t "takserver:${VERSION}" \
 
 # ── Set up tak/ directory ────────────────────────────────────────────────────
 echo ""
-if [ -d "$SCRIPT_DIR/tak" ]; then
+if [ -d "$TARGET_DIR/tak" ]; then
   echo "▸ Upgrading tak/ directory (preserving certs, config, logs)..."
 
   PRESERVE_DIR=$(mktemp -d)
   for item in certs CoreConfig.xml CoreConfig.example.xml UserAuthenticationFile.xml logs portal; do
-    [ -e "$SCRIPT_DIR/tak/$item" ] && cp -a "$SCRIPT_DIR/tak/$item" "$PRESERVE_DIR/"
+    [ -e "$TARGET_DIR/tak/$item" ] && cp -a "$TARGET_DIR/tak/$item" "$PRESERVE_DIR/"
   done
 
-  rm -rf "$SCRIPT_DIR/tak"
-  cp -a "$RELEASE_DIR/tak" "$SCRIPT_DIR/tak"
+  rm -rf "$TARGET_DIR/tak"
+  cp -a "$RELEASE_DIR/tak" "$TARGET_DIR/tak"
 
   for item in certs CoreConfig.xml CoreConfig.example.xml UserAuthenticationFile.xml logs portal; do
-    [ -e "$PRESERVE_DIR/$item" ] && cp -a "$PRESERVE_DIR/$item" "$SCRIPT_DIR/tak/"
+    [ -e "$PRESERVE_DIR/$item" ] && cp -a "$PRESERVE_DIR/$item" "$TARGET_DIR/tak/"
   done
   rm -rf "$PRESERVE_DIR"
 
   echo "  Application files updated. Certs, config, and logs preserved."
 else
   echo "▸ Fresh install — extracting tak/ directory..."
-  cp -a "$RELEASE_DIR/tak" "$SCRIPT_DIR/tak"
+  cp -a "$RELEASE_DIR/tak" "$TARGET_DIR/tak"
 
   # The tak.gov release may contain cert files from their build process.
   # Remove them so FastTAK generates a fresh CA on first boot.
-  if [ -d "$SCRIPT_DIR/tak/certs/files" ]; then
-    rm -f "$SCRIPT_DIR/tak/certs/files"/*.pem \
-          "$SCRIPT_DIR/tak/certs/files"/*.key \
-          "$SCRIPT_DIR/tak/certs/files"/*.jks \
-          "$SCRIPT_DIR/tak/certs/files"/*.p12 \
-          "$SCRIPT_DIR/tak/certs/files"/*.csr \
-          "$SCRIPT_DIR/tak/certs/files"/*.cfg \
-          "$SCRIPT_DIR/tak/certs/files"/*.crl \
-          "$SCRIPT_DIR/tak/certs/files"/*.txt \
-          "$SCRIPT_DIR/tak/certs/files"/*.attr 2>/dev/null
+  if [ -d "$TARGET_DIR/tak/certs/files" ]; then
+    rm -f "$TARGET_DIR/tak/certs/files"/*.pem \
+          "$TARGET_DIR/tak/certs/files"/*.key \
+          "$TARGET_DIR/tak/certs/files"/*.jks \
+          "$TARGET_DIR/tak/certs/files"/*.p12 \
+          "$TARGET_DIR/tak/certs/files"/*.csr \
+          "$TARGET_DIR/tak/certs/files"/*.cfg \
+          "$TARGET_DIR/tak/certs/files"/*.crl \
+          "$TARGET_DIR/tak/certs/files"/*.txt \
+          "$TARGET_DIR/tak/certs/files"/*.attr 2>/dev/null
   fi
   echo "  Done."
 fi
 
 # ── Handle .env ──────────────────────────────────────────────────────────────
-if [ ! -f "$SCRIPT_DIR/.env" ]; then
+if [ ! -f "$TARGET_DIR/.env" ]; then
   echo ""
   echo "▸ Creating .env and generating secrets..."
-  cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
-  sed -i.bak "s/^TAK_VERSION=.*/TAK_VERSION=${VERSION}/" "$SCRIPT_DIR/.env"
-  rm -f "$SCRIPT_DIR/.env.bak"
+  cp "$SCRIPT_DIR/.env.example" "$TARGET_DIR/.env"
+  sed -i.bak "s/^TAK_VERSION=.*/TAK_VERSION=${VERSION}/" "$TARGET_DIR/.env"
+  rm -f "$TARGET_DIR/.env.bak"
 
   # Fill empty values with generated secrets
   fill_secret() {
     local key="$1" val="$2"
-    sed -i.bak "s|^${key}=$|${key}=${val}|" "$SCRIPT_DIR/.env"
-    rm -f "$SCRIPT_DIR/.env.bak"
+    sed -i.bak "s|^${key}=$|${key}=${val}|" "$TARGET_DIR/.env"
+    rm -f "$TARGET_DIR/.env.bak"
   }
 
   fill_secret TAK_DB_PASSWORD "$(openssl rand -hex 16)"
@@ -114,17 +129,17 @@ if [ ! -f "$SCRIPT_DIR/.env" ]; then
   echo "  All secrets generated on this device."
 else
   # Upgrade: update TAK_VERSION if changed
-  CURRENT_VERSION=$(grep '^TAK_VERSION=' "$SCRIPT_DIR/.env" | cut -d= -f2)
+  CURRENT_VERSION=$(grep '^TAK_VERSION=' "$TARGET_DIR/.env" | cut -d= -f2)
   if [ "$CURRENT_VERSION" != "$VERSION" ]; then
-    sed -i.bak "s/^TAK_VERSION=.*/TAK_VERSION=${VERSION}/" "$SCRIPT_DIR/.env"
-    rm -f "$SCRIPT_DIR/.env.bak"
+    sed -i.bak "s/^TAK_VERSION=.*/TAK_VERSION=${VERSION}/" "$TARGET_DIR/.env"
+    rm -f "$TARGET_DIR/.env.bak"
     echo ""
     echo "▸ Updated TAK_VERSION in .env: ${CURRENT_VERSION} → ${VERSION}"
   fi
 fi
 
 # ── Verify ───────────────────────────────────────────────────────────────────
-ENV_VERSION=$(grep '^TAK_VERSION=' "$SCRIPT_DIR/.env" | cut -d= -f2)
+ENV_VERSION=$(grep '^TAK_VERSION=' "$TARGET_DIR/.env" | cut -d= -f2)
 if [ "$ENV_VERSION" != "$VERSION" ]; then
   echo ""
   echo "  ⚠ WARNING: .env has TAK_VERSION=${ENV_VERSION} but images are ${VERSION}"
@@ -137,8 +152,8 @@ echo "║          Setup Complete                  ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Images:    takserver:${VERSION}  takserver-database:${VERSION}"
-echo "  TAK dir:   ./tak/"
-echo "  Config:    .env"
+echo "  TAK dir:   ${TARGET_DIR}/tak/"
+echo "  Config:    ${TARGET_DIR}/.env"
 echo ""
 echo "  ┌─────────────────────────────────────────────────────┐"
 echo "  │ BEFORE YOU START:                                   │"
