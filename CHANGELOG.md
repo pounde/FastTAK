@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.4.0 (2026-03-27)
+
+### Chores
+
+- Add unit tests to pre-commit hook, style fixes
+  ([`3a7f3fe`](https://github.com/pounde/FastTAK/commit/3a7f3fef84f8bdee168426ce34ff0306d8779da4))
+
+### Features
+
+- **users**: Add user management API
+  ([`59dce17`](https://github.com/pounde/FastTAK/commit/59dce175e478f3e366bae2ad9c98d99695ed4ed0))
+
+- **users**: Isolated integration tests and setup.sh -d flag
+  ([`e7877f1`](https://github.com/pounde/FastTAK/commit/e7877f1c99072ea678d17309a30efb8ddc0434f1))
+
+
 ## v0.3.0 (2026-03-27)
 
 ### Bug Fixes
