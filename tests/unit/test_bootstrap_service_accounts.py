@@ -121,10 +121,23 @@ class TestEnsureSvcNoderedUser:
 class TestHiddenPrefixes:
     """Verify USERS_HIDDEN_PREFIXES includes svc_ convention."""
 
-    def test_settings_hide_service_accounts(self, mock_api):
+    def test_settings_hide_service_accounts(self, mock_api, tmp_path, monkeypatch):
+        import json
         import bootstrap
-        import inspect
 
-        source = inspect.getsource(bootstrap.configure_tak_portal)
-        assert "svc_" in source, "USERS_HIDDEN_PREFIXES should include svc_"
-        assert "nodered-" not in source, "Old nodered- prefix should be removed"
+        monkeypatch.setattr(bootstrap, "TAK_DIR", str(tmp_path / "tak"))
+
+        # Create the cert files that configure_tak_portal expects
+        cert_dir = tmp_path / "tak" / "certs" / "files"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "ca.pem").write_text("fake")
+        (cert_dir / "svc_fasttakapi.p12").write_bytes(b"fake")
+
+        bootstrap.configure_tak_portal("test-token")
+
+        settings = json.loads(
+            (tmp_path / "tak" / "portal" / "settings.json").read_text()
+        )
+        prefixes = settings["USERS_HIDDEN_PREFIXES"]
+        assert "svc_" in prefixes, "USERS_HIDDEN_PREFIXES should include svc_"
+        assert "nodered-" not in prefixes, "Old nodered- prefix should be removed"

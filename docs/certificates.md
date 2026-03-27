@@ -29,7 +29,7 @@ FastTAK generates its own **certificate authority (CA)** on first boot. Think of
 Root CA (root-ca.pem)
   └── Intermediate CA (ca.pem)  ← issues all certs below
         ├── Server cert (takserver.pem)  ← TAK Server's identity
-        ├── Admin cert (admin.p12)       ← browser access to web admin
+        ├── Service certs (svc_*.p12)     ← internal service accounts
         └── Client certs (alice.p12)     ← one per user/device
 ```
 
@@ -106,7 +106,8 @@ All cert files live at `./tak/certs/files/` on the host (bind-mounted into conta
 | `takserver.jks` | Server keystore (Java KeyStore format) |
 | `truststore-root.jks` | Trusted CA store for verification |
 | `ca-signing.jks` | CA keystore used for QR enrollment cert signing |
-| `admin.p12` | Admin client cert (web admin browser access) |
+| `svc_fasttakapi.p12` | API service cert (monitor → TAK Server) |
+| `svc_nodered.p12` | Node-RED service cert (automation → TAK Server) |
 | `<name>.p12` | Per-user/device client cert |
 
 ### What to protect

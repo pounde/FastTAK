@@ -163,28 +163,44 @@ assert_endpoint "/api/ops/service/tak-server/logs?tail=10" \
 echo ""
 echo "=== Testing service account cert registration ==="
 
-# Wait for register-api-cert.sh to complete (it runs in the background after TAK Server starts)
-echo "  Waiting for cert registration (up to 90s)..."
+# Wait for register-api-cert.sh to complete (it runs in the background after TAK Server starts).
+# TAK Server has a 240s start_period — it takes several minutes to fully boot, so we must
+# wait long enough for the "Server started" log line + certmod to run.
+echo "  Waiting for cert registration (up to 300s)..."
 REG_WAITED=0
-while [ $REG_WAITED -lt 90 ]; do
+while [ $REG_WAITED -lt 300 ]; do
   CERTMOD_OUT=$(${COMPOSE} exec -T tak-server \
     java -jar /opt/tak/utils/UserManager.jar certmod -s /opt/tak/certs/files/svc_fasttakapi.pem 2>&1) || true
   if echo "${CERTMOD_OUT}" | grep -q "ROLE_ADMIN"; then
     echo "  Cert registered after ${REG_WAITED}s"
     break
   fi
-  sleep 5
-  REG_WAITED=$((REG_WAITED + 5))
+  if [ $((REG_WAITED % 60)) -eq 0 ] && [ $REG_WAITED -gt 0 ]; then
+    echo "  Still waiting... (${REG_WAITED}s)"
+  fi
+  sleep 10
+  REG_WAITED=$((REG_WAITED + 10))
 done
+if [ $REG_WAITED -ge 300 ]; then
+  echo "  WARNING: cert registration timed out after 300s"
+  echo "  Last certmod output: ${CERTMOD_OUT:0:200}"
+fi
 
-# Test: svc_fasttakapi cert can call TAK Server API
-HTTP_CODE=$(${COMPOSE} exec -T tak-server \
-  curl -sk --cert-type P12 \
-    --cert /opt/tak/certs/files/svc_fasttakapi.p12:atakatak \
+# Test: svc_fasttakapi cert can call TAK Server API.
+# Use host curl against the published port (8443) with the cert from the host-side tak/ directory.
+CERT_P12="${REPO_DIR}/tak/certs/files/svc_fasttakapi.p12"
+if [ ! -f "${CERT_P12}" ]; then
+  echo "  FAIL: svc_fasttakapi.p12 not found at ${CERT_P12}"
+  FAILURES=$((FAILURES + 1))
+  HTTP_CODE="missing"
+else
+  HTTP_CODE=$(curl -sk --cert-type P12 \
+    --cert "${CERT_P12}":atakatak \
     "https://localhost:8443/Marti/api/plugins/info/all" \
     -w "%{http_code}" -o /dev/null 2>&1) || true
-# Strip to last 3 chars (the HTTP code) in case of extra output
-HTTP_CODE="${HTTP_CODE: -3}"
+  # Strip to last 3 chars (the HTTP code) in case of extra output
+  HTTP_CODE="${HTTP_CODE: -3}"
+fi
 if [ "${HTTP_CODE}" = "200" ]; then
   echo "  PASS: svc_fasttakapi cert gets 200 from TAK Server API"
 else

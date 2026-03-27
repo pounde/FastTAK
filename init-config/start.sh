@@ -83,8 +83,21 @@ if [ ! -f "${CERT_FILES}/ca.pem" ]; then
   bash ./makeCert.sh client svc_fasttakapi 2>&1 | tail -2
   bash ./makeCert.sh client svc_nodered 2>&1 | tail -2
   cd /
-
   echo "[init] Certificates generated"
+fi
+
+# Generate any missing service certs (handles upgrades where CA already exists)
+if [ -f "${CERT_FILES}/ca.pem" ]; then
+  export STATE="${STATE:-XX}"
+  export CITY="${CITY:-Default}"
+  export ORGANIZATIONAL_UNIT="${ORGANIZATIONAL_UNIT:-FastTAK}"
+  for svc_cert in svc_fasttakapi svc_nodered; do
+    if [ ! -f "${CERT_FILES}/${svc_cert}.pem" ]; then
+      echo "[init] Generating missing cert: ${svc_cert}"
+      cd "${CERT_DIR}" && bash ./makeCert.sh client "${svc_cert}" 2>&1 | tail -2
+      cd /
+    fi
+  done
 fi
 
 # ── 5. Create CA signing keystore ────────────────────────────────────────────

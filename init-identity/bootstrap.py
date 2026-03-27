@@ -610,7 +610,7 @@ def configure_tak_portal(token: str) -> None:
 
     # Copy svc_fasttakapi.p12 for TAK API access
     p12_src = f"{TAK_DIR}/certs/files/svc_fasttakapi.p12"
-    p12_dst = f"{certs_dir}/webadmin.p12"
+    p12_dst = f"{certs_dir}/svc_fasttakapi.p12"
     if os.path.isfile(p12_src):
         shutil.copy2(p12_src, p12_dst)
         log.info("Copied svc_fasttakapi.p12 to %s", p12_dst)
@@ -634,7 +634,7 @@ def configure_tak_portal(token: str) -> None:
         "PORTAL_AUTH_ENABLED": "false",
         "PORTAL_AUTH_REQUIRED_GROUP": "",
         "TAK_URL": "https://tak-server:8443/Marti",
-        "TAK_API_P12_PATH": "./data/certs/webadmin.p12",
+        "TAK_API_P12_PATH": "./data/certs/svc_fasttakapi.p12",
         "TAK_API_P12_PASSPHRASE": "atakatak",
         "TAK_CA_PATH": "./data/certs/tak-ca.pem",
         "TAK_REVOKE_ON_DISABLE": "true",

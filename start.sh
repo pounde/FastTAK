@@ -203,8 +203,8 @@ log "────────────"
 assert_file "tak/certs/files/root-ca.pem" "Root CA"
 assert_file "tak/certs/files/ca.pem" "Intermediate CA"
 assert_file "tak/certs/files/takserver.jks" "Server cert"
-assert_file "tak/certs/files/admin.p12" "Admin cert"
-assert_file "tak/certs/files/nodered.p12" "Node-RED cert"
+assert_file "tak/certs/files/svc_fasttakapi.p12" "API service cert"
+assert_file "tak/certs/files/svc_nodered.p12" "Node-RED service cert"
 assert_file "tak/certs/files/ca-signing.jks" "CA signing keystore"
 if ./certs.sh ca-info > /dev/null 2>&1; then pass "certs.sh ca-info"; else fail "certs.sh ca-info"; fi
 if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs.sh list"; fi
@@ -248,7 +248,7 @@ log "──────"
 
 assert_file "tak/portal/settings.json" "Portal settings.json"
 assert_file "tak/portal/certs/tak-ca.pem" "Portal CA cert"
-assert_file "tak/portal/certs/webadmin.p12" "Portal admin cert"
+assert_file "tak/portal/certs/svc_fasttakapi.p12" "Portal API service cert"
 
 PORTAL_HTTP="000"
 for _ in $(seq 1 12); do

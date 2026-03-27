@@ -27,5 +27,16 @@ done
 
 echo "[register-api-cert] TAK Server ready — registering svc_fasttakapi cert"
 cd /opt/tak
-java -jar utils/UserManager.jar certmod -A "${CERT_FILE}" 2>&1
+# Retry certmod until it succeeds — same pattern as TAK Server's enable_admin.sh.
+# The database may not be fully ready even after NioServer logs "Server started".
+RETRIES=0
+MAX_RETRIES=12  # 60 seconds
+until java -jar utils/UserManager.jar certmod -A "${CERT_FILE}" 2>&1; do
+  RETRIES=$((RETRIES + 1))
+  if [ ${RETRIES} -ge ${MAX_RETRIES} ]; then
+    echo "[register-api-cert] ERROR: certmod failed after ${MAX_RETRIES} retries" >&2
+    exit 1
+  fi
+  sleep 5
+done
 echo "[register-api-cert] Done"
