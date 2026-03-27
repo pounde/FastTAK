@@ -26,7 +26,7 @@ while ! grep -q "${READY_PATTERN}" "${LOG_FILE}" 2>/dev/null; do
 done
 
 echo "[register-api-cert] TAK Server ready — registering svc_fasttakapi cert"
-cd /opt/tak
+cd /opt/tak || exit 1
 # Retry certmod until it succeeds — same pattern as TAK Server's enable_admin.sh.
 # The database may not be fully ready even after NioServer logs "Server started".
 RETRIES=0
