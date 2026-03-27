@@ -1,0 +1,156 @@
+"""TAK Server REST API client for cert and group operations via mTLS."""
+
+import atexit
+import logging
+import os
+import ssl
+import tempfile
+from pathlib import Path
+
+import httpx
+
+log = logging.getLogger(__name__)
+
+_TIMEOUT = 30
+
+
+class TakServerClient:
+    """Client for TAK Server's certadmin and groups API on port 8443."""
+
+    def __init__(self, base_url: str, cert_path: str, cert_password: str):
+        self.base_url = base_url.rstrip("/")
+        self.cert_path = cert_path
+        self.cert_password = cert_password
+        self._ssl_context: ssl.SSLContext | None = None
+        self._cert_pem_path: str | None = None
+        self._key_pem_path: str | None = None
+        self._client: httpx.Client | None = None
+        self._init_ssl()
+
+    def _init_ssl(self) -> None:
+        """Extract PEM from .p12 once and create reusable SSL context and client."""
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding,
+            NoEncryption,
+            PrivateFormat,
+            pkcs12,
+        )
+
+        p12_path = Path(self.cert_path)
+        if not p12_path.exists():
+            log.warning("TAK API cert not found at %s", self.cert_path)
+            return
+
+        with open(p12_path, "rb") as f:
+            p12_data = f.read()
+
+        private_key, certificate, chain = pkcs12.load_key_and_certificates(
+            p12_data, self.cert_password.encode()
+        )
+
+        # Write PEM files (persist for lifetime of this client, cleaned up on exit)
+        cert_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
+        cert_file.write(certificate.public_bytes(Encoding.PEM))
+        if chain:
+            for c in chain:
+                cert_file.write(c.public_bytes(Encoding.PEM))
+        cert_file.close()
+        self._cert_pem_path = cert_file.name
+        os.chmod(self._cert_pem_path, 0o600)
+
+        key_file = tempfile.NamedTemporaryFile(suffix=".pem", delete=False)
+        key_file.write(
+            private_key.private_bytes(
+                Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption()
+            )
+        )
+        key_file.close()
+        self._key_pem_path = key_file.name
+        os.chmod(self._key_pem_path, 0o600)
+
+        # Register cleanup so temp files are removed when the process exits
+        atexit.register(self.close)
+
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE  # TAK Server uses self-signed CA
+        ctx.load_cert_chain(self._cert_pem_path, self._key_pem_path)
+        self._ssl_context = ctx
+
+        self._client = httpx.Client(verify=self._ssl_context, timeout=_TIMEOUT)
+
+    def close(self) -> None:
+        """Close the HTTP client and delete temp PEM files."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+        for path in (self._cert_pem_path, self._key_pem_path):
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+        self._cert_pem_path = None
+        self._key_pem_path = None
+
+    def _get(self, path: str, params: dict | None = None) -> dict:
+        if not self._client:
+            raise RuntimeError("TAK Server client not initialized — check cert path")
+        r = self._client.get(f"{self.base_url}{path}", params=params)
+        r.raise_for_status()
+        return r.json()
+
+    def _delete(self, path: str) -> None:
+        if not self._client:
+            raise RuntimeError("TAK Server client not initialized — check cert path")
+        r = self._client.delete(f"{self.base_url}{path}")
+        r.raise_for_status()
+
+    def list_user_certs(self, username: str) -> list[dict]:
+        """List certs for a user by CN match."""
+        try:
+            data = self._get("/Marti/api/certadmin/cert", params={"username": username})
+        except httpx.HTTPError:
+            log.warning("Failed to query certs for %s", username)
+            return []
+        return [
+            {
+                "id": c["id"],
+                "hash": c.get("hash", ""),
+                "issuance_date": c.get("issuanceDate"),
+                "expiration_date": c.get("expirationDate"),
+                "revocation_date": c.get("revocationDate"),
+            }
+            for c in data.get("data", [])
+        ]
+
+    def revoke_cert(self, cert_id: int) -> bool:
+        """Revoke a cert by ID. Returns True on success."""
+        try:
+            self._delete(f"/Marti/api/certadmin/cert/revoke/{cert_id}")
+            return True
+        except httpx.HTTPError as exc:
+            log.error("Failed to revoke cert %d: %s", cert_id, exc)
+            return False
+
+    def revoke_all_user_certs(self, username: str) -> bool:
+        """Revoke all active certs for a user. Returns True if all succeeded."""
+        certs = self.list_user_certs(username)
+        if not certs:
+            return True
+        all_ok = True
+        for cert in certs:
+            if cert.get("revocation_date") is not None:
+                continue
+            if not self.revoke_cert(cert["id"]):
+                all_ok = False
+        return all_ok
+
+    def list_groups(self) -> list[dict]:
+        """List all groups from TAK Server."""
+        try:
+            data = self._get("/Marti/api/groups/all", params={"useCache": "false"})
+            return data.get("data", [])
+        except httpx.HTTPError:
+            log.warning("Failed to query TAK Server groups")
+            return []

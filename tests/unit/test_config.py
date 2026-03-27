@@ -30,3 +30,15 @@ class TestSettings:
         s = Settings()
         assert s.health_check_interval == 120
         assert isinstance(s.health_check_interval, int)
+
+    def test_user_management_defaults(self):
+        s = Settings()
+        assert s.authentik_url == "http://authentik-server:9000"
+        assert s.authentik_api_token == ""
+        assert s.tak_server_url == "https://tak-server:8443"
+        assert s.tak_api_cert_path == ""
+        assert s.tak_api_cert_password == "atakatak"
+        assert s.users_hidden_prefixes == "ak-,adm_,svc_,ma-"
+        assert s.user_expiry_check_interval == 60
+        assert s.enrollment_ttl_minutes == 15
+        assert s.tak_enrollment_port == 8446

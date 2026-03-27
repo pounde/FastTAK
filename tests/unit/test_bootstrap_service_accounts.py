@@ -6,7 +6,7 @@ users matching cert CNs for x509groups resolution.
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -123,6 +123,7 @@ class TestHiddenPrefixes:
 
     def test_settings_hide_service_accounts(self, mock_api, tmp_path, monkeypatch):
         import json
+
         import bootstrap
 
         monkeypatch.setattr(bootstrap, "TAK_DIR", str(tmp_path / "tak"))
@@ -135,9 +136,7 @@ class TestHiddenPrefixes:
 
         bootstrap.configure_tak_portal("test-token")
 
-        settings = json.loads(
-            (tmp_path / "tak" / "portal" / "settings.json").read_text()
-        )
+        settings = json.loads((tmp_path / "tak" / "portal" / "settings.json").read_text())
         prefixes = settings["USERS_HIDDEN_PREFIXES"]
         assert "svc_" in prefixes, "USERS_HIDDEN_PREFIXES should include svc_"
         assert "nodered-" not in prefixes, "Old nodered- prefix should be removed"
