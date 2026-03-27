@@ -2,6 +2,55 @@
 
 <!-- version list -->
 
+## v0.3.0 (2026-03-27)
+
+### Bug Fixes
+
+- Add curl to monitor container for debugging and integration tests
+  ([`1a15a33`](https://github.com/pounde/FastTAK/commit/1a15a33292b621459d9989a3e65a6a4fc5f0439e))
+
+- Cert registration retry, upgrade-path generation, and review fixes
+  ([`10413a4`](https://github.com/pounde/FastTAK/commit/10413a4c3e8c5d85ff10ed1f8ae530dfe583a6e3))
+
+- Handle cd failure in register-api-cert script
+  ([`0b389d5`](https://github.com/pounde/FastTAK/commit/0b389d5f0eb94c5748d9a16147ec9169a451096d))
+
+- Improve cert registration wait loop and HTTP code parsing
+  ([`a62b4f2`](https://github.com/pounde/FastTAK/commit/a62b4f2426a00ee5a3a72aaa5356575b3defb5bb))
+
+- Prevent LDAP startup race with health check and depends_on
+  ([`c3c5baf`](https://github.com/pounde/FastTAK/commit/c3c5bafd33c31ea45fd7f4dd5a23c833a418a4a0))
+
+- Wait for cert registration before testing and add curl to monitor
+  ([`58b6735`](https://github.com/pounde/FastTAK/commit/58b6735421ea8a998ad7f2d197a61e91a1e92018))
+
+### Chores
+
+- **ci**: Bump actions to Node.js 24 versions
+  ([`acaad4a`](https://github.com/pounde/FastTAK/commit/acaad4a449f2f704d68815065ca6221a8e5acba3))
+
+### Features
+
+- Add svc_fasttakapi service account, rename nodered to svc_nodered
+  ([`b85040d`](https://github.com/pounde/FastTAK/commit/b85040dd9a0c191d338203471156dcf4a17adabd))
+
+- Register API service cert on TAK Server startup
+  ([`719a902`](https://github.com/pounde/FastTAK/commit/719a902a319b98dad02978c09c4cbb922ecfc243))
+
+### Refactoring
+
+- Rename nodered cert to svc_nodered
+  ([`bd2dc48`](https://github.com/pounde/FastTAK/commit/bd2dc48174bbc87bce03694864ac2ce1048b558f))
+
+- Rename service account certs to svc_ convention
+  ([`f658f2e`](https://github.com/pounde/FastTAK/commit/f658f2e9e5b202567c224823199fdbe5576c634e))
+
+### Testing
+
+- Add service account cert and passwordless auth integration tests
+  ([`4c4653c`](https://github.com/pounde/FastTAK/commit/4c4653c8f82e9dc821e03a388e853f2de7dcf6d7))
+
+
 ## v0.2.0 (2026-03-25)
 
 ### Documentation
