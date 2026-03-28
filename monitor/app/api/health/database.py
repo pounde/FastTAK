@@ -1,40 +1,13 @@
-"""CoT database size query via docker exec."""
+"""CoT database size query via direct PostgreSQL connection."""
 
-from app.config import settings
-from app.docker_client import find_container
-
-
-def _get_db_password() -> str:
-    return settings.tak_db_password
+from app.db import query
 
 
 def get_cot_db_size() -> dict:
-    """Query CoT database size via psql inside tak-database container."""
-    container = find_container("tak-database")
-    if container is None:
-        return {"error": "tak-database container not found"}
-
+    """Query CoT database size."""
     try:
-        exit_code, output = container.exec_run(
-            [
-                "psql",
-                "-h",
-                "localhost",
-                "-U",
-                "martiuser",
-                "-d",
-                "cot",
-                "-t",
-                "-A",
-                "-c",
-                "SELECT pg_database_size('cot')",
-            ],
-            environment={"PGPASSWORD": _get_db_password()},
-        )
-        if exit_code != 0:
-            return {"error": f"psql failed: {output.decode()[:200]}"}
-
-        size_bytes = int(output.decode().strip())
+        rows = query("SELECT pg_database_size('cot')")
+        size_bytes = int(rows[0][0])
         return {
             "size_bytes": size_bytes,
             "size_human": _human_size(size_bytes),

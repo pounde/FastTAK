@@ -92,8 +92,8 @@ def certs_revoke(name: str):
 
 
 @router.post("/database/vacuum")
-def db_vacuum(full: bool = False):
-    result = vacuum_database(full=full)
+def db_vacuum():
+    result = vacuum_database()
     if not result.get("success", True):
         raise HTTPException(500, result.get("error", "Unknown error"))
     return result

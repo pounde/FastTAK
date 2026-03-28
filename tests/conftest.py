@@ -18,6 +18,7 @@ def mock_settings(monkeypatch):
     test_settings = Settings(
         fqdn="test.example.com",
         tak_db_password="testpass",
+        tak_db_url="",
         cert_warn_days=30,
         health_check_interval=60,
         authentik_url="http://authentik-test:9000",
@@ -29,6 +30,7 @@ def mock_settings(monkeypatch):
         user_expiry_check_interval=60,
         enrollment_ttl_minutes=15,
         tak_enrollment_port=8446,
+        autovacuum_min_dead_tuples=1000,
     )
     monkeypatch.setattr("app.config.settings", test_settings)
     return test_settings
