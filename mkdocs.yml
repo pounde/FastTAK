@@ -19,6 +19,8 @@ nav:
     - Authentication: authentication.md
     - Certificates: certificates.md
     - Node-RED: nodered.md
+    - Configuration: configuration.md
+    - Database Management: database-management.md
 
 markdown_extensions:
   - admonition

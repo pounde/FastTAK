@@ -1,6 +1,6 @@
 """Tests for /api/health/* endpoints."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 class TestPing:
@@ -29,8 +29,8 @@ class TestHealthContainers:
         resp = client.get("/api/health/containers")
         assert resp.status_code == 200
         data = resp.json()
-        assert isinstance(data, list)
-        assert data[0]["name"] == "tak-server"
+        assert "items" in data
+        assert data["items"][0]["name"] == "tak-server"
 
 
 class TestHealthResources:
@@ -61,26 +61,31 @@ class TestHealthResources:
 class TestHealthConfig:
     @patch(
         "app.api.health.router.check_config_drift",
-        return_value={"status": "ok", "message": "unchanged"},
+        return_value={"changed": False},
     )
     def test_returns_config_status(self, mock_drift, client):
         resp = client.get("/api/health/config")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert resp.json()["changed"] is False
 
 
 class TestHealthCerts:
-    @patch("app.api.health.certs.get_cert_status", return_value=[])
+    @patch("app.api.health.certs.get_cert_status", return_value={"items": []})
     def test_returns_cert_list(self, mock_certs, client):
         resp = client.get("/api/health/certs")
         assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+        assert "items" in resp.json()
 
 
 class TestHealthDatabase:
     @patch(
         "app.api.health.router.get_cot_db_size",
-        return_value={"size_bytes": 1000, "size_human": "1.0 KB", "status": "ok"},
+        return_value={
+            "size_bytes": 1000,
+            "size_human": "1.0 KB",
+            "live_bytes": 500,
+            "live_human": "500.0 B",
+        },
     )
     def test_returns_db_size(self, mock_db, client):
         resp = client.get("/api/health/database")
@@ -89,21 +94,21 @@ class TestHealthDatabase:
 
 
 class TestHealthDisk:
-    @patch("app.api.health.disk.get_disk_usage", return_value=[])
+    @patch("app.api.health.disk.get_disk_usage", return_value={"items": []})
     def test_returns_disk_usage(self, mock_disk, client):
         resp = client.get("/api/health/disk")
         assert resp.status_code == 200
 
 
 class TestHealthUpdates:
-    @patch("app.api.health.updates.check_updates", new_callable=AsyncMock, return_value=[])
+    @patch("app.api.health.updates.check_updates", return_value={"items": []})
     def test_returns_update_list(self, mock_updates, client):
         resp = client.get("/api/health/updates")
         assert resp.status_code == 200
 
 
 class TestHealthTls:
-    @patch("app.api.health.tls.get_tls_status", return_value=[])
+    @patch("app.api.health.tls.get_tls_status", return_value={"items": []})
     def test_returns_tls_status(self, mock_tls, client):
         resp = client.get("/api/health/tls")
         assert resp.status_code == 200

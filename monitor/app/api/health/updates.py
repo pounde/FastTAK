@@ -1,8 +1,5 @@
 """Check GitHub for newer releases of stack components."""
 
-import time
-from typing import Any
-
 import httpx
 
 from app.config import settings
@@ -29,23 +26,13 @@ def _extract_version(tag: str) -> str:
     return tag
 
 
-_cache: dict[str, Any] = {}
-_cache_time: float = 0
-CACHE_TTL = 3600  # 1 hour
-
-
-async def check_updates() -> list[dict]:
+def check_updates() -> dict:
     """Check GitHub for latest releases of each component."""
-    global _cache, _cache_time
-
-    if _cache and (time.time() - _cache_time) < CACHE_TTL:
-        return _cache.get("results", [])
-
     results = []
-    async with httpx.AsyncClient(timeout=15) as client:
+    with httpx.Client(timeout=15) as client:
         for name, (repo, current) in COMPONENTS.items():
             try:
-                resp = await client.get(
+                resp = client.get(
                     f"https://api.github.com/repos/{repo}/releases/latest",
                     headers={"Accept": "application/vnd.github.v3+json"},
                 )
@@ -86,6 +73,4 @@ async def check_updates() -> list[dict]:
                     }
                 )
 
-    _cache = {"results": results}
-    _cache_time = time.time()
-    return results
+    return {"items": results}

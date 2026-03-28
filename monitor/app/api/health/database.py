@@ -8,16 +8,15 @@ def get_cot_db_size() -> dict:
     try:
         rows = query("SELECT pg_database_size('cot')")
         size_bytes = int(rows[0][0])
+        live_rows = query(
+            "SELECT COALESCE(SUM(pg_total_relation_size(relid)), 0) FROM pg_stat_user_tables"
+        )
+        live_bytes = int(live_rows[0][0])
         return {
             "size_bytes": size_bytes,
             "size_human": _human_size(size_bytes),
-            "status": (
-                "critical"
-                if size_bytes > 40_000_000_000
-                else "warning"
-                if size_bytes > 25_000_000_000
-                else "ok"
-            ),
+            "live_bytes": live_bytes,
+            "live_human": _human_size(live_bytes),
         }
     except Exception as e:
         return {"error": str(e)[:200]}

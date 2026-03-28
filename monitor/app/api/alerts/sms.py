@@ -5,7 +5,7 @@ import httpx
 from app.config import settings
 
 
-async def send_alert_sms(message: str) -> bool:
+def send_alert_sms(message: str) -> bool:
     """Send SMS to configured numbers. Returns True on success."""
     if not settings.sms_provider or not settings.sms_to:
         return False
@@ -13,13 +13,13 @@ async def send_alert_sms(message: str) -> bool:
     numbers = [n.strip() for n in settings.sms_to.split(",") if n.strip()]
 
     if settings.sms_provider == "twilio":
-        return await _send_twilio(message, numbers)
+        return _send_twilio(message, numbers)
     elif settings.sms_provider == "brevo":
-        return await _send_brevo(message, numbers)
+        return _send_brevo(message, numbers)
     return False
 
 
-async def _send_twilio(message: str, numbers: list[str]) -> bool:
+def _send_twilio(message: str, numbers: list[str]) -> bool:
     # sms_api_key format: "account_sid:auth_token"
     parts = settings.sms_api_key.split(":", 1)
     if len(parts) != 2:
@@ -28,9 +28,9 @@ async def _send_twilio(message: str, numbers: list[str]) -> bool:
     url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
 
     success = True
-    async with httpx.AsyncClient(timeout=10) as client:
+    with httpx.Client(timeout=10) as client:
         for number in numbers:
-            resp = await client.post(
+            resp = client.post(
                 url,
                 auth=(account_sid, auth_token),
                 data={
@@ -44,14 +44,14 @@ async def _send_twilio(message: str, numbers: list[str]) -> bool:
     return success
 
 
-async def _send_brevo(message: str, numbers: list[str]) -> bool:
+def _send_brevo(message: str, numbers: list[str]) -> bool:
     url = "https://api.brevo.com/v3/transactionalSMS/sms"
     headers = {"api-key": settings.sms_api_key, "Content-Type": "application/json"}
 
     success = True
-    async with httpx.AsyncClient(timeout=10) as client:
+    with httpx.Client(timeout=10) as client:
         for number in numbers:
-            resp = await client.post(
+            resp = client.post(
                 url,
                 headers=headers,
                 json={

@@ -3,28 +3,38 @@
 from app.docker_client import discover_services, find_container
 
 
-def get_all_container_health() -> list[dict]:
+def get_all_container_health() -> dict:
     """Return health status for all FastTAK containers."""
-    results = []
-    for name in discover_services():
-        container = find_container(name)
-        if container is None:
-            results.append({"name": name, "status": "not_found", "health": "unknown"})
-            continue
+    try:
+        results = []
+        for name in discover_services():
+            container = find_container(name)
+            if container is None:
+                results.append({"name": name, "status": "not_found", "health": "unknown"})
+                continue
 
-        health = "unknown"
-        if container.attrs.get("State", {}).get("Health"):
-            health = container.attrs["State"]["Health"].get("Status", "unknown")
+            # Skip init containers that exited successfully — they're
+            # one-shot by design, not a health concern.
+            if container.status == "exited":
+                exit_code = container.attrs.get("State", {}).get("ExitCode", -1)
+                if exit_code == 0:
+                    continue
 
-        results.append(
-            {
-                "name": name,
-                "status": container.status,  # running, exited, etc.
-                "health": health,  # healthy, unhealthy, starting, none
-                "image": container.image.tags[0] if container.image.tags else "",
-            }
-        )
-    return results
+            health = "unknown"
+            if container.attrs.get("State", {}).get("Health"):
+                health = container.attrs["State"]["Health"].get("Status", "unknown")
+
+            results.append(
+                {
+                    "name": name,
+                    "status": container.status,  # running, exited, etc.
+                    "health": health,  # healthy, unhealthy, starting, none
+                    "image": container.image.tags[0] if container.image.tags else "",
+                }
+            )
+        return {"items": results}
+    except Exception:
+        return {"error": "Docker not available"}
 
 
 def get_container_stats(name: str) -> dict | None:

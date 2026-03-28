@@ -223,11 +223,15 @@ if [ -n "$COT_RETENTION_DAYS" ] || [ -n "$GEOCHAT_RETENTION_DAYS" ]; then
     RETENTION_CRON="${RETENTION_CRON:-0 0 3 * * ?}"
 fi
 
-COT_RET="${COT_RETENTION_DAYS:-null}"
-GEOCHAT_RET="${GEOCHAT_RETENTION_DAYS:-null}"
-RET_CRON="${RETENTION_CRON:--}"
+# Only overwrite retention YAML files if env vars are explicitly set.
+# This preserves manual edits to the YAML for operators who configure
+# retention directly instead of through .env.
+if [ -n "$COT_RETENTION_DAYS" ] || [ -n "$GEOCHAT_RETENTION_DAYS" ] || [ -n "$RETENTION_CRON" ]; then
+    COT_RET="${COT_RETENTION_DAYS:-null}"
+    GEOCHAT_RET="${GEOCHAT_RETENTION_DAYS:-null}"
+    RET_CRON="${RETENTION_CRON:--}"
 
-cat > "${TAK_DIR}/conf/retention/retention-policy.yml" << EOF
+    cat > "${TAK_DIR}/conf/retention/retention-policy.yml" << EOF
 ---
 dataRetentionMap:
   cot: ${COT_RET}
@@ -237,12 +241,15 @@ dataRetentionMap:
   geochat: ${GEOCHAT_RET}
 EOF
 
-cat > "${TAK_DIR}/conf/retention/retention-service.yml" << EOF
+    cat > "${TAK_DIR}/conf/retention/retention-service.yml" << EOF
 ---
 cronExpression: "${RET_CRON}"
 EOF
 
-echo "[init] Retention policy templated (cot=${COT_RET}, geochat=${GEOCHAT_RET}, cron=${RET_CRON})"
+    echo "[init] Retention policy templated (cot=${COT_RET}, geochat=${GEOCHAT_RET}, cron=${RET_CRON})"
+else
+    echo "[init] Retention policy unchanged (no .env overrides set)"
+fi
 
 # ── 10. Upgrade .p12 files to modern ciphers ───────────────────────────────────
 # TAK's cert tools use legacy RC2-40 which modern OpenSSL 3.x rejects.

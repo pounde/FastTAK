@@ -129,29 +129,25 @@
     <h2>Database</h2>
 
     <div class="card" style="max-width: 480px;" x-data="{
-        fullVacuum: false,
         result: '',
         loading: false,
         async run() {
+            if (!confirm('VACUUM FULL locks the database. All TAK clients will be unable to send or receive data until it completes. Continue?')) return;
             this.loading = true; this.result = '';
             try {
-                const url = '/api/ops/database/vacuum' + (this.fullVacuum ? '?full=true' : '');
-                const r = await fetch(url, {method: 'POST'});
+                const r = await fetch('/api/ops/database/vacuum', {method: 'POST'});
                 const d = await r.json();
                 this.result = JSON.stringify(d, null, 2);
             } catch(e) { this.result = 'Error: ' + e.message; }
             finally { this.loading = false; }
         }
     }">
-        <div class="card-title">VACUUM (CoT Database)
-            <span class="help-tip">?<span class="tip-text">Reclaim disk space and update query planner statistics. Standard VACUUM runs concurrently and is safe during normal operation. FULL rewrites the entire table — reclaims more space but locks the database, blocking TAK Server writes until complete.</span></span>
+        <div class="card-title">VACUUM FULL
+            <span class="help-tip">?<span class="tip-text">Locks the database for the duration of the operation. Use only to reclaim disk space after large deletions (e.g., after enabling retention for the first time). All TAK clients will be unable to send or receive data while this runs.</span></span>
         </div>
-        <label class="mb-8" style="display: flex; align-items: center; gap: 6px; color: #aaa; cursor: pointer;">
-            <input type="checkbox" x-model="fullVacuum"> FULL vacuum
-        </label>
         <div class="flex mb-8">
-            <button :disabled="loading" @click="run()">
-                <span x-text="loading ? 'Running...' : 'Run VACUUM'">Run VACUUM</span>
+            <button class="btn-danger" :disabled="loading" @click="run()">
+                <span x-text="loading ? 'Running...' : 'Run VACUUM FULL'">Run VACUUM FULL</span>
             </button>
         </div>
         <pre x-show="result" x-text="result" style="font-size: 12px;"></pre>

@@ -39,10 +39,7 @@ class Settings(BaseSettings):
     tak_db_url: str = ""  # Override: postgresql://user:pass@host:port/db
 
     # Monitor settings
-    health_check_interval: int = 60  # seconds
     update_check_interval: int = 21600  # 6 hours
-    cert_warn_days: int = 30
-    autovacuum_min_dead_tuples: int = 1000  # ignore tables below this for alerting
 
     # Authentik
     authentik_url: str = "http://authentik-server:9000"
