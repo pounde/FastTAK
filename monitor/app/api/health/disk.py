@@ -9,7 +9,7 @@ MOUNT_POINTS = {
 }
 
 
-def get_disk_usage() -> list[dict]:
+def get_disk_usage() -> dict:
     """Return disk usage for key mount points."""
     results = []
     seen_devices = set()
@@ -38,10 +38,9 @@ def get_disk_usage() -> list[dict]:
                     "used_gb": round(used / 1024 / 1024 / 1024, 1),
                     "free_gb": round(free / 1024 / 1024 / 1024, 1),
                     "percent": pct,
-                    "status": ("critical" if pct >= 95 else "warning" if pct >= 85 else "ok"),
                 }
             )
         except OSError:
             continue
 
-    return results
+    return {"items": results}

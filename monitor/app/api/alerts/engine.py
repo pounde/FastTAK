@@ -1,17 +1,16 @@
 """Alert engine — detects state transitions and deduplicates alerts.
 
-Called from scheduler threads (via asyncio.run) and potentially from
-async API endpoints. The email sender is blocking (smtplib) and is
-wrapped in asyncio.to_thread() to avoid stalling the event loop.
+Called from scheduler threads and potentially from API endpoints.
+All alert sending is synchronous (no async I/O).
 """
 
-import asyncio
 import threading
 import time
 from collections import defaultdict
 
 from app.api.alerts.email import send_alert_email
 from app.api.alerts.sms import send_alert_sms
+from app.status import Status
 
 _lock = threading.Lock()
 
@@ -40,8 +39,8 @@ def get_activity_log(limit: int = 50) -> list[dict]:
         return _activity_log[:limit]
 
 
-async def check_and_alert(service: str, new_state: str, detail: str = ""):
-    """Compare against last known state. Alert on transition to unhealthy.
+def check_and_alert(service: str, new_state: str, detail: str = ""):
+    """Compare against last known state. Alert on transition to warning or above.
 
     Thread-safe: all shared state access is under _lock for the full
     read-compare-update cycle (no TOCTOU gap).
@@ -59,11 +58,12 @@ async def check_and_alert(service: str, new_state: str, detail: str = ""):
         should_alert = False
         is_recovery = False
 
-        if new_state in ("unhealthy", "critical", "expired", "not_found", "exited"):
+        # Alert on any state that is warning or above
+        if Status[new_state] >= Status.warning:
             if (now - _last_alert_time[service]) >= ALERT_COOLDOWN:
                 _last_alert_time[service] = now
                 should_alert = True
-        elif old_state in ("unhealthy", "critical", "expired", "not_found", "exited"):
+        elif old_state is not None and Status[old_state] >= Status.warning:
             is_recovery = True
 
     # Record and send outside the lock (IO operations)
@@ -72,7 +72,7 @@ async def check_and_alert(service: str, new_state: str, detail: str = ""):
     if should_alert:
         subject = f"{service} is {new_state}"
         body = f"Service: {service}\nState: {old_state} → {new_state}\n{detail}"
-        await asyncio.to_thread(send_alert_email, subject, body)
-        await send_alert_sms(f"[FastTAK] {subject}")
+        send_alert_email(subject, body)
+        send_alert_sms(f"[FastTAK] {subject}")
     elif is_recovery:
         record_event(service, "recovered", f"{service} recovered: {old_state} → {new_state}")

@@ -8,8 +8,7 @@ class TestSettings:
         s = Settings()
         assert s.fqdn == "localhost"
         assert s.smtp_port == 587
-        assert s.health_check_interval == 60
-        assert s.cert_warn_days == 30
+        assert s.update_check_interval == 21600
 
     def test_loads_from_env(self, monkeypatch):
         monkeypatch.setenv("FQDN", "tak.example.com")
@@ -26,10 +25,10 @@ class TestSettings:
         assert s.fqdn == "localhost"
 
     def test_int_coercion(self, monkeypatch):
-        monkeypatch.setenv("HEALTH_CHECK_INTERVAL", "120")
+        monkeypatch.setenv("UPDATE_CHECK_INTERVAL", "3600")
         s = Settings()
-        assert s.health_check_interval == 120
-        assert isinstance(s.health_check_interval, int)
+        assert s.update_check_interval == 3600
+        assert isinstance(s.update_check_interval, int)
 
     def test_user_management_defaults(self):
         s = Settings()

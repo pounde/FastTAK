@@ -31,20 +31,17 @@ def init_config_hash():
 def check_config_drift() -> dict:
     """Compare current .env hash against startup hash."""
     if _startup_hash is None:
-        return {"status": "unavailable", "message": ".env file not mounted"}
+        return {"changed": False, "message": ".env not mounted"}
 
     current = _hash_file(ENV_FILE)
 
     if current is None:
-        return {"status": "error", "message": ".env file unreadable"}
+        return {"error": ".env file unreadable"}
 
     if current != _startup_hash:
         return {
-            "status": "changed",
-            "message": (
-                "Configuration has changed since monitor started. "
-                "Run: docker compose up -d --force-recreate init-config init-identity"
-            ),
+            "changed": True,
+            "message": "Configuration has changed since startup",
         }
 
-    return {"status": "ok", "message": "Configuration unchanged"}
+    return {"changed": False}

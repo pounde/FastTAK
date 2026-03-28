@@ -1,5 +1,6 @@
 """Tests for app.api.health.tls — TLS endpoint probing."""
 
+import re
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +29,11 @@ class TestProbeTlsExpiry:
         result = _probe_tls_expiry("test.example.com")
         assert result is not None
         assert result["days_left"] >= 89
-        assert result["status"] == "ok"
+        assert result["domain"] == "test.example.com"
+        assert "cn" not in result
+        assert "status" not in result
+        # expires is date-only: YYYY-MM-DD
+        assert re.match(r"\d{4}-\d{2}-\d{2}$", result["expires"])
 
     @patch(
         "app.api.health.tls.socket.create_connection",
@@ -47,7 +52,7 @@ class TestGetTlsStatus:
 
         from app.api.health.tls import get_tls_status
 
-        assert get_tls_status() == []
+        assert get_tls_status() == {"items": []}
 
     @patch("app.api.health.tls._probe_tls_expiry")
     def test_deduplicates_by_expiry(self, mock_probe, mock_settings, monkeypatch):
@@ -56,15 +61,13 @@ class TestGetTlsStatus:
 
         # All subdomains return the same wildcard cert expiry
         mock_probe.return_value = {
-            "hostname": "takserver.example.com",
-            "cn": "*.example.com",
-            "expires": "2027-03-23T12:00:00+00:00",
+            "domain": "takserver.example.com",
+            "expires": "2027-03-23",
             "days_left": 365,
-            "status": "ok",
         }
 
         from app.api.health.tls import get_tls_status
 
         result = get_tls_status()
         # Should be deduplicated to 1 despite 5 endpoints probed
-        assert len(result) == 1
+        assert len(result["items"]) == 1

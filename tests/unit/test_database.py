@@ -6,23 +6,20 @@ from unittest.mock import patch
 class TestGetCotDbSize:
     @patch("app.api.health.database.query")
     def test_returns_size(self, mock_query):
-        mock_query.return_value = [(1073741824,)]
+        mock_query.side_effect = [
+            [(1073741824,)],
+            [(536870912,)],
+        ]
 
         from app.api.health.database import get_cot_db_size
 
         result = get_cot_db_size()
         assert result["size_bytes"] == 1073741824
-        assert result["status"] == "ok"
+        assert result["live_bytes"] == 536870912
         assert "GB" in result["size_human"] or "MB" in result["size_human"]
-
-    @patch("app.api.health.database.query")
-    def test_warning_threshold(self, mock_query):
-        mock_query.return_value = [(30000000000,)]
-
-        from app.api.health.database import get_cot_db_size
-
-        result = get_cot_db_size()
-        assert result["status"] == "warning"
+        assert "live_bytes" in result
+        assert "live_human" in result
+        assert "status" not in result
 
     @patch("app.api.health.database.query", side_effect=Exception("connection refused"))
     def test_connection_error(self, mock_query):

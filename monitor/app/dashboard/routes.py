@@ -1,7 +1,8 @@
 """Dashboard UI routes — page routes and HTMX partial routes.
 
-The dashboard is a consumer of the API modules. It imports data functions
-from app.api.* and renders them as HTML via Jinja2 templates.
+The dashboard is a consumer of the store cache. Partial routes read from the
+in-memory store populated by the scheduler, rather than calling health
+functions directly. This avoids double-work on every page load.
 """
 
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 
+from app import store
 from app.dashboard.services import get_service_links
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -49,26 +51,29 @@ async def logs_page(request: Request):
 
 @router.get("/ui/partials/health-grid")
 def ui_health_grid(request: Request):
-    from app.api.health.containers import get_all_container_health
-
-    data = get_all_container_health()
-    return templates.TemplateResponse(request, "partials/health_grid.html", {"containers": data})
+    entry = store.get("containers")
+    data = entry["data"] if entry else {}
+    return templates.TemplateResponse(
+        request, "partials/health_grid.html", {"containers": data.get("items", [])}
+    )
 
 
 @router.get("/ui/partials/cert-status")
 def ui_cert_status(request: Request):
-    from app.api.health.certs import get_cert_status
-
-    data = get_cert_status()
-    return templates.TemplateResponse(request, "partials/cert_status.html", {"certs": data})
+    entry = store.get("certs")
+    data = entry["data"] if entry else {}
+    return templates.TemplateResponse(
+        request, "partials/cert_status.html", {"certs": data.get("items", [])}
+    )
 
 
 @router.get("/ui/partials/update-status")
-async def ui_update_status(request: Request):
-    from app.api.health.updates import check_updates
-
-    data = await check_updates()
-    return templates.TemplateResponse(request, "partials/update_status.html", {"updates": data})
+def ui_update_status(request: Request):
+    entry = store.get("updates")
+    data = entry["data"] if entry else {}
+    return templates.TemplateResponse(
+        request, "partials/update_status.html", {"updates": data.get("items", [])}
+    )
 
 
 @router.get("/ui/partials/resources")
@@ -94,23 +99,48 @@ async def ui_activity_log(request: Request):
 
 @router.get("/ui/partials/disk-usage")
 def ui_disk_usage(request: Request):
-    from app.api.health.disk import get_disk_usage
-
-    data = get_disk_usage()
-    return templates.TemplateResponse(request, "partials/disk_usage.html", {"disks": data})
+    entry = store.get("disk")
+    data = entry["data"] if entry else {}
+    return templates.TemplateResponse(
+        request, "partials/disk_usage.html", {"disks": data.get("items", [])}
+    )
 
 
 @router.get("/ui/partials/tls-status")
 def ui_tls_status(request: Request):
-    from app.api.health.tls import get_tls_status
-
-    data = get_tls_status()
-    return templates.TemplateResponse(request, "partials/tls_status.html", {"tls_certs": data})
+    entry = store.get("tls")
+    data = entry["data"] if entry else {}
+    return templates.TemplateResponse(
+        request, "partials/tls_status.html", {"tls_certs": data.get("items", [])}
+    )
 
 
 @router.get("/ui/partials/config-status")
 def ui_config_status(request: Request):
-    from app.api.health.config_drift import check_config_drift
+    entry = store.get("config")
+    data = entry["data"] if entry else {}
+    status = entry["status"] if entry else "ok"
+    return templates.TemplateResponse(
+        request, "partials/config_status.html", {"config": data, "status": status}
+    )
 
-    data = check_config_drift()
-    return templates.TemplateResponse(request, "partials/config_status.html", {"config": data})
+
+@router.get("/ui/partials/database-health")
+def ui_database_health(request: Request):
+    from app.status import Status
+
+    db_entry = store.get("database")
+    av_entry = store.get("autovacuum")
+    db_data = db_entry["data"] if db_entry else {}
+    db_status = db_entry["status"] if db_entry else "ok"
+    av_status = av_entry["status"] if av_entry else "ok"
+    combined_status = max(Status[db_status], Status[av_status]).name
+    return templates.TemplateResponse(
+        request,
+        "partials/database_health.html",
+        {
+            "db": db_data,
+            "status": combined_status,
+            "av_status": av_status,
+        },
+    )
