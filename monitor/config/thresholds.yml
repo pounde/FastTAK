@@ -1,0 +1,79 @@
+# Health monitoring configuration — thresholds, intervals, and alert levels.
+# This is the single source of truth for monitoring policy.
+# Override individual values via .env: FASTAK_MON_<SERVICE>__<KEY>=<VALUE>
+#
+# Numeric thresholds: the evaluator infers comparison direction from the values.
+#   warning < critical -> higher is worse (e.g., size, percentage)
+#   warning > critical -> lower is worse (e.g., days remaining)
+
+database:
+  interval: 60
+  alert_min_level: warning
+  thresholds:
+    size_bytes:                        # warning < critical -> higher is worse
+      warning: 25000000000             # 25 GB
+      critical: 40000000000            # 40 GB
+
+autovacuum:
+  interval: 60
+  alert_min_level: warning
+  thresholds:
+    dead_pct:                          # warning < critical -> higher is worse
+      warning: 5.0
+      critical: 15.0
+    min_dead_tuples: 1000              # filter: ignore tables below this count
+
+disk:
+  interval: 300
+  alert_min_level: warning
+  thresholds:
+    percent:                           # warning < critical -> higher is worse
+      warning: 80
+      critical: 90
+
+certs:
+  interval: 3600
+  alert_min_level: warning
+  thresholds:
+    days_left:                         # warning > critical -> lower is worse
+      warning: 30
+      critical: 7
+
+tls:
+  interval: 3600
+  alert_min_level: warning
+  thresholds:
+    days_left:                         # warning > critical -> lower is worse
+      warning: 30
+      critical: 7
+
+containers:
+  interval: 60
+  alert_min_level: warning
+  thresholds:
+    default_status: warning            # unmapped health/status values default to this
+    health:                            # evaluator checks health first
+      healthy: ok
+      starting: note
+      unhealthy: critical
+      # unknown is intentionally absent — triggers fallback to status map
+    status:                            # fallback when health is unknown (no healthcheck)
+      running: ok
+      exited: critical
+      not_found: critical
+
+config:
+  interval: 60
+  alert_min_level: note
+  thresholds:
+    changed:
+      "true": note
+      "false": ok
+
+updates:
+  interval: 21600
+  alert_min_level: note
+  thresholds:
+    update_available:
+      "true": note
+      "false": ok

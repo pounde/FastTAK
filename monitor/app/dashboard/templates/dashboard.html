@@ -41,7 +41,7 @@
         </div>
         <div
             hx-get="/ui/partials/cert-status"
-            hx-trigger="load, every 60s"
+            hx-trigger="load, every 30s"
             hx-indicator="#certs-loading">
             <span class="text-muted">Loading...</span>
         </div>
@@ -55,7 +55,7 @@
         </div>
         <div
             hx-get="/ui/partials/update-status"
-            hx-trigger="load, every 3600s"
+            hx-trigger="load, every 30s"
             hx-indicator="#updates-loading">
             <span class="text-muted">Loading...</span>
         </div>
@@ -69,7 +69,7 @@
         </div>
         <div
             hx-get="/ui/partials/disk-usage"
-            hx-trigger="load, every 60s"
+            hx-trigger="load, every 30s"
             hx-indicator="#disk-loading">
             <span class="text-muted">Loading...</span>
         </div>
@@ -83,8 +83,22 @@
         </div>
         <div
             hx-get="/ui/partials/tls-status"
-            hx-trigger="load, every 3600s"
+            hx-trigger="load, every 30s"
             hx-indicator="#tls-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Database Health -->
+    <div class="card">
+        <div class="card-title">
+            Database Health
+            <span class="htmx-indicator text-muted" id="database-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/database-health"
+            hx-trigger="load, every 30s"
+            hx-indicator="#database-loading">
             <span class="text-muted">Loading...</span>
         </div>
     </div>
@@ -111,7 +125,7 @@
         </div>
         <div
             hx-get="/ui/partials/activity-log"
-            hx-trigger="load, every 10s"
+            hx-trigger="load, every 30s"
             hx-indicator="#activity-loading">
             <span class="text-muted">Loading...</span>
         </div>

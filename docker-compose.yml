@@ -64,6 +64,9 @@ services:
     logging: *default-logging
     environment:
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
+      PG_AUTOVACUUM_SCALE_FACTOR: ${PG_AUTOVACUUM_SCALE_FACTOR:-}
+      PG_AUTOVACUUM_COST_LIMIT: ${PG_AUTOVACUUM_COST_LIMIT:-}
+      PG_MAINTENANCE_WORK_MEM: ${PG_MAINTENANCE_WORK_MEM:-}
     volumes:
       - tak-db-data:/var/lib/postgresql/data
       - *tak-mount
@@ -88,6 +91,9 @@ services:
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
       LDAP_HOST: ${LDAP_HOST:-authentik-ldap}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
+      COT_RETENTION_DAYS: ${COT_RETENTION_DAYS:-}
+      GEOCHAT_RETENTION_DAYS: ${GEOCHAT_RETENTION_DAYS:-}
+      RETENTION_CRON: ${RETENTION_CRON:-}
     volumes:
       - *tak-mount
 
@@ -323,6 +329,7 @@ services:
     environment:
       TAK_VERSION: ${TAK_VERSION}
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
+      TAK_DB_URL: ${TAK_DB_URL:-}
       AUTHENTIK_VERSION: ${AUTHENTIK_VERSION}
       MEDIAMTX_VERSION: ${MEDIAMTX_VERSION}
       NODERED_VERSION: ${NODERED_VERSION}
@@ -354,6 +361,7 @@ services:
       USER_EXPIRY_CHECK_INTERVAL: ${USER_EXPIRY_CHECK_INTERVAL:-60}
       ENROLLMENT_TTL_MINUTES: ${ENROLLMENT_TTL_MINUTES:-15}
       TAK_ENROLLMENT_PORT: ${TAK_ENROLLMENT_PORT:-8446}
+      AUTOVACUUM_MIN_DEAD_TUPLES: ${AUTOVACUUM_MIN_DEAD_TUPLES:-1000}
     ports:
       - "8180:8080"    # Direct access. Remove for production (use Caddy + Authentik).
     volumes:

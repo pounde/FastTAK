@@ -1,6 +1,6 @@
 """Tests for app.api.health.updates — version checking."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from app.api.health.updates import _extract_version
 
@@ -23,7 +23,7 @@ class TestExtractVersion:
 
 
 class TestCheckUpdates:
-    async def test_returns_results_with_mocked_httpx(self, mock_settings, monkeypatch):
+    def test_returns_items_with_mocked_httpx(self, mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.health.updates.settings", mock_settings)
         mock_settings.authentik_version = "2026.2.1"
         mock_settings.mediamtx_version = "1.15.5"
@@ -32,9 +32,6 @@ class TestCheckUpdates:
 
         from app.api.health import updates
 
-        monkeypatch.setattr(updates, "_cache", {})
-        monkeypatch.setattr(updates, "_cache_time", 0)
-        # Re-build COMPONENTS with test settings
         monkeypatch.setattr(
             updates,
             "COMPONENTS",
@@ -50,24 +47,23 @@ class TestCheckUpdates:
             "html_url": "https://example.com",
         }
 
-        mock_client = AsyncMock()
+        mock_client = MagicMock()
         mock_client.get.return_value = mock_response
 
-        with patch("app.api.health.updates.httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("app.api.health.updates.httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
+            mock_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-            results = await updates.check_updates()
-            assert len(results) > 0
-            assert results[0]["update_available"] is True
+            result = updates.check_updates()
+            assert "items" in result
+            assert len(result["items"]) > 0
+            assert result["items"][0]["update_available"] is True
 
-    async def test_handles_api_error(self, mock_settings, monkeypatch):
+    def test_handles_api_error(self, mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.health.updates.settings", mock_settings)
 
         from app.api.health import updates
 
-        monkeypatch.setattr(updates, "_cache", {})
-        monkeypatch.setattr(updates, "_cache_time", 0)
         monkeypatch.setattr(
             updates,
             "COMPONENTS",
@@ -79,12 +75,13 @@ class TestCheckUpdates:
         mock_response = MagicMock()
         mock_response.status_code = 403
 
-        mock_client = AsyncMock()
+        mock_client = MagicMock()
         mock_client.get.return_value = mock_response
 
-        with patch("app.api.health.updates.httpx.AsyncClient") as mock_cls:
-            mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("app.api.health.updates.httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__ = MagicMock(return_value=mock_client)
+            mock_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-            results = await updates.check_updates()
-            assert all(r.get("error") or not r["update_available"] for r in results)
+            result = updates.check_updates()
+            assert "items" in result
+            assert all(r.get("error") or not r["update_available"] for r in result["items"])

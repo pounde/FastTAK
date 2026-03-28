@@ -19,10 +19,11 @@ class TestGetAllContainerHealth:
         from app.api.health.containers import get_all_container_health
 
         result = get_all_container_health()
-        assert len(result) == 2
-        assert result[0]["name"] == "tak-server"
-        assert result[0]["status"] == "running"
-        assert result[0]["health"] == "healthy"
+        assert "items" in result
+        assert len(result["items"]) == 2
+        assert result["items"][0]["name"] == "tak-server"
+        assert result["items"][0]["status"] == "running"
+        assert result["items"][0]["health"] == "healthy"
 
     @patch("app.api.health.containers.discover_services", return_value=["missing-svc"])
     @patch("app.api.health.containers.find_container", return_value=None)
@@ -30,8 +31,8 @@ class TestGetAllContainerHealth:
         from app.api.health.containers import get_all_container_health
 
         result = get_all_container_health()
-        assert result[0]["status"] == "not_found"
-        assert result[0]["health"] == "unknown"
+        assert result["items"][0]["status"] == "not_found"
+        assert result["items"][0]["health"] == "unknown"
 
     @patch("app.api.health.containers.discover_services", return_value=["mediamtx"])
     @patch("app.api.health.containers.find_container")
@@ -40,7 +41,42 @@ class TestGetAllContainerHealth:
         from app.api.health.containers import get_all_container_health
 
         result = get_all_container_health()
-        assert result[0]["health"] == "unknown"
+        assert result["items"][0]["health"] == "unknown"
+
+    @patch(
+        "app.api.health.containers.discover_services", return_value=["init-config", "tak-server"]
+    )
+    @patch("app.api.health.containers.find_container")
+    def test_skips_exited_init_containers(self, mock_find, mock_discover):
+        init = make_fake_container("init-config", status="exited", health="none")
+        init.attrs["State"]["ExitCode"] = 0
+        server = make_fake_container("tak-server", status="running", health="healthy")
+        mock_find.side_effect = [init, server]
+        from app.api.health.containers import get_all_container_health
+
+        result = get_all_container_health()
+        assert len(result["items"]) == 1
+        assert result["items"][0]["name"] == "tak-server"
+
+    @patch("app.api.health.containers.discover_services", return_value=["tak-server"])
+    @patch("app.api.health.containers.find_container")
+    def test_keeps_exited_with_nonzero_exit_code(self, mock_find, mock_discover):
+        container = make_fake_container("tak-server", status="exited", health="none")
+        container.attrs["State"]["ExitCode"] = 1
+        mock_find.return_value = container
+        from app.api.health.containers import get_all_container_health
+
+        result = get_all_container_health()
+        assert len(result["items"]) == 1
+        assert result["items"][0]["status"] == "exited"
+
+    @patch("app.api.health.containers.discover_services", side_effect=Exception("Docker error"))
+    def test_returns_error_when_docker_unavailable(self, mock_discover):
+        from app.api.health.containers import get_all_container_health
+
+        result = get_all_container_health()
+        assert "error" in result
+        assert result["error"] == "Docker not available"
 
 
 class TestGetContainerStats:

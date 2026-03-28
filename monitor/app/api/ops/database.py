@@ -1,25 +1,12 @@
-"""Database maintenance operations."""
+"""Database maintenance operations via direct PostgreSQL connection."""
 
-from app.config import settings
-from app.docker_client import find_container
+from app.db import execute
 
 
-def vacuum_database(full: bool = False) -> dict:
-    """Run VACUUM on the CoT database."""
-    container = find_container("tak-database")
-    if container is None:
-        return {"success": False, "error": "tak-database container not found"}
-
-    cmd = "VACUUM FULL ANALYZE" if full else "VACUUM ANALYZE"
+def vacuum_database() -> dict:
+    """Run VACUUM FULL ANALYZE on the CoT database."""
     try:
-        exit_code, output = container.exec_run(
-            ["psql", "-h", "localhost", "-U", "martiuser", "-d", "cot", "-c", cmd],
-            environment={"PGPASSWORD": settings.tak_db_password},
-        )
-        return {
-            "success": exit_code == 0,
-            "command": cmd,
-            "output": output.decode(errors="replace")[:500],
-        }
+        execute("VACUUM FULL ANALYZE")
+        return {"success": True, "command": "VACUUM FULL ANALYZE"}
     except Exception as e:
         return {"success": False, "error": str(e)[:300]}

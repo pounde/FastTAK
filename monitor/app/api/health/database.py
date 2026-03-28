@@ -1,50 +1,22 @@
-"""CoT database size query via docker exec."""
+"""CoT database size query via direct PostgreSQL connection."""
 
-from app.config import settings
-from app.docker_client import find_container
-
-
-def _get_db_password() -> str:
-    return settings.tak_db_password
+from app.db import query
 
 
 def get_cot_db_size() -> dict:
-    """Query CoT database size via psql inside tak-database container."""
-    container = find_container("tak-database")
-    if container is None:
-        return {"error": "tak-database container not found"}
-
+    """Query CoT database size."""
     try:
-        exit_code, output = container.exec_run(
-            [
-                "psql",
-                "-h",
-                "localhost",
-                "-U",
-                "martiuser",
-                "-d",
-                "cot",
-                "-t",
-                "-A",
-                "-c",
-                "SELECT pg_database_size('cot')",
-            ],
-            environment={"PGPASSWORD": _get_db_password()},
+        rows = query("SELECT pg_database_size('cot')")
+        size_bytes = int(rows[0][0])
+        live_rows = query(
+            "SELECT COALESCE(SUM(pg_total_relation_size(relid)), 0) FROM pg_stat_user_tables"
         )
-        if exit_code != 0:
-            return {"error": f"psql failed: {output.decode()[:200]}"}
-
-        size_bytes = int(output.decode().strip())
+        live_bytes = int(live_rows[0][0])
         return {
             "size_bytes": size_bytes,
             "size_human": _human_size(size_bytes),
-            "status": (
-                "critical"
-                if size_bytes > 40_000_000_000
-                else "warning"
-                if size_bytes > 25_000_000_000
-                else "ok"
-            ),
+            "live_bytes": live_bytes,
+            "live_human": _human_size(live_bytes),
         }
     except Exception as e:
         return {"error": str(e)[:200]}

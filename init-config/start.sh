@@ -196,7 +196,55 @@ if [ -n "${LDAP_BIND_PASSWORD}" ]; then
   fi
 fi
 
-# ── 9. Upgrade .p12 files to modern ciphers ───────────────────────────────────
+# ── 9. Template retention policy ────────────────────────────────────────────
+# Configure TAK Server's built-in retention service from .env variables.
+# Unset values default to null (keep forever), matching stock TAK Server.
+
+# Validate numeric values
+for _rvar in COT_RETENTION_DAYS GEOCHAT_RETENTION_DAYS; do
+  eval _rval=\$$_rvar
+  if [ -n "$_rval" ]; then
+    case "$_rval" in
+      *[!0-9]*) echo "[init] ERROR: $_rvar must be numeric" >&2; exit 1 ;;
+    esac
+  fi
+done
+
+# Validate cron expression (basic character safety)
+if [ -n "$RETENTION_CRON" ]; then
+  case "$RETENTION_CRON" in
+    *[!0-9\ *?,/-]*) echo "[init] ERROR: RETENTION_CRON contains invalid characters" >&2; exit 1 ;;
+  esac
+fi
+
+# Auto-enable cron when any retention days are set
+# Override with RETENTION_CRON in .env (Quartz cron syntax)
+if [ -n "$COT_RETENTION_DAYS" ] || [ -n "$GEOCHAT_RETENTION_DAYS" ]; then
+    RETENTION_CRON="${RETENTION_CRON:-0 0 3 * * ?}"
+fi
+
+COT_RET="${COT_RETENTION_DAYS:-null}"
+GEOCHAT_RET="${GEOCHAT_RETENTION_DAYS:-null}"
+RET_CRON="${RETENTION_CRON:--}"
+
+cat > "${TAK_DIR}/conf/retention/retention-policy.yml" << EOF
+---
+dataRetentionMap:
+  cot: ${COT_RET}
+  files: null
+  missionpackages: null
+  missions: null
+  geochat: ${GEOCHAT_RET}
+EOF
+
+cat > "${TAK_DIR}/conf/retention/retention-service.yml" << EOF
+---
+cronExpression: "${RET_CRON}"
+EOF
+
+echo "[init] Retention policy templated (cot=${COT_RET}, geochat=${GEOCHAT_RET}, cron=${RET_CRON})"
+
+# ── 10. Upgrade .p12 files to modern ciphers ───────────────────────────────────
 # TAK's cert tools use legacy RC2-40 which modern OpenSSL 3.x rejects.
 # Re-export all .p12 files with AES-256-CBC after all cert generation is done.
 

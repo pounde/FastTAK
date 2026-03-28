@@ -1,5 +1,6 @@
 """Tests for app.api.health.certs — certificate expiry parsing."""
 
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -7,8 +8,7 @@ from unittest.mock import MagicMock, patch
 
 class TestParseCertExpiry:
     @patch("app.api.health.certs.subprocess.run")
-    def test_parses_valid_cert(self, mock_run, mock_settings, monkeypatch):
-        monkeypatch.setattr("app.api.health.certs.settings", mock_settings)
+    def test_parses_valid_cert(self, mock_run):
         future = datetime.now(UTC) + timedelta(days=365)
         expiry_str = future.strftime("%b %d %H:%M:%S %Y GMT")
         mock_run.return_value = MagicMock(
@@ -21,11 +21,12 @@ class TestParseCertExpiry:
         result = _parse_cert_expiry(Path("/fake/cert.pem"))
         assert result is not None
         assert result["days_left"] >= 364
-        assert result["status"] == "ok"
+        assert "status" not in result
+        # expires is date-only: YYYY-MM-DD
+        assert re.match(r"\d{4}-\d{2}-\d{2}$", result["expires"])
 
     @patch("app.api.health.certs.subprocess.run")
-    def test_expired_cert(self, mock_run, mock_settings, monkeypatch):
-        monkeypatch.setattr("app.api.health.certs.settings", mock_settings)
+    def test_expired_cert_has_negative_days_left(self, mock_run):
         past = datetime.now(UTC) - timedelta(days=1)
         expiry_str = past.strftime("%b %d %H:%M:%S %Y GMT")
         mock_run.return_value = MagicMock(
@@ -36,23 +37,7 @@ class TestParseCertExpiry:
         from app.api.health.certs import _parse_cert_expiry
 
         result = _parse_cert_expiry(Path("/fake/cert.pem"))
-        assert result["status"] == "expired"
-
-    @patch("app.api.health.certs.subprocess.run")
-    def test_warning_threshold(self, mock_run, mock_settings, monkeypatch):
-        monkeypatch.setattr("app.api.health.certs.settings", mock_settings)
-        mock_settings.cert_warn_days = 30
-        future = datetime.now(UTC) + timedelta(days=20)
-        expiry_str = future.strftime("%b %d %H:%M:%S %Y GMT")
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=f"subject= CN = test\nnotAfter={expiry_str}",
-        )
-
-        from app.api.health.certs import _parse_cert_expiry
-
-        result = _parse_cert_expiry(Path("/fake/cert.pem"))
-        assert result["status"] == "warning"
+        assert result["days_left"] < 0
 
     @patch("app.api.health.certs.subprocess.run")
     def test_returns_none_on_failure(self, mock_run):
@@ -68,4 +53,5 @@ class TestGetCertStatus:
     def test_returns_empty_when_dir_missing(self):
         from app.api.health.certs import get_cert_status
 
-        assert get_cert_status() == []
+        result = get_cert_status()
+        assert result == {"items": []}

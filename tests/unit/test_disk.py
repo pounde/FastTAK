@@ -24,33 +24,14 @@ class TestGetDiskUsage:
         from app.api.health.disk import get_disk_usage
 
         result = get_disk_usage()
-        assert len(result) >= 1
-        assert result[0]["status"] == "ok"
-        assert result[0]["percent"] > 0
-
-    @patch("app.api.health.disk.os.path.exists", return_value=True)
-    @patch("app.api.health.disk.os.statvfs")
-    def test_critical_threshold(self, mock_statvfs, mock_exists):
-        mock_statvfs.return_value = self._make_statvfs(total_gb=100, used_pct=96)
-
-        from app.api.health.disk import get_disk_usage
-
-        result = get_disk_usage()
-        assert result[0]["status"] == "critical"
-
-    @patch("app.api.health.disk.os.path.exists", return_value=True)
-    @patch("app.api.health.disk.os.statvfs")
-    def test_warning_threshold(self, mock_statvfs, mock_exists):
-        mock_statvfs.return_value = self._make_statvfs(total_gb=100, used_pct=90)
-
-        from app.api.health.disk import get_disk_usage
-
-        result = get_disk_usage()
-        assert result[0]["status"] == "warning"
+        assert "items" in result
+        assert len(result["items"]) >= 1
+        assert "status" not in result["items"][0]
+        assert result["items"][0]["percent"] > 0
 
     @patch("app.api.health.disk.os.path.exists", return_value=False)
     def test_skips_nonexistent_paths(self, mock_exists):
         from app.api.health.disk import get_disk_usage
 
         result = get_disk_usage()
-        assert result == []
+        assert result == {"items": []}
