@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-03-29)
+
+### Features
+
+- Autovacuum tuning and direct database connection ([#9](https://github.com/pounde/FastTAK/pull/9),
+  [`bdf1cac`](https://github.com/pounde/FastTAK/commit/bdf1cacec21d53c4e0f8a96df2c35313c6e724e0))
+
+- Configurable data retention and .env additions ([#9](https://github.com/pounde/FastTAK/pull/9),
+  [`bdf1cac`](https://github.com/pounde/FastTAK/commit/bdf1cacec21d53c4e0f8a96df2c35313c6e724e0))
+
+- Data retention, autovacuum tuning, and health monitoring refactor
+  ([#9](https://github.com/pounde/FastTAK/pull/9),
+  [`bdf1cac`](https://github.com/pounde/FastTAK/commit/bdf1cacec21d53c4e0f8a96df2c35313c6e724e0))
+
+- Health monitoring architecture refactor ([#9](https://github.com/pounde/FastTAK/pull/9),
+  [`bdf1cac`](https://github.com/pounde/FastTAK/commit/bdf1cacec21d53c4e0f8a96df2c35313c6e724e0))
+
+
 ## v0.4.0 (2026-03-27)
 
 ### Chores
