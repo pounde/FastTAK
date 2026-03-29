@@ -142,28 +142,28 @@ assert_endpoint "/api/ping" \
     "GET /api/ping returns ok"
 
 assert_endpoint "/api/health/containers" \
-    "print('true' if isinstance(data, list) and len(data) > 0 else 'false')" \
-    "GET /api/health/containers returns non-empty list"
+    "print('true' if isinstance(data.get('items'), list) and len(data['items']) > 0 else 'false')" \
+    "GET /api/health/containers returns non-empty items"
 
 assert_endpoint "/api/health/resources" \
     "print('true' if isinstance(data, list) else 'false')" \
     "GET /api/health/resources returns list"
 
 assert_endpoint "/api/health/certs" \
-    "print('true' if isinstance(data, list) else 'false')" \
-    "GET /api/health/certs returns list"
+    "print('true' if isinstance(data.get('items'), list) else 'false')" \
+    "GET /api/health/certs returns items"
 
 assert_endpoint "/api/health/database" \
-    "print('true' if 'size_bytes' in data or 'error' in data else 'false')" \
-    "GET /api/health/database returns size or error"
+    "print('true' if 'size_bytes' in data and 'live_bytes' in data else 'false')" \
+    "GET /api/health/database returns size and live data"
 
 assert_endpoint "/api/health/disk" \
-    "print('true' if isinstance(data, list) else 'false')" \
-    "GET /api/health/disk returns list"
+    "print('true' if isinstance(data.get('items'), list) else 'false')" \
+    "GET /api/health/disk returns items"
 
 assert_endpoint "/api/health/config" \
-    "print('true' if data.get('status') in ('ok', 'unavailable') else 'false')" \
-    "GET /api/health/config returns status"
+    "print('true' if 'changed' in data else 'false')" \
+    "GET /api/health/config returns changed field"
 
 # Test log retrieval for a known service
 assert_endpoint "/api/ops/service/tak-server/logs?tail=10" \
@@ -422,7 +422,7 @@ else
         "GET /api/ping returns ok after restart"
 
     assert_endpoint "/api/health/containers" \
-        "print('true' if isinstance(data, list) and len(data) > 0 else 'false')" \
+        "print('true' if isinstance(data.get('items'), list) and len(data['items']) > 0 else 'false')" \
         "GET /api/health/containers healthy after restart"
 
     assert_endpoint "/api/users" \

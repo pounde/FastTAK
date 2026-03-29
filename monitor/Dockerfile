@@ -5,6 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN apk add --no-cache openssl curl && pip install --no-cache-dir -r requirements.txt
 
+COPY config/ ./config/
 COPY app/ ./app/
 
 EXPOSE 8080

@@ -18,8 +18,7 @@ def mock_settings(monkeypatch):
     test_settings = Settings(
         fqdn="test.example.com",
         tak_db_password="testpass",
-        cert_warn_days=30,
-        health_check_interval=60,
+        tak_db_url="",
         authentik_url="http://authentik-test:9000",
         authentik_api_token="test-token",
         tak_server_url="https://tak-test:8443",

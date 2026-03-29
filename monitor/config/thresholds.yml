@@ -1,0 +1,85 @@
+# Health monitoring configuration — thresholds, intervals, and alert levels.
+# This is the single source of truth for monitoring policy.
+# Override individual values via .env: FASTAK_MON_<SERVICE>__<KEY>=<VALUE>
+#
+# Numeric thresholds: the evaluator infers comparison direction from the values.
+#   warning < critical -> higher is worse (e.g., size, percentage)
+#   warning > critical -> lower is worse (e.g., days remaining)
+
+# Global alert cooldown (seconds). After sending an alert for a service,
+# suppress repeat alerts for that service until this period elapses.
+# Prevents alert storms from flapping services.
+alert_cooldown: 300
+
+database:
+  interval: 60                           # poll every 60 seconds
+  alert_min_level: warning               # alert on warning or above
+  thresholds:
+    size_bytes:                          # warning < critical -> higher is worse
+      warning: 25000000000               # warn at 25 GB total database size
+      critical: 40000000000              # critical at 40 GB — disk pressure likely
+
+autovacuum:
+  interval: 60                           # poll every 60 seconds
+  alert_min_level: warning               # alert on warning or above
+  thresholds:
+    dead_pct:                            # warning < critical -> higher is worse
+      warning: 5.0                       # warn when dead tuples exceed 5% of live rows on any table
+      critical: 15.0                     # critical at 15% — significant bloat, queries may slow
+    min_dead_tuples: 1000                # filter: ignore tables below this count (prevents
+                                         # false alerts from tiny system/config tables)
+
+disk:
+  interval: 300                          # poll every 5 minutes
+  alert_min_level: warning               # alert on warning or above
+  thresholds:
+    percent:                             # warning < critical -> higher is worse
+      warning: 80                        # warn at 80% disk used
+      critical: 90                       # critical at 90% — action required soon
+
+certs:
+  interval: 3600                         # poll every hour
+  alert_min_level: warning               # alert on warning or above
+  thresholds:
+    days_left:                           # warning > critical -> lower is worse
+      warning: 30                        # warn when any cert expires within 30 days
+      critical: 7                        # critical within 7 days — renewal overdue
+
+tls:
+  interval: 3600                         # poll every hour
+  alert_min_level: warning               # alert on warning or above
+  thresholds:
+    days_left:                           # warning > critical -> lower is worse
+      warning: 30                        # warn when TLS cert expires within 30 days
+      critical: 7                        # critical within 7 days
+
+containers:
+  interval: 60                           # poll every 60 seconds
+  alert_min_level: warning               # alert on warning or above
+  thresholds:
+    default_status: warning              # unmapped health/status values default to this
+    health:                              # evaluator checks health first (Docker healthcheck)
+      healthy: ok
+      starting: note                     # container is starting up — not yet an alert
+      unhealthy: critical                # healthcheck failing — service is broken
+      # unknown is intentionally absent — triggers fallback to status map
+    status:                              # fallback when health is unknown (no healthcheck defined)
+      running: ok
+      exited: critical                   # container stopped unexpectedly
+      not_found: critical                # container missing entirely
+
+config:
+  interval: 60                           # poll every 60 seconds
+  alert_min_level: note                  # note-level only — informational, not actionable urgency
+  thresholds:
+    changed:
+      "true": note                       # .env has changed since monitor startup — restart needed
+      "false": ok
+
+updates:
+  interval: 21600                        # poll every 6 hours
+  alert_min_level: note                  # note-level only — informational
+  thresholds:
+    update_available:
+      "true": note                       # a newer FastTAK release is available
+      "false": ok

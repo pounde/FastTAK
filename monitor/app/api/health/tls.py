@@ -29,33 +29,20 @@ def _probe_tls_expiry(hostname: str, port: int = 443) -> dict | None:
                 now = datetime.now(UTC)
                 days_left = (expiry - now).days
 
-                subject = dict(x[0] for x in cert.get("subject", ()))
-                cn = subject.get("commonName", hostname)
-
                 return {
-                    "hostname": hostname,
-                    "cn": cn,
-                    "expires": expiry.isoformat(),
+                    "domain": hostname,
+                    "expires": expiry.strftime("%Y-%m-%d"),
                     "days_left": days_left,
-                    "status": (
-                        "expired"
-                        if days_left <= 0
-                        else "critical"
-                        if days_left <= 7
-                        else "warning"
-                        if days_left <= 14
-                        else "ok"
-                    ),
                 }
     except Exception:
         return None
 
 
-def get_tls_status() -> list[dict]:
+def get_tls_status() -> dict:
     """Probe TLS expiry on all Caddy-served endpoints."""
     fqdn = settings.fqdn
     if not fqdn or fqdn == "localhost":
-        return []
+        return {"items": []}
 
     endpoints = [
         f"{settings.takserver_subdomain}.{fqdn}",
@@ -78,4 +65,4 @@ def get_tls_status() -> list[dict]:
             seen_expiry.add(key)
             results.append(info)
 
-    return results
+    return {"items": results}

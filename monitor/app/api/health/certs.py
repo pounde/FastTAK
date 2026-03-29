@@ -4,8 +4,6 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.config import settings
-
 CERT_DIR = Path("/opt/tak/certs/files")
 
 
@@ -41,29 +39,20 @@ def _parse_cert_expiry(pem_path: Path) -> dict | None:
         return {
             "file": pem_path.name,
             "subject": subject,
-            "expires": expiry.isoformat(),
+            "expires": expiry.strftime("%Y-%m-%d"),
             "days_left": days_left,
-            "status": (
-                "expired"
-                if days_left <= 0
-                else "critical"
-                if days_left <= 14
-                else "warning"
-                if days_left <= settings.cert_warn_days
-                else "ok"
-            ),
         }
     except Exception:
         return None
 
 
-def get_cert_status() -> list[dict]:
-    """Return expiry status for all PEM files in the cert directory."""
+def get_cert_status() -> dict:
+    """Return expiry info for all PEM files in the cert directory."""
     if not CERT_DIR.exists():
-        return []
+        return {"items": []}
     results = []
     for pem in sorted(CERT_DIR.glob("*.pem")):
         info = _parse_cert_expiry(pem)
         if info:
             results.append(info)
-    return results
+    return {"items": results}

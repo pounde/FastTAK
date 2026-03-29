@@ -1,41 +1,32 @@
 """Tests for app.api.health.database — CoT DB size queries."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestGetCotDbSize:
-    @patch("app.api.health.database.find_container")
-    def test_returns_size(self, mock_find, mock_settings, monkeypatch):
-        monkeypatch.setattr("app.api.health.database.settings", mock_settings)
-        container = MagicMock()
-        container.exec_run.return_value = (0, b"1073741824")
-        mock_find.return_value = container
+    @patch("app.api.health.database.query")
+    def test_returns_size(self, mock_query):
+        mock_query.side_effect = [
+            [(1073741824,)],
+            [(536870912,)],
+        ]
 
         from app.api.health.database import get_cot_db_size
 
         result = get_cot_db_size()
         assert result["size_bytes"] == 1073741824
-        assert result["status"] == "ok"
+        assert result["live_bytes"] == 536870912
         assert "GB" in result["size_human"] or "MB" in result["size_human"]
+        assert "live_bytes" in result
+        assert "live_human" in result
+        assert "status" not in result
 
-    @patch("app.api.health.database.find_container", return_value=None)
-    def test_container_not_found(self, mock_find):
+    @patch("app.api.health.database.query", side_effect=Exception("connection refused"))
+    def test_connection_error(self, mock_query):
         from app.api.health.database import get_cot_db_size
 
         result = get_cot_db_size()
         assert "error" in result
-
-    @patch("app.api.health.database.find_container")
-    def test_warning_threshold(self, mock_find, mock_settings, monkeypatch):
-        monkeypatch.setattr("app.api.health.database.settings", mock_settings)
-        container = MagicMock()
-        container.exec_run.return_value = (0, b"30000000000")
-        mock_find.return_value = container
-
-        from app.api.health.database import get_cot_db_size
-
-        result = get_cot_db_size()
-        assert result["status"] == "warning"
 
 
 class TestHumanSize:

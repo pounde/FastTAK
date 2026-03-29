@@ -1,4 +1,6 @@
-{% if config.status == 'changed' %}
+{% if config.message and 'not mounted' in config.message %}
+<span class="text-muted">.env not mounted — config drift detection disabled</span>
+{% elif status == 'note' or config.changed %}
 <div style="background: #3a3a1a; border: 1px solid #5a5a2d; padding: 10px; border-radius: 4px;">
     <span class="text-yellow" style="font-weight: bold;">Configuration Changed</span>
     <p style="margin-top: 6px; color: #ccc; font-size: 12px;">
@@ -7,8 +9,6 @@
     </p>
     <pre style="margin-top: 6px; font-size: 12px;">docker compose up -d --force-recreate init-config init-identity</pre>
 </div>
-{% elif config.status == 'unavailable' %}
-<span class="text-muted">.env not mounted — config drift detection disabled</span>
 {% else %}
 <span class="badge badge-green">ok</span>
 <span class="text-muted" style="margin-left: 8px;">Configuration unchanged</span>

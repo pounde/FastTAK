@@ -1,0 +1,22 @@
+<div class="status-badge status-{{ status }}">{{ status }}</div>
+
+<div style="margin-top: 8px; font-size: 14px;">
+    <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+        <span>Size
+            <span class="help-tip">?<span class="tip-text">Total on-disk footprint of the CoT database</span></span>
+        </span>
+        <span>{{ db.size_human or 'N/A' }}</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+        <span>Live data
+            <span class="help-tip">?<span class="tip-text">Space actively used by your tables, indexes, and associated data. When size is significantly larger than live data, the difference is reclaimable space — run VACUUM FULL on the Operations page to reclaim it. On a healthy system with tuned autovacuum, the two numbers should be close.</span></span>
+        </span>
+        <span>{{ db.live_human or 'N/A' }}</span>
+    </div>
+</div>
+
+{% if av_status == 'warning' or av_status == 'critical' %}
+<div class="alert alert-{{ av_status }}" style="margin-top: 8px; padding: 8px; border-radius: 4px; background: {{ '#3d2e00' if av_status == 'warning' else '#3d0000' }}; font-size: 13px;">
+    <strong>Autovacuum may need tuning.</strong> Adjust <code>PG_AUTOVACUUM_SCALE_FACTOR</code>, <code>PG_AUTOVACUUM_COST_LIMIT</code>, and <code>PG_MAINTENANCE_WORK_MEM</code> in <code>.env</code> and restart. See the FastTAK documentation.
+</div>
+{% endif %}
