@@ -114,7 +114,6 @@ services:
         condition: service_healthy
     ports:
       - "8089:8089"
-      - "8443:8443"
       - "8446:8446"
     volumes:
       - *tak-mount
@@ -243,8 +242,6 @@ services:
     depends_on:
       init-identity:
         condition: service_completed_successfully
-    ports:
-      - "3000:3000"    # Direct access — bypasses Caddy auth. Remove for production.
     volumes:
       - *tak-mount
       - ./tak-portal/start.sh:/usr/src/app/start.sh:ro
@@ -300,8 +297,6 @@ services:
       app-db:
         condition: service_healthy
     entrypoint: ["/bin/sh", "/opt/fastak/start.sh"]
-    ports:
-      - "1880:1880"    # Direct access — bypasses Caddy auth. Remove for production.
     environment:
       DB_HOST: app-db
       DB_PORT: "5432"
@@ -362,8 +357,6 @@ services:
       ENROLLMENT_TTL_MINUTES: ${ENROLLMENT_TTL_MINUTES:-15}
       TAK_ENROLLMENT_PORT: ${TAK_ENROLLMENT_PORT:-8446}
       AUTOVACUUM_MIN_DEAD_TUPLES: ${AUTOVACUUM_MIN_DEAD_TUPLES:-1000}
-    ports:
-      - "8180:8080"    # Direct access. Remove for production (use Caddy + Authentik).
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${TAK_HOST_PATH:-./tak}/certs:/opt/tak/certs:ro
