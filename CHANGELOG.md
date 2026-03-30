@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.7.0 (2026-03-30)
+
+### Bug Fixes
+
+- Just dev-up {service} now rebuilds selected service
+  ([`cbb1298`](https://github.com/pounde/FastTAK/commit/cbb1298369bd974f344986af072db68aa1dfdf27))
+
+### Features
+
+- **dashboard**: Add /users page route, nav link, and x-cloak CSS
+  ([`0084af0`](https://github.com/pounde/FastTAK/commit/0084af0caaa3142e5fba042bbdc3849e269bf749))
+
+- **dashboard**: Add user list with search, pagination, and full management page
+  ([`0084af0`](https://github.com/pounde/FastTAK/commit/0084af0caaa3142e5fba042bbdc3849e269bf749))
+
+
 ## v0.6.1 (2026-03-30)
 
 ### Bug Fixes
