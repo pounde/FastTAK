@@ -1,5 +1,9 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# List all available recipes
+help:
+    @just --list
+
 # Run fast tests (unit + shellcheck) — no Docker needed
 test:
     find . -name '*.sh' -not -path './tak/*' -not -path './.venv/*' | xargs shellcheck
@@ -20,3 +24,19 @@ fmt:
 # Install pre-commit hooks (commit + push)
 setup-dev:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+
+# Start production stack (services only reachable through Caddy + Authentik)
+up:
+    docker compose up -d --build
+
+# Stop the production stack
+down:
+    docker compose down
+
+# Start stack for local development (direct-access ports enabled)
+dev-up:
+    COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose up -d --build
+
+# Stop the dev stack
+dev-down:
+    COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose down
