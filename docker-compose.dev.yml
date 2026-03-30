@@ -1,0 +1,20 @@
+# =============================================================================
+# FastTAK — Development Override
+# =============================================================================
+# Adds direct-access ports for local development. These bypass Caddy + Authentik
+# authentication — do not use in production.
+#
+#   just dev-up       # start with dev ports
+#   just dev-down     # stop
+# =============================================================================
+
+services:
+  tak-portal:
+    ports:
+      - "3000:3000"
+  nodered:
+    ports:
+      - "1880:1880"
+  monitor:
+    ports:
+      - "8180:8080"
