@@ -23,7 +23,7 @@ FAILURES=0
 # See TAK_HOST_PATH in docker-compose.yml for details.
 export TAK_HOST_PATH="${TEST_DIR}/tak"
 
-COMPOSE="docker compose -p ${PROJECT} -f ${REPO_DIR}/docker-compose.yml --env-file ${TEST_DIR}/.env"
+COMPOSE="docker compose -p ${PROJECT} -f ${REPO_DIR}/docker-compose.yml -f ${REPO_DIR}/docker-compose.test.yml --env-file ${TEST_DIR}/.env"
 
 # ── Cleanup on exit ────────────────────────────────────────────────────
 # shellcheck disable=SC2317,SC2329  # invoked via trap
@@ -207,7 +207,7 @@ if [ ! -f "${CERT_P12}" ]; then
 else
   HTTP_CODE=$(curl -sk --cert-type P12 \
     --cert "${CERT_P12}":atakatak \
-    "https://localhost:8443/Marti/api/plugins/info/all" \
+    "https://localhost:18443/Marti/api/plugins/info/all" \
     -w "%{http_code}" -o /dev/null 2>&1) || true
   # Strip to last 3 chars (the HTTP code) in case of extra output
   HTTP_CODE="${HTTP_CODE: -3}"
