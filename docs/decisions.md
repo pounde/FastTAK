@@ -4,6 +4,28 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-024: Test Isolation via Port Offset Override
+
+**Date:** 2026-03-29
+**Status:** Decided
+
+**Decision:** A `docker-compose.test.yml` override remaps all host-bound ports with a fixed +10000 offset so integration tests can run alongside a development stack. Uses Compose `!reset` directive (v2.24+) to replace base port arrays rather than append. The test override includes all ports (including dev convenience ports and 8443) so the test suite can exercise endpoints from the host.
+
+**Why:** Integration tests previously collided with running stacks on every host-bound port. Dynamic port discovery was considered but rejected — fixed offset is predictable, easy to debug, and the only collision scenario (two simultaneous test stacks) is unlikely.
+
+---
+
+## DD-023: Production-First Compose with Dev Override
+
+**Date:** 2026-03-29
+**Status:** Decided
+
+**Decision:** The base `docker-compose.yml` is the production configuration — no direct-access convenience ports (TAK Portal 3000, Node-RED 1880, Monitor 8180), no host exposure of the TAK Server admin API (8443). A `docker-compose.dev.yml` override adds back convenience ports for local development. Justfile recipes (`just up` for production, `just dev-up` for development) hide the `COMPOSE_FILE` plumbing.
+
+**Why:** The secure configuration should be the default. Developers opt _in_ to convenience ports, not opt _out_ of risk. A production deployment that forgets to apply an override is secure by default. Removing 8443 from host exposure closes the credential leak from TAK Server's `/Marti/api/security/config` and `/Marti/api/authentication/config` endpoints — the FastTAK API accesses 8443 internally over the Docker network, so no external consumer needs it.
+
+---
+
 ## DD-022: Health Monitoring Architecture Refactor
 
 **Date:** 2026-03-28
