@@ -1,0 +1,52 @@
+{% if error is defined %}
+<p class="text-red">{{ error }}</p>
+{% elif users|length == 0 %}
+<p class="text-muted">{% if search %}No users matching "{{ search }}".{% else %}No users found.{% endif %}</p>
+{% else %}
+<table>
+    <thead>
+        <tr>
+            <th>Username</th>
+            <th>Name</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr style="cursor: pointer;"
+            @click="selectUser({{ u | tojson }})"
+            :class="{ 'text-yellow': selectedUser?.id === {{ u.id }} }">
+            <td>{{ u.username }}</td>
+            <td>{{ u.name }}</td>
+            <td>
+                {% if u.is_active %}
+                <span class="badge badge-green">active</span>
+                {% else %}
+                <span class="badge badge-red">inactive</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Pagination -->
+{% set total_pages = ((total - 1) // page_size) + 1 if total > 0 else 1 %}
+{% if total_pages > 1 %}
+<div style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+    <span class="text-muted" style="font-size: 12px;">Page {{ page }} of {{ total_pages }} ({{ total }} users)</span>
+    {% if page > 1 %}
+    <button hx-get="/ui/partials/user-list?search={{ search }}&page={{ page - 1 }}"
+            hx-target="#user-list-container" hx-swap="innerHTML">Prev</button>
+    {% endif %}
+    {% if page < total_pages %}
+    <button hx-get="/ui/partials/user-list?search={{ search }}&page={{ page + 1 }}"
+            hx-target="#user-list-container" hx-swap="innerHTML">Next</button>
+    {% endif %}
+</div>
+{% else %}
+<div style="margin-top: 8px;">
+    <span class="text-muted" style="font-size: 12px;">{{ total }} user{{ 's' if total != 1 }}</span>
+</div>
+{% endif %}
+{% endif %}

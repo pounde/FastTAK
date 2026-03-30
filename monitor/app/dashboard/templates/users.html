@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Users</h1>
+
+<div x-data="{
+    selectedUser: null,
+    enrollUrl: '',
+    qrVisible: false,
+    editName: '',
+    editTtl: '',
+    showCreate: false,
+    newUsername: '',
+    newName: '',
+    newTtl: '',
+    createLoading: false,
+    createError: '',
+    actionLoading: false,
+    actionResult: '',
+    actionError: false,
+    passwordValue: '',
+
+    refreshList() {
+        const search = document.getElementById('user-search').value;
+        htmx.ajax('GET', '/ui/partials/user-list?search=' + encodeURIComponent(search), '#user-list-container');
+    },
+
+    async createUser() {
+        if (!this.newUsername || !this.newName) return;
+        this.createLoading = true;
+        this.createError = '';
+        try {
+            const body = { username: this.newUsername, name: this.newName };
+            if (this.newTtl) body.ttl_hours = parseInt(this.newTtl);
+            const r = await fetch('/api/users', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            if (!r.ok) {
+                const d = await r.json();
+                this.createError = d.detail || 'Failed to create user';
+                return;
+            }
+            this.newUsername = ''; this.newName = ''; this.newTtl = '';
+            this.showCreate = false;
+            this.refreshList();
+        } catch(e) { this.createError = e.message; }
+        finally { this.createLoading = false; }
+    },
+
+    async saveEdit() {
+        if (!this.selectedUser) return;
+        this.actionLoading = true; this.actionResult = ''; this.actionError = false;
+        try {
+            const body = {};
+            if (this.editName && this.editName !== this.selectedUser.name) body.name = this.editName;
+            if (this.editTtl !== '') body.ttl_hours = this.editTtl === 'clear' ? null : parseInt(this.editTtl);
+            const r = await fetch(`/api/users/${this.selectedUser.id}`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            if (!r.ok) {
+                const d = await r.json();
+                this.actionResult = d.detail || 'Update failed';
+                this.actionError = true;
+                return;
+            }
+            this.actionResult = 'Updated';
+            this.refreshList();
+        } catch(e) { this.actionResult = e.message; this.actionError = true; }
+        finally { this.actionLoading = false; }
+    },
+
+    async toggleActive() {
+        if (!this.selectedUser) return;
+        const newState = !this.selectedUser.is_active;
+        if (!newState && !confirm('Deactivate ' + this.selectedUser.username + '? This will also revoke their certificates.')) return;
+        this.actionLoading = true; this.actionResult = ''; this.actionError = false;
+        try {
+            if (newState) {
+                // Activate: PATCH with is_active=true
+                const r = await fetch(`/api/users/${this.selectedUser.id}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({is_active: true})
+                });
+                if (!r.ok) { const d = await r.json(); this.actionResult = d.detail || 'Failed'; this.actionError = true; return; }
+            } else {
+                // Deactivate: DELETE deactivates user + revokes all TAK certs
+                const r = await fetch(`/api/users/${this.selectedUser.id}`, { method: 'DELETE' });
+                if (!r.ok) { const d = await r.json(); this.actionResult = d.detail || 'Failed'; this.actionError = true; return; }
+            }
+            this.actionResult = newState ? 'Activated' : 'Deactivated + certs revoked';
+            this.selectedUser = null;
+            this.refreshList();
+        } catch(e) { this.actionResult = e.message; this.actionError = true; }
+        finally { this.actionLoading = false; }
+    },
+
+    async setPassword() {
+        if (!this.selectedUser || !this.passwordValue) return;
+        this.actionLoading = true; this.actionResult = ''; this.actionError = false;
+        try {
+            const r = await fetch(`/api/users/${this.selectedUser.id}/password`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({password: this.passwordValue})
+            });
+            if (!r.ok) { const d = await r.json(); this.actionResult = d.detail || 'Failed'; this.actionError = true; return; }
+            this.actionResult = 'Password set';
+            this.passwordValue = '';
+        } catch(e) { this.actionResult = e.message; this.actionError = true; }
+        finally { this.actionLoading = false; }
+    },
+
+    async enroll() {
+        if (!this.selectedUser) return;
+        this.actionLoading = true; this.actionResult = ''; this.actionError = false;
+        this.enrollUrl = ''; this.qrVisible = false;
+        try {
+            const r = await fetch(`/api/users/${this.selectedUser.id}/enroll`, { method: 'POST' });
+            if (!r.ok) { const d = await r.json(); this.actionResult = d.detail || 'Failed'; this.actionError = true; return; }
+            const d = await r.json();
+            this.enrollUrl = d.enrollment_url;
+            this.qrVisible = true;
+            this.$nextTick(() => {
+                const container = document.getElementById('qr-code');
+                if (container) {
+                    container.innerHTML = '';
+                    new QRCodeStyling({
+                        width: 256,
+                        height: 256,
+                        data: this.enrollUrl,
+                        dotsOptions: { type: 'rounded', color: '#e0e0e0' },
+                        backgroundOptions: { color: '#1a1a1a' },
+                        cornersSquareOptions: { type: 'extra-rounded', color: '#4fc3f7' },
+                    }).append(container);
+                }
+            });
+        } catch(e) { this.actionResult = e.message; this.actionError = true; }
+        finally { this.actionLoading = false; }
+    },
+
+    selectUser(user) {
+        if (this.selectedUser?.id === user.id) {
+            this.selectedUser = null;
+        } else {
+            this.selectedUser = user;
+            this.editName = user.name;
+            this.editTtl = '';
+            this.enrollUrl = '';
+            this.qrVisible = false;
+            this.actionResult = '';
+            this.actionError = false;
+            this.passwordValue = '';
+        }
+    }
+}">
+
+    <!-- Search + Create toggle -->
+    <div class="flex mb-16" style="justify-content: space-between;">
+        <div class="flex">
+            <input type="text" id="user-search" placeholder="Search users..."
+                   @keyup.debounce.300ms="refreshList()"
+                   style="width: 280px;">
+            <button @click="refreshList()">Search</button>
+        </div>
+        <button @click="showCreate = !showCreate; createError = ''">
+            <span x-text="showCreate ? 'Cancel' : 'New User'"></span>
+        </button>
+    </div>
+
+    <!-- Create user form (collapsible) -->
+    <div class="card" x-show="showCreate" x-cloak style="margin-bottom: 16px;">
+        <div class="card-title">Create User</div>
+        <div class="flex mb-8" style="flex-wrap: wrap; gap: 12px;">
+            <div>
+                <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">Username</label>
+                <input type="text" x-model="newUsername" placeholder="username" @keyup.enter="createUser()">
+            </div>
+            <div>
+                <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">Name</label>
+                <input type="text" x-model="newName" placeholder="Full Name" @keyup.enter="createUser()">
+            </div>
+            <div>
+                <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">TTL (hours, optional)</label>
+                <input type="text" x-model="newTtl" placeholder="e.g. 168" style="width: 100px;">
+            </div>
+            <div style="align-self: flex-end;">
+                <button :disabled="!newUsername || !newName || createLoading" @click="createUser()">
+                    <span x-text="createLoading ? 'Creating...' : 'Create'"></span>
+                </button>
+            </div>
+        </div>
+        <p x-show="createError" x-text="createError" class="text-red" style="font-size: 12px;"></p>
+    </div>
+
+    <!-- User list (HTMX partial) -->
+    <div class="card">
+        <div class="card-title">User List</div>
+        <div id="user-list-container"
+             hx-get="/ui/partials/user-list"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Detail panel (below list card, outside HTMX-replaced zone) -->
+    <div class="card" x-show="selectedUser" x-cloak style="margin-top: 16px;">
+        <div class="card-title">
+            <span x-text="selectedUser?.username"></span>
+            <span style="float: right; cursor: pointer; color: #555;" @click="selectedUser = null">close</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+
+            <!-- Edit section -->
+            <div>
+                <h2>Edit</h2>
+                <div class="flex mb-8">
+                    <input type="text" x-model="editName" placeholder="Name" style="flex: 1;">
+                </div>
+                <div class="flex mb-8">
+                    <input type="text" x-model="editTtl" placeholder="TTL hours (or 'clear')" style="flex: 1;">
+                </div>
+                <button :disabled="actionLoading" @click="saveEdit()">
+                    <span x-text="actionLoading ? '...' : 'Save'"></span>
+                </button>
+            </div>
+
+            <!-- Password section -->
+            <div>
+                <h2>Password</h2>
+                <div class="flex mb-8">
+                    <input type="password" x-model="passwordValue" placeholder="New password" style="flex: 1;">
+                    <button :disabled="!passwordValue || actionLoading" @click="setPassword()">Set</button>
+                </div>
+            </div>
+
+            <!-- Enroll section -->
+            <div>
+                <h2>Enrollment</h2>
+                <button :disabled="actionLoading || !selectedUser?.is_active" @click="enroll()">
+                    <span x-text="actionLoading ? '...' : 'Generate Enrollment QR'"></span>
+                </button>
+                <div x-show="qrVisible" style="margin-top: 12px;">
+                    <div id="qr-code" style="margin-bottom: 8px;"></div>
+                    <input type="text" :value="enrollUrl" readonly
+                           style="width: 100%; font-size: 11px; color: #888;"
+                           @click="$el.select(); navigator.clipboard.writeText(enrollUrl)">
+                    <p class="text-muted" style="font-size: 11px; margin-top: 4px;">Click URL to copy</p>
+                </div>
+            </div>
+
+            <!-- Actions section -->
+            <div>
+                <h2>Actions</h2>
+                <div class="flex" style="gap: 12px;">
+                    <button :disabled="actionLoading"
+                            :class="selectedUser?.is_active ? 'btn-danger' : ''"
+                            @click="toggleActive()">
+                        <span x-text="selectedUser?.is_active ? 'Deactivate' : 'Activate'"></span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Action result feedback -->
+        <p x-show="actionResult" x-text="actionResult" style="margin-top: 12px; font-size: 12px;"
+           :class="actionError ? 'text-red' : 'text-green'"></p>
+    </div>
+
+</div>
+
+<!-- QR code library (supports custom logos, dot styles, colors for future branding) -->
+<script src="https://unpkg.com/qr-code-styling@1.8.4/lib/qr-code-styling.js"></script>
+
+{% endblock %}

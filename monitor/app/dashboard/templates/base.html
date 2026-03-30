@@ -276,6 +276,8 @@
 
         .help-tip:hover .tip-text { display: block; }
 
+        [x-cloak] { display: none; }
+
         /* Misc */
         .text-muted { color: #555; }
         .text-green { color: #4caf50; }
@@ -294,6 +296,7 @@
         <a href="/" class="nav-link{% if request.url.path == '/' %} active{% endif %}">Dashboard</a>
         <a href="/ops" class="nav-link{% if request.url.path == '/ops' %} active{% endif %}">Operations</a>
         <a href="/logs" class="nav-link{% if request.url.path == '/logs' %} active{% endif %}">Logs</a>
+        <a href="/users" class="nav-link{% if request.url.path == '/users' %} active{% endif %}">Users</a>
     </nav>
 
     {% if service_links %}

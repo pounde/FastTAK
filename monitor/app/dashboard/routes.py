@@ -46,6 +46,11 @@ async def logs_page(request: Request):
     )
 
 
+@router.get("/users")
+async def users_page(request: Request):
+    return templates.TemplateResponse(request, "users.html", _page_context())
+
+
 # --- UI Partials (HTMX fragments) ---
 
 
@@ -122,6 +127,50 @@ def ui_config_status(request: Request):
     status = entry["status"] if entry else "ok"
     return templates.TemplateResponse(
         request, "partials/config_status.html", {"config": data, "status": status}
+    )
+
+
+@router.get("/ui/partials/user-list")
+async def ui_user_list(request: Request):
+    from fastapi import HTTPException as _HTTPException
+
+    from app.api.users.router import _get_authentik
+
+    search = request.query_params.get("search", "")
+    page = int(request.query_params.get("page", "1"))
+    page_size = 25
+
+    try:
+        ak = _get_authentik()
+    except _HTTPException:
+        return templates.TemplateResponse(
+            request,
+            "partials/user_list.html",
+            {
+                "users": [],
+                "total": 0,
+                "page": 1,
+                "page_size": page_size,
+                "search": search,
+                "error": "Authentik not configured",
+            },
+        )
+
+    all_users = ak.list_users(search=search or None)
+    total = len(all_users)
+    start = (page - 1) * page_size
+    page_users = all_users[start : start + page_size]
+
+    return templates.TemplateResponse(
+        request,
+        "partials/user_list.html",
+        {
+            "users": page_users,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "search": search,
+        },
     )
 
 
