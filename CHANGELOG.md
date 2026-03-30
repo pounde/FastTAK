@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.6.1 (2026-03-30)
+
+### Bug Fixes
+
+- Correct enrollment URL
+  ([`31e1d94`](https://github.com/pounde/FastTAK/commit/31e1d9435e6a88c37bf26ec404139de9ad440bc1))
+
+
 ## v0.6.0 (2026-03-30)
 
 ### Chores
