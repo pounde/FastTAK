@@ -15,6 +15,9 @@ services:
   nodered:
     ports:
       - "1880:1880"
+  authentik-server:
+    ports:
+      - "9000:9000"
   monitor:
     ports:
       - "8180:8080"
