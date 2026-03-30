@@ -5,8 +5,11 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        exclude: ^docker-compose\.test\.yml$  # uses Compose !reset tag unsupported by pyyaml
       - id: check-merge-conflict
       - id: check-added-large-files
+      - id: no-commit-to-branch
+        args: [--branch, main]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.10
