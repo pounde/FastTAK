@@ -195,7 +195,7 @@ def enroll_user(user_id: int):
     if not user["is_active"]:
         raise HTTPException(400, "Cannot enroll deactivated user")
     token, expires_at = ak.get_or_create_enrollment_token(user_id, settings.enrollment_ttl_minutes)
-    url = build_enrollment_url(token=token, fqdn=settings.fqdn, port=settings.tak_enrollment_port)
+    url = build_enrollment_url(token=token, fqdn=settings.fqdn, username=user["username"])
     return {"enrollment_url": url, "expires_at": expires_at}
 
 
