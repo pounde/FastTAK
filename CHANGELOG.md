@@ -2,6 +2,39 @@
 
 <!-- version list -->
 
+## v0.6.0 (2026-03-30)
+
+### Chores
+
+- Block direct commits to main, exclude test override from YAML check
+  ([`f4eed81`](https://github.com/pounde/FastTAK/commit/f4eed81b306982a1d1a3b53483237462e2bef77f))
+
+### Documentation
+
+- Add CONTRIBUTING.md and update decisions.md re: production hardening
+  ([`27f8409`](https://github.com/pounde/FastTAK/commit/27f84097ebb9ec942d4239c85e95b099b626411e))
+
+- Add DD-023 (production-first compose) and DD-024 (test port
+  ([`27f8409`](https://github.com/pounde/FastTAK/commit/27f84097ebb9ec942d4239c85e95b099b626411e))
+
+### Features
+
+- Add dev compose override with direct-access ports
+  ([`87514f6`](https://github.com/pounde/FastTAK/commit/87514f63295dcaad59852e783606522588b9af42))
+
+- Add just recipes for production, dev, and help
+  ([`27adac8`](https://github.com/pounde/FastTAK/commit/27adac82ba7b343258e46ff2305567a4106d2bcf))
+
+- Add test compose override with +10000 port offset
+  ([`3b1e715`](https://github.com/pounde/FastTAK/commit/3b1e715812ab727639eb039e6301cac6ff45bde1))
+
+- Harden base compose — remove direct-access and admin API ports
+  ([`33fec29`](https://github.com/pounde/FastTAK/commit/33fec2932256dd8acdf4fccf11f169bb0b67ed05))
+
+- Use test compose override for port isolation in integration tests
+  ([`b97fad5`](https://github.com/pounde/FastTAK/commit/b97fad55e1fc8185b3b298105831d3c863ce85f1))
+
+
 ## v0.5.0 (2026-03-29)
 
 ### Features
