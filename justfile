@@ -26,16 +26,22 @@ setup-dev:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 
 # Start production stack (services only reachable through Caddy + Authentik)
-up:
-    docker compose up -d --build
+# Pass service names to rebuild and force-recreate specific services: `just up monitor`
+# Without arguments, starts the full stack. With arguments, adds --force-recreate
+# to ensure containers pick up code changes even when Docker's layer cache hits.
+up *services:
+    docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
 
 # Stop the production stack
 down:
     docker compose down
 
 # Start stack for local development (direct-access ports enabled)
-dev-up:
-    COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose up -d --build
+# Pass service names to rebuild and force-recreate specific services: `just dev-up monitor`
+# Without arguments, starts the full stack. With arguments, adds --force-recreate
+# to ensure containers pick up code changes even when Docker's layer cache hits.
+dev-up *services:
+    COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
 
 # Stop the dev stack
 dev-down:
