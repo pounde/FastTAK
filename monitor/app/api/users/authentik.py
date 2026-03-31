@@ -126,17 +126,18 @@ class AuthentikClient:
         name: str,
         ttl_hours: int | None = None,
         groups: list[str] | None = None,
+        user_type: str | None = None,
     ) -> dict:
         """Create a passwordless user."""
-        user = self._post(
-            "core/users/",
-            {
-                "username": username,
-                "name": name,
-                "is_active": True,
-                "path": "users",
-            },
-        )
+        payload = {
+            "username": username,
+            "name": name,
+            "is_active": True,
+            "path": "users",
+        }
+        if user_type is not None:
+            payload["type"] = user_type
+        user = self._post("core/users/", payload)
         pk = user["pk"]
 
         attrs = {"fastak_certs_revoked": False}
@@ -217,7 +218,7 @@ class AuthentikClient:
             )
             for g in data.get("results", []):
                 name = g.get("name", "")
-                if name.startswith("tak_"):
+                if name.startswith("tak_") and name != "tak_ROLE_ADMIN":
                     groups.append({"id": g["pk"], "name": name[4:]})
             if not data.get("pagination", {}).get("next"):
                 break
@@ -278,6 +279,24 @@ class AuthentikClient:
             self._post(f"core/groups/{group['pk']}/add_user/", {"pk": user_id})
 
     # ── Enrollment ──────────────────────────────────────────────────
+
+    def delete_enrollment_tokens(self, user_id: int) -> int:
+        """Delete all app_password tokens for a user. Returns count deleted."""
+        user = self._get(f"core/users/{user_id}/")
+        username = user["username"]
+
+        tokens = self._get(
+            "core/tokens/",
+            params={"user__username": username, "intent": "app_password"},
+        )
+        count = 0
+        for t in tokens.get("results", []):
+            try:
+                self._delete(f"core/tokens/{t['identifier']}/")
+                count += 1
+            except Exception:
+                continue
+        return count
 
     def get_or_create_enrollment_token(self, user_id: int, ttl_minutes: int) -> tuple[str, str]:
         """Get existing or create new app password. Returns (key, expiry_iso).

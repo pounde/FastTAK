@@ -1,6 +1,6 @@
 """Tests for user management API routes."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from app.main import app
@@ -288,10 +288,17 @@ class TestUserCerts:
             "is_active": True,
             "groups": [],
         }
-        mock_tak.list_user_certs.return_value = [{"id": 42}]
+        mock_tak.list_user_certs.return_value = [
+            {"id": 42, "hash": "abc123", "expiration_date": "2027-03-30", "revocation_date": None}
+        ]
         resp = client.get("/api/users/1/certs")
         assert resp.status_code == 200
-        assert resp.json() == [{"id": 42}]
+        data = resp.json()
+        # Unified list — TAK Server cert with no on-disk file shows as non-downloadable
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["cert_id"] == 42
+        assert data[0]["downloadable"] is False
 
     def test_revoke_cert(self, mock_clients):
         mock_ak, mock_tak = mock_clients
@@ -302,10 +309,182 @@ class TestUserCerts:
             "is_active": True,
             "groups": [],
         }
+        mock_tak.list_user_certs.return_value = [
+            {
+                "id": 42,
+                "hash": "abc",
+                "certificate_pem": "---PEM---",
+                "serial_number": "1234",
+                "expiration_date": None,
+                "revocation_date": None,
+                "issuance_date": None,
+            },
+        ]
         mock_tak.revoke_cert.return_value = True
-        resp = client.post("/api/users/1/certs/revoke", json={"cert_id": 42})
+        with patch(
+            "app.api.service_accounts.cert_gen.revoke_cert_by_pem", return_value={"success": True}
+        ):
+            resp = client.post("/api/users/1/certs/revoke", json={"cert_id": 42})
         assert resp.status_code == 200
-        mock_tak.revoke_cert.assert_called_once_with(42)
+
+
+class TestUserCertDownload:
+    def test_returns_p12_file(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        p12_content = b"fake p12 data"
+        p12_file = tmp_path / "jsmith-tablet.p12"
+        p12_file.write_bytes(p12_content)
+
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/1/certs/download/tablet")
+
+        assert r.status_code == 200
+        assert r.content == p12_content
+        assert "application/x-pkcs12" in r.headers["content-type"]
+
+    def test_404_when_cert_missing(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/1/certs/download/tablet")
+
+        assert r.status_code == 404
+
+    def test_404_when_user_not_found(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = None
+
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/999/certs/download/tablet")
+
+        assert r.status_code == 404
+
+    def test_400_for_invalid_cert_name(self, mock_clients):
+        r = client.get("/api/users/1/certs/download/../../etc/passwd")
+        # FastAPI rejects this at the URL routing level (/ in path segment)
+        # but even if it got through, the validation would catch it
+        assert r.status_code in (400, 404, 422)
+
+
+class TestUserCertGeneration:
+    def test_generates_named_cert(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        with (
+            patch("app.api.users.router.CERT_FILES_PATH", tmp_path),
+            patch("app.api.service_accounts.cert_gen.generate_client_cert") as mock_gen,
+        ):
+            mock_gen.return_value = {"success": True}
+            r = client.post("/api/users/1/certs/generate", json={"name": "tablet"})
+        assert r.status_code == 201
+        data = r.json()
+        assert data["name"] == "tablet"
+        assert data["filename"] == "jsmith-tablet.p12"
+        mock_gen.assert_called_once_with("jsmith-tablet", validity_days=365, cn_override="jsmith")
+
+    def test_409_duplicate_cert_name(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        # Create existing cert file
+        (tmp_path / "jsmith-tablet.p12").write_bytes(b"exists")
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.post("/api/users/1/certs/generate", json={"name": "tablet"})
+        assert r.status_code == 409
+
+    def test_400_for_deactivated_user(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": False,
+            "groups": [],
+        }
+        r = client.post("/api/users/1/certs/generate", json={"name": "tablet"})
+        assert r.status_code == 400
+
+    def test_400_for_expired_user(self, mock_clients, tmp_path):
+        import time
+
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+            "fastak_expires": int(time.time()) - 3600,  # expired 1 hour ago
+        }
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.post("/api/users/1/certs/generate", json={"name": "tablet"})
+        assert r.status_code == 400
+        assert "expired" in r.json()["detail"].lower()
+
+    def test_validity_capped_by_user_expiry(self, mock_clients, tmp_path):
+        import time
+
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+            "fastak_expires": int(time.time()) + 86400 * 30,  # expires in 30 days
+        }
+        with (
+            patch("app.api.users.router.CERT_FILES_PATH", tmp_path),
+            patch("app.api.service_accounts.cert_gen.generate_client_cert") as mock_gen,
+        ):
+            mock_gen.return_value = {"success": True}
+            r = client.post("/api/users/1/certs/generate", json={"name": "tablet"})
+        assert r.status_code == 201
+        # Validity should be capped at ~30 days, not 365
+        call_args = mock_gen.call_args
+        assert call_args[1]["validity_days"] <= 31
+
+    def test_invalid_cert_name(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        r = client.post("/api/users/1/certs/generate", json={"name": "bad name!"})
+        assert r.status_code == 422
+
+    def test_404_for_missing_user(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = None
+        r = client.post("/api/users/999/certs/generate", json={"name": "tablet"})
+        assert r.status_code == 404
 
 
 # ── Groups ────────────────────────────────────────────────────────
@@ -314,10 +493,10 @@ class TestUserCerts:
 class TestGroups:
     def test_list_groups(self, mock_clients):
         mock_ak, _ = mock_clients
-        mock_ak.list_groups.return_value = [{"id": "g1", "name": "ROLE_ADMIN"}]
+        mock_ak.list_groups.return_value = [{"id": "g1", "name": "OPS"}]
         resp = client.get("/api/groups")
         assert resp.status_code == 200
-        assert resp.json() == [{"id": "g1", "name": "ROLE_ADMIN"}]
+        assert resp.json() == [{"id": "g1", "name": "OPS"}]
 
     def test_create_group(self, mock_clients):
         mock_ak, _ = mock_clients
