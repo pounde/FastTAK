@@ -117,6 +117,8 @@ class TakServerClient:
             {
                 "id": c["id"],
                 "hash": c.get("hash", ""),
+                "certificate_pem": c.get("certificate", ""),
+                "serial_number": c.get("serialNumber", ""),
                 "issuance_date": c.get("issuanceDate"),
                 "expiration_date": c.get("expirationDate"),
                 "revocation_date": c.get("revocationDate"),
@@ -125,7 +127,11 @@ class TakServerClient:
         ]
 
     def revoke_cert(self, cert_id: int) -> bool:
-        """Revoke a cert by ID. Returns True on success."""
+        """Mark a cert as revoked in certadmin (database flag only).
+
+        NOTE: This does NOT update the CRL. Use revoke_cert_via_crl() for
+        actual TLS-level revocation that disconnects devices.
+        """
         try:
             self._delete(f"/Marti/api/certadmin/cert/revoke/{cert_id}")
             return True

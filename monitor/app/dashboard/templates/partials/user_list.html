@@ -9,12 +9,13 @@
             <th>Username</th>
             <th>Name</th>
             <th>Status</th>
+            <th></th>
         </tr>
     </thead>
     <tbody>
         {% for u in users %}
         <tr style="cursor: pointer;"
-            @click="selectUser({{ u | tojson }})"
+            x-on:click='selectUser({{ u | tojson }})'
             :class="{ 'text-yellow': selectedUser?.id === {{ u.id }} }">
             <td>{{ u.username }}</td>
             <td>{{ u.name }}</td>
@@ -23,6 +24,12 @@
                 <span class="badge badge-green">active</span>
                 {% else %}
                 <span class="badge badge-red">inactive</span>
+                {% endif %}
+            </td>
+            <td style="text-align: right;">
+                {% if u.is_active %}
+                <a href="#" style="color: #4fc3f7; font-size: 12px;"
+                   x-on:click.stop.prevent='selectUser({{ u | tojson }})'>Details</a>
                 {% endif %}
             </td>
         </tr>

@@ -143,6 +143,56 @@
         finally { this.actionLoading = false; }
     },
 
+    certName: '',
+    certs: [],
+    certLoading: false,
+
+    async revokeCert(cert) {
+        if (!this.selectedUser) return;
+        const label = cert.name || '#' + cert.cert_id;
+        if (!confirm('Revoke certificate ' + label + '? The device will be disconnected immediately. This cannot be undone.')) return;
+        this.actionLoading = true; this.actionResult = ''; this.actionError = false;
+        try {
+            const body = cert.cert_id ? {cert_id: cert.cert_id} : {cert_name: cert.name};
+            const r = await fetch(`/api/users/${this.selectedUser.id}/certs/revoke`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            if (!r.ok) { const d = await r.json(); this.actionResult = d.detail || 'Revoke failed'; this.actionError = true; return; }
+            this.actionResult = 'Certificate revoked';
+            await this.loadCerts();
+        } catch(e) { this.actionResult = e.message; this.actionError = true; }
+        finally { this.actionLoading = false; }
+    },
+
+    async generateCert() {
+        if (!this.selectedUser || !this.certName) return;
+        this.certLoading = true; this.actionResult = ''; this.actionError = false;
+        try {
+            const r = await fetch(`/api/users/${this.selectedUser.id}/certs/generate`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: this.certName})
+            });
+            if (!r.ok) { const d = await r.json(); this.actionResult = d.detail || 'Failed'; this.actionError = true; return; }
+            this.actionResult = 'Certificate generated';
+            this.certName = '';
+            await this.loadCerts();
+        } catch(e) { this.actionResult = e.message; this.actionError = true; }
+        finally { this.certLoading = false; }
+    },
+
+    async loadCerts() {
+        if (!this.selectedUser) return;
+        try {
+            const r = await fetch(`/api/users/${this.selectedUser.id}/certs`);
+            if (r.ok) {
+                this.certs = await r.json();
+            }
+        } catch(e) { /* ignore */ }
+    },
+
     selectUser(user) {
         if (this.selectedUser?.id === user.id) {
             this.selectedUser = null;
@@ -155,6 +205,9 @@
             this.actionResult = '';
             this.actionError = false;
             this.passwordValue = '';
+            this.certName = '';
+            this.certs = [];
+            this.loadCerts();
         }
     }
 }">
@@ -238,6 +291,7 @@
                     <input type="password" x-model="passwordValue" placeholder="New password" style="flex: 1;">
                     <button :disabled="!passwordValue || actionLoading" @click="setPassword()">Set</button>
                 </div>
+                <p class="text-muted" style="font-size: 11px;">Most users don't need a password. Device users authenticate via certificate only. Passwords are only required for browser-based access (WebTAK, admin UI on port 8446).</p>
             </div>
 
             <!-- Enroll section -->
@@ -253,6 +307,46 @@
                            @click="$el.select(); navigator.clipboard.writeText(enrollUrl)">
                     <p class="text-muted" style="font-size: 11px; margin-top: 4px;">Click URL to copy</p>
                 </div>
+            </div>
+
+            <!-- Certificates section -->
+            <div>
+                <h2>Certificates</h2>
+                <div class="flex mb-8" x-show="selectedUser?.is_active">
+                    <input type="text" x-model="certName" placeholder="e.g. tablet, gcs"
+                           style="flex: 1;" @keyup.enter="generateCert()">
+                    <button :disabled="!certName || certLoading" @click="generateCert()">
+                        <span x-text="certLoading ? '...' : 'Generate'"></span>
+                    </button>
+                </div>
+                <p class="text-muted" style="font-size: 11px; margin-bottom: 8px;"
+                   x-show="selectedUser?.is_active">Name the cert for the device (e.g. tablet, gcs, field-laptop). Password: atakatak</p>
+
+                <!-- Unified cert list -->
+                <template x-if="certs.length > 0">
+                    <div style="margin-top: 8px;">
+                        <template x-for="(c, idx) in certs" :key="idx">
+                            <div class="flex" style="margin-bottom: 6px; gap: 8px; align-items: center;">
+                                <span style="font-size: 13px;"
+                                      :class="c.revoked ? 'text-red' : 'text-green'"
+                                      x-text="c.name || '(QR enrolled)'"></span>
+                                <span class="text-muted" style="font-size: 11px;"
+                                      x-text="c.expiration_date ? 'expires ' + c.expiration_date : ''"></span>
+                                <span x-show="c.revoked" class="badge badge-red" style="font-size: 10px;">revoked</span>
+                                <a x-show="c.downloadable && !c.revoked"
+                                   :href="'/api/users/' + selectedUser?.id + '/certs/download/' + c.name"
+                                   style="color: #4fc3f7; font-size: 11px;">download</a>
+                                <a href="#" x-show="!c.revoked && (c.cert_id || c.name)"
+                                   style="color: #ef5350; font-size: 11px;"
+                                   @click.prevent="revokeCert(c)">revoke</a>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <p x-show="certs.length === 0" class="text-muted" style="font-size: 12px;">
+                    No certificates. Use QR enrollment or generate a cert above.
+                </p>
             </div>
 
             <!-- Actions section -->

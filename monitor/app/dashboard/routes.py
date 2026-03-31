@@ -51,6 +51,11 @@ async def users_page(request: Request):
     return templates.TemplateResponse(request, "users.html", _page_context())
 
 
+@router.get("/service-accounts")
+async def service_accounts_page(request: Request):
+    return templates.TemplateResponse(request, "service_accounts.html", _page_context())
+
+
 # --- UI Partials (HTMX fragments) ---
 
 
@@ -171,6 +176,29 @@ async def ui_user_list(request: Request):
             "page_size": page_size,
             "search": search,
         },
+    )
+
+
+@router.get("/ui/partials/service-account-list")
+async def ui_service_account_list(request: Request):
+    from fastapi import HTTPException as _HTTPException
+
+    from app.api.service_accounts.router import _get_authentik
+
+    try:
+        ak = _get_authentik()
+    except _HTTPException:
+        return templates.TemplateResponse(
+            request,
+            "partials/service_account_list.html",
+            {"accounts": [], "error": "Authentik not configured"},
+        )
+
+    accounts = ak.list_users(search="svc_")
+    return templates.TemplateResponse(
+        request,
+        "partials/service_account_list.html",
+        {"accounts": accounts},
     )
 
 
