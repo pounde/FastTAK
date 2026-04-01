@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.7.1 (2026-03-30)
+
+### Bug Fixes
+
+- Update dev docker compose to expose Authentik port to host
+  ([`2f354a4`](https://github.com/pounde/FastTAK/commit/2f354a4a3273525bf32585af74fbb986ea36809c))
+
+
 ## v0.7.0 (2026-03-30)
 
 ### Bug Fixes
