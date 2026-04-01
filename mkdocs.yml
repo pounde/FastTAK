@@ -30,6 +30,11 @@ markdown_extensions:
       alternate_style: true
   - toc:
       permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
 exclude_docs: |
   plans/
