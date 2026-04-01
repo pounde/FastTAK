@@ -244,7 +244,9 @@ def ensure_webadmin_user() -> None:
     # Set password
     api_post(f"core/users/{user['pk']}/set_password/", {"password": webadmin_pass})
 
-    # Add to tak_ROLE_ADMIN group (create if needed)
+    # Add to tak_ROLE_ADMIN group — required for TAK Server web UI access on port 8446.
+    # Unlike service accounts (which use certmod -A for admin access), the webadmin user
+    # authenticates via LDAP password on 8446 where group membership determines admin status.
     groups = api_get("core/groups/?search=tak_ROLE_ADMIN").get("results", [])
     admin_group = next((g for g in groups if g.get("name") == "tak_ROLE_ADMIN"), None)
     if not admin_group:
@@ -264,12 +266,12 @@ def ensure_webadmin_user() -> None:
 
 
 def ensure_svc_nodered_user() -> None:
-    """Create svc_nodered user in Authentik with tak_ROLE_ADMIN group.
+    """Create svc_nodered user in Authentik.
 
     Node-RED connects to TAK Server via client cert (CN=svc_nodered). TAK Server
-    looks up the CN in LDAP to determine group membership. Without a matching
-    LDAP user, CoT messages from Node-RED flows are silently dropped because
-    TAK Server can't route them to any group.
+    looks up the CN in LDAP to determine group membership. No groups are assigned
+    at bootstrap — the admin assigns tak_* groups via the dashboard when they
+    build flows that need channel access.
     """
     log.info("Ensuring svc_nodered user...")
     users = api_get("core/users/?search=svc_nodered").get("results", [])
@@ -290,27 +292,12 @@ def ensure_svc_nodered_user() -> None:
     else:
         log.info("svc_nodered user exists (pk=%s)", user["pk"])
 
-    # Add to tak_ROLE_ADMIN group (create if needed)
-    groups = api_get("core/groups/?search=tak_ROLE_ADMIN").get("results", [])
-    admin_group = next((g for g in groups if g.get("name") == "tak_ROLE_ADMIN"), None)
-    if not admin_group:
-        admin_group = api_post("core/groups/", {"name": "tak_ROLE_ADMIN"})
-        log.info("Created tak_ROLE_ADMIN group")
-
-    member_pks = [
-        u.get("pk") if isinstance(u, dict) else u for u in (admin_group.get("users") or [])
-    ]
-    if user["pk"] not in member_pks:
-        api_post(f"core/groups/{admin_group['pk']}/add_user/", {"pk": user["pk"]})
-        log.info("Added svc_nodered to tak_ROLE_ADMIN")
-
 
 def ensure_svc_fasttakapi_user() -> None:
-    """Create svc_fasttakapi user in Authentik with tak_ROLE_ADMIN group.
+    """Create svc_fasttakapi user in Authentik.
 
     The FastTAK API connects to TAK Server via client cert (CN=svc_fasttakapi).
-    TAK Server looks up the CN in LDAP to determine group membership. Without
-    a matching LDAP user, API calls are restricted to the __ANON__ group.
+    Admin API access (ROLE_ADMIN) is granted by register-api-cert.sh via certmod -A.
     """
     log.info("Ensuring svc_fasttakapi user...")
     users = api_get("core/users/?search=svc_fasttakapi").get("results", [])
@@ -330,19 +317,6 @@ def ensure_svc_fasttakapi_user() -> None:
         log.info("Created svc_fasttakapi user (pk=%s)", user["pk"])
     else:
         log.info("svc_fasttakapi user exists (pk=%s)", user["pk"])
-
-    # Add to tak_ROLE_ADMIN group (create if needed)
-    groups = api_get("core/groups/?search=tak_ROLE_ADMIN").get("results", [])
-    admin_group = next((g for g in groups if g.get("name") == "tak_ROLE_ADMIN"), None)
-    if not admin_group:
-        admin_group = api_post("core/groups/", {"name": "tak_ROLE_ADMIN"})
-
-    member_pks = [
-        u.get("pk") if isinstance(u, dict) else u for u in (admin_group.get("users") or [])
-    ]
-    if user["pk"] not in member_pks:
-        api_post(f"core/groups/{admin_group['pk']}/add_user/", {"pk": user["pk"]})
-        log.info("Added svc_fasttakapi to tak_ROLE_ADMIN")
 
 
 # ---------------------------------------------------------------------------
@@ -521,8 +495,8 @@ def ensure_ldap_provider(base_dn: str, flow_pk: str) -> int:
             "authentication_flow": flow_pk,
             "invalidation_flow": invalidation_flow,
             "base_dn": base_dn,
-            "bind_mode": "cached",
-            "search_mode": "cached",
+            "bind_mode": "direct",
+            "search_mode": "direct",
         },
     )
     pk = r["pk"]
