@@ -4,6 +4,47 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-027: Single Cert Per Service Account
+
+**Date:** 2026-03-30
+**Status:** Decided
+
+**Decision:** Service accounts get one certificate, named after the username (`svc_{name}.p12`). Multiple named certs per service account are not supported.
+
+**Why:** YAGNI. The use case for multiple certs on a service account (e.g., a sensor network with 5 nodes under one identity) is real but hasn't materialized. Operators who need multiple nodes can create multiple service accounts (`svc_sensor_node1`, `svc_sensor_node2`), each with its own cert and independently manageable lifecycle. Users (people) support multiple named certs because a person genuinely uses multiple devices under one identity. Machines are simpler — one identity, one cert, one device.
+
+**Revisit when:** An operator has a concrete need for multiple certs on a single service account and creating separate accounts is insufficient.
+
+---
+
+## DD-026: Filter ROLE_ADMIN from Groups API
+
+**Date:** 2026-03-30
+**Status:** Decided
+
+**Decision:** The `GET /api/groups` endpoint (and `AuthentikClient.list_groups()`) filters out `tak_ROLE_ADMIN`. It does not appear in group lists, dropdowns, or anywhere operators can assign it.
+
+**Why:** `ROLE_ADMIN` is a TAK Server authorization role, not an operational channel. Admin access for service accounts is granted via `certmod -A` on the certificate, not via LDAP group membership. The `tak_ROLE_ADMIN` group in Authentik exists only for the `webadmin` user (who authenticates via LDAP password on port 8446 where group membership determines admin status). Exposing it in the groups API risks operators assigning it to users/service accounts, which creates a phantom channel visible in ATAK clients without actually granting admin API access.
+
+**Future:** If `webadmin` can be migrated to cert-based auth with `certmod -A`, the `tak_ROLE_ADMIN` group can be eliminated entirely.
+
+---
+
+## DD-025: Keep Default `.p12` Password (`atakatak`)
+
+**Date:** 2026-03-30
+**Status:** Decided
+
+**Decision:** All generated `.p12` certificate bundles use the default password `atakatak`. This is not configurable per-cert.
+
+**Why:** `atakatak` is a universal TAK ecosystem convention. Every TAK tool, tutorial, deployment guide, and client application assumes this password. The `.p12` password protects the file at rest (prevents accidental import), not the connection — the real security is that the cert must be signed by the deployment's CA. Introducing unique passwords per cert would add operational burden (tracking and communicating passwords alongside certs) without meaningful security benefit, since the cert file itself is the credential.
+
+**Alternatives considered:**
+- Per-cert auto-generated passwords shown once at download — adds friction for operators familiar with TAK conventions, marginal security gain
+- Configurable default password — breaks compatibility with existing TAK tooling that hardcodes `atakatak`
+
+---
+
 ## DD-024: Test Isolation via Port Offset Override
 
 **Date:** 2026-03-29
