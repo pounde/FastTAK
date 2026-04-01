@@ -4,57 +4,168 @@
 
 TAK doesn't use passwords to connect devices. Instead, every device gets a **certificate file** (`.p12`) that acts like a digital ID badge. When your phone (running ATAK or iTAK) connects to TAK Server, both sides show their ID badges to each other and verify they were issued by the same authority. If the badges check out, the connection is established.
 
-This is called **mutual TLS** — both the server and the client prove their identity. It's more secure than passwords because there's nothing to guess, phish, or brute-force.
-
-### Why not just use passwords?
-
-TAK is designed for field operations where you might not have reliable connectivity. Certificate-based auth works offline — once a device has its cert, it can connect without needing to reach an authentication server. The cert *is* the credential.
+This is called **mutual TLS (mTLS)** — both the server and the client prove their identity. It's more secure than passwords because there's nothing to guess, phish, or brute-force. And it works offline — once a device has its cert, it can connect without needing to reach an authentication server. The cert _is_ the credential.
 
 ### What's in a .p12 file?
 
 A `.p12` file is a bundle containing:
+
 - The device's identity certificate (who they are)
 - The device's private key (proves they own the certificate)
 - The CA certificate chain (so the device knows who to trust)
 
-All protected by a password. The default password for TAK certs is `atakatak` — this is a well-known convention across the TAK ecosystem, not a secret. It just prevents accidental installation.
+All protected by an import password (`atakatak`) that prevents accidental installation — see [The .p12 Password](#the-p12-password) below. The security comes from the certificate and private key inside, not the import password.
+
+## Users, Service Accounts, and Certificates
+
+These are three separate concepts. Getting them confused leads to operational mistakes.
+
+### Users
+
+**Users are people.** They generally authenticate via QR enrollment, and use ATAK, iTAK, or WinTAK. A user's identity follows the person — if they hand their device to someone else, the cert should be revoked and the new person should get their own.
+
+### Service Accounts
+
+**Service accounts are machines.** They are prefixed `svc_` and authenticate exclusively via client certificate. The identity is tied to the device or integration, not a person. If a device is handed to someone else, the cert stays on it.
+
+Service accounts have two modes:
+
+- **Data mode** — sends and receives CoT. Requires channel group assignments to control what data flows where. Examples: a UAS ground control station, a sensor feed, or a feed from an ADS-B provider to a channel.
+- **Admin mode** — management API access. Gets `certmod -A` for `ROLE_ADMIN`. Example: `svc_fasttakapi` (the FastTAK API itself) or a Node-RED flow that requires admin access to manage users.
+
+### Certificates
+
+**Certificates are credentials, not identities.** A user or service account can have multiple certs — phone + tablet, old + new during rotation, or a replacement after a lost device. When a certificate is revoked, the account is not deleted; it just invalidates that one credential to preserve audit trails.
+
+Same CN on multiple certs → same LDAP lookup → same groups and permissions.
+
+### The "stays or goes" test
+
+When deciding whether something should be a user or a service account, ask: **if the device is handed to someone else, does the cert stay or go?**
+
+- **Stays** → service account. The identity is the machine (e.g., a UAS ground station, a sensor feed, a Node-RED integration).
+- **Goes** → user account. The identity is the person (e.g., a pilot who carries their own laptop, a team leader with their phone).
 
 ## How FastTAK Manages Certificates
 
-FastTAK generates its own **certificate authority (CA)** on first boot. Think of the CA as the office that issues ID badges — every cert it creates is automatically trusted by TAK Server.
+FastTAK uses a **single self-signed certificate authority** called `FastTAK-CA`. The files `root-ca.pem` and `ca.pem` are identical copies of this CA certificate. The CA is created once at bootstrap and signs everything: server certs, user certs, and service account certs.
 
-### The trust chain
+### Trust chain
 
+```mermaid
+graph TD
+    CA["FastTAK-CA (10yr)"] --> Server["takserver.pem (2yr)"]
+    CA --> SvcAdmin["svc_fasttakapi.p12 (2yr)"]
+    CA --> SvcData["svc_nodered.p12 (1yr)"]
+    CA --> UserQR["User cert via QR (1yr)"]
+    CA --> UserManual["User cert via API (1yr)"]
 ```
-Root CA (root-ca.pem)
-  └── Intermediate CA (ca.pem)  ← issues all certs below
-        ├── Server cert (takserver.pem)  ← TAK Server's identity
-        ├── Service certs (svc_*.p12)     ← internal service accounts
-        └── Client certs (alice.p12)     ← one per user/device
+
+## Certificate Validity
+
+| Cert type               | Validity        | Generated by                                                   |
+| ----------------------- | --------------- | -------------------------------------------------------------- |
+| CA                      | 10 years        | `makeRootCa.sh` (bootstrap)                                    |
+| Server                  | 2 years         | `makeCert.sh` (bootstrap)                                      |
+| User (QR enrollment)    | 1 year          | TAK Server `ca-signing.jks` (`validityDays=365` in CoreConfig) |
+| User (manual)           | 1 year          | API (openssl direct)                                           |
+| Service account (data)  | 1 year default  | API (openssl direct, configurable)                             |
+| Service account (admin) | 2 years default | API (openssl direct, configurable)                             |
+
+## Getting a Cert onto a Device
+
+### QR Code enrollment (recommended)
+
+The QR flow is the standard path for users with ATAK, iTAK, or WinTAK.
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin (Dashboard)
+    participant API as FastTAK API
+    participant Auth as Authentik
+    participant TAK as TAK Server
+    participant Device as ATAK Device
+
+    Admin->>API: Create user
+    API->>Auth: Create Authentik account
+    Admin->>API: Generate enrollment QR
+    API->>Auth: Create app password token
+    API-->>Admin: tak:// enrollment URL + QR
+    Admin-->>Device: Scan QR code
+    Device->>TAK: Connect with token (port 8446)
+    TAK->>Device: Issue client cert (1yr)
+    Device->>TAK: Reconnect with cert (port 8089)
 ```
 
-**Root CA** is the top-level authority. Created once, lasts ~10 years. Think of it as the organization's seal.
+The device receives a 1-year client cert signed by the CA. No file transfers, no passwords to communicate.
 
-**Intermediate CA** is a delegated authority signed by the Root CA. It does the actual work of issuing certs. If it's ever compromised, you can replace it without invalidating the Root CA.
+### Manual download
 
-**Server cert** proves TAK Server is who it claims to be. FastTAK automatically creates one matching your FQDN.
+For headless devices or situations where QR scanning isn't practical, download the `.p12` from the dashboard. The password is `atakatak` (see [DD-025](decisions.md#dd-025-keep-default-p12-password-atakatak)). Transfer the file to the device and import it into the TAK client.
 
-**Client certs** prove a user/device's identity. One per person or device.
+## Service Account Modes
 
-### Two ways to get a cert onto a device
+### Data mode
 
-**1. QR Code (recommended)** — Create a user in TAK Portal, click the QR button, user scans with ATAK/iTAK. The device connects to TAK Server, receives its cert, and auto-configures. No file transfers needed.
+Data-mode service accounts send and receive CoT on assigned channels. They need channel group assignments to control data flow.
 
-**2. Manual** — Generate a cert with `./certs.sh`, transfer the `.p12` file to the device (email, USB, shared drive), import it into the TAK app. The user enters the cert password (`atakatak`) and configures the server connection manually.
+```mermaid
+sequenceDiagram
+    participant Admin as Admin (Dashboard)
+    participant API as FastTAK API
+    participant Auth as Authentik
+    participant TAK as TAK Server
+    participant Sensor as Sensor Feed
+
+    Admin->>API: Create service account (data mode)
+    API->>Auth: Create svc_ user + assign groups
+    API->>TAK: Generate client cert (openssl)
+    API-->>Admin: Download .p12
+    Admin-->>Sensor: Load cert onto device
+    Sensor->>TAK: Connect with cert (port 8089)
+    Note over Sensor,TAK: CoT flows on assigned channels
+```
+
+### Admin mode
+
+Admin-mode service accounts get `certmod -A` on their certificate, granting `ROLE_ADMIN`. Create admin service accounts through the dashboard or API — they handle `certmod -A` registration automatically.
+
+Example: `svc_fasttakapi` connects to TAK Server's admin API over the Docker network.
+
+## Two Separate Certificate Systems
+
+FastTAK runs **two independent certificate systems** that don't interact:
+
+| System                    | What it secures                         | Who manages it                       | Where                    |
+| ------------------------- | --------------------------------------- | ------------------------------------ | ------------------------ |
+| **Caddy / Let's Encrypt** | Web browser HTTPS (admin UI, portal)    | Automatic — Caddy handles everything | Caddy's internal storage |
+| **TAK Server CA**         | Device connections (ATAK, iTAK, WinTAK) | You, via dashboard or `./certs.sh`   | `./tak/certs/files/`     |
+
+When you visit `https://takserver.example.com` in a browser, that's a Let's Encrypt cert (managed by Caddy). When ATAK connects to port 8089, that's a TAK CA cert (managed by FastTAK). Completely separate trust chains are utilized.
+
+## Key Files
+
+All cert files live at `./tak/certs/files/` on the host (bind-mounted into containers). They survive `docker compose down` — only `down -v` with a manual `rm -rf tak/` removes them.
+
+| File                                                | What it is                                         |
+| --------------------------------------------------- | -------------------------------------------------- |
+| `root-ca.pem` / `ca.pem`                            | CA public cert (identical files, same fingerprint) |
+| `root-ca-do-not-share.key` / `ca-do-not-share.key`  | CA private key — **PROTECT THIS**                  |
+| `root-ca-trusted.pem`                               | Trusted CA bundle                                  |
+| `ca-signing.jks`                                    | CA keystore used for QR enrollment cert signing    |
+| `takserver.pem` / `takserver.p12` / `takserver.jks` | Server cert (various formats)                      |
+| `truststore-root.jks`                               | Trusted CA store for verification                  |
+| `svc_fasttakapi.p12`                                | API service cert (admin mode)                      |
+| `svc_nodered.p12`                                   | Node-RED service cert (data mode)                  |
+| `<name>.p12`                                        | Per-user/device client cert                        |
+
+## The .p12 Password
+
+All `.p12` files use the password `atakatak`. This is a universal TAK ecosystem convention, not a secret. Every TAK tool, tutorial, and client application assumes this password. The password protects the file at rest (prevents accidental import) — the real security is that the cert must be signed by the deployment's CA.
+
+See [DD-025](decisions.md#dd-025-keep-default-p12-password-atakatak) for the full rationale.
 
 ## Common Tasks
-
-### Create a client cert
-
-```bash
-./certs.sh create-client alice
-./certs.sh download alice.p12
-```
 
 ### Check CA expiry
 
@@ -62,7 +173,7 @@ Root CA (root-ca.pem)
 ./certs.sh ca-info
 ```
 
-FastTAK's healthcheck also monitors cert expiry — TAK Server becomes `unhealthy` when any cert is within 30 days of expiring.
+FastTAK's healthcheck monitors cert expiry — TAK Server becomes `unhealthy` when any cert is within 30 days of expiring.
 
 ### Revoke a cert
 
@@ -82,57 +193,25 @@ FastTAK's healthcheck also monitors cert expiry — TAK Server becomes `unhealth
 ./certs.sh help
 ```
 
-## Two Separate Certificate Systems
+> **Note:** Client cert creation is handled through the dashboard (QR enrollment or manual download), not via `certs.sh` directly.
 
-FastTAK runs **two independent certificate systems** that don't interact:
+## Server Cert Rotation
 
-| System | What it secures | Who manages it | Where |
-|--------|----------------|---------------|-------|
-| **Caddy / Let's Encrypt** | Web browser HTTPS (admin UI, portal) | Automatic — Caddy handles everything | Caddy's internal storage |
-| **TAK Server CA** | Device connections (ATAK, iTAK, WinTAK) | You, via `./certs.sh` or QR enrollment | `./tak/certs/files/` |
+The server cert expires every **2 years**. Rotation requires:
 
-When you visit `https://takserver.example.com` in a browser, that's a Let's Encrypt cert (managed by Caddy). When ATAK connects to port 8089, that's a TAK CA cert (managed by FastTAK). They're completely separate.
+1. Generate a new server cert signed by the same CA
+2. Restart TAK Server
+3. Clients are **unaffected** — they trust the CA, not the specific server cert
 
-## Key Files
+This is tracked as [GitHub issue #23](https://github.com/orgs/your-org/issues/23). Consider automating this before the first expiry.
 
-All cert files live at `./tak/certs/files/` on the host (bind-mounted into containers). They survive `docker compose down` — only `down -v` with a manual `rm -rf tak/` removes them.
+## What to Protect
 
-| File | What it is |
-|------|-----------|
-| `root-ca.pem` | Root CA public cert |
-| `root-ca-do-not-share.key` | Root CA private key — protect this |
-| `ca.pem` | Intermediate CA public cert |
-| `ca-do-not-share.key` | Intermediate CA private key — protect this |
-| `takserver.jks` | Server keystore (Java KeyStore format) |
-| `truststore-root.jks` | Trusted CA store for verification |
-| `ca-signing.jks` | CA keystore used for QR enrollment cert signing |
-| `svc_fasttakapi.p12` | API service cert (monitor → TAK Server) |
-| `svc_nodered.p12` | Node-RED service cert (automation → TAK Server) |
-| `<name>.p12` | Per-user/device client cert |
+**CA private keys** (`root-ca-do-not-share.key` / `ca-do-not-share.key`) are the crown jewels. Anyone with these files can issue certs that TAK Server will trust. The `./tak/certs/files/` directory should have restricted permissions in production.
 
-### What to protect
+**`.p12` files** are user/service credentials. Distribute them securely — they grant access to your TAK network.
 
-The `.key` files are the crown jewels. Anyone with `ca-do-not-share.key` can issue certs that TAK Server will trust. The `./tak/certs/files/` directory should have restricted permissions in production.
-
-The `.p12` files are sensitive too — they're user credentials. Distribute them securely.
-
-## Certificate Expiry and Renewal
-
-- **Root CA**: ~10 years. If this expires, every device needs a new cert.
-- **Intermediate CA**: ~5 years. Can be rotated without disrupting existing clients.
-- **Client/server certs**: ~1-3 years.
-
-### Rotating the intermediate CA
-
-1. Generate a new intermediate CA (signed by the same Root CA)
-2. The old CA stays in the truststore — existing clients keep connecting
-3. New certs are signed by the new CA
-4. Users re-enroll at their convenience
-5. After everyone has re-enrolled, revoke the old CA
-
-### What happens when a cert expires?
-
-The device can't connect. Generate a new cert and deliver it to the user (QR code or manual transfer). No server restart needed.
+**`ca-signing.jks`** contains the CA's signing key in Java KeyStore format. TAK Server uses it to issue certs during QR enrollment.
 
 ## Compatibility Notes
 
