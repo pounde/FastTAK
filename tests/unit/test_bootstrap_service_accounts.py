@@ -34,7 +34,11 @@ def mock_api(monkeypatch):
 
 
 class TestEnsureSvcFasttakapiUser:
-    """Tests for ensure_svc_fasttakapi_user()."""
+    """Tests for ensure_svc_fasttakapi_user().
+
+    Admin access is granted via certmod -A in register-api-cert.sh, not LDAP groups.
+    Bootstrap only creates the Authentik user — no group assignment.
+    """
 
     def test_creates_user_when_not_found(self, mock_api):
         from bootstrap import ensure_svc_fasttakapi_user
@@ -42,15 +46,14 @@ class TestEnsureSvcFasttakapiUser:
         api_get, api_post = mock_api
         api_get.side_effect = [
             {"results": []},
-            {"results": [{"pk": 10, "name": "tak_ROLE_ADMIN", "users": []}]},
         ]
         api_post.side_effect = [
             {"pk": 42, "username": "svc_fasttakapi"},
-            {},
         ]
 
         ensure_svc_fasttakapi_user()
 
+        assert api_post.call_count == 1
         create_call = api_post.call_args_list[0]
         assert create_call[0][0] == "core/users/"
         payload = create_call[0][1]
@@ -58,44 +61,42 @@ class TestEnsureSvcFasttakapiUser:
         assert payload["name"] == "FastTAK API Service Account"
         assert payload["type"] == "service_account"
 
-        group_call = api_post.call_args_list[1]
-        assert "groups/10/add_user" in group_call[0][0]
-        assert group_call[0][1] == {"pk": 42}
-
     def test_skips_creation_when_user_exists(self, mock_api):
         from bootstrap import ensure_svc_fasttakapi_user
 
         api_get, api_post = mock_api
         api_get.side_effect = [
             {"results": [{"pk": 42, "username": "svc_fasttakapi"}]},
-            {"results": [{"pk": 10, "name": "tak_ROLE_ADMIN", "users": [42]}]},
         ]
 
         ensure_svc_fasttakapi_user()
 
         api_post.assert_not_called()
 
-    def test_creates_admin_group_if_missing(self, mock_api):
+    def test_does_not_assign_tak_role_admin(self, mock_api):
+        """svc_fasttakapi gets admin via certmod -A, not LDAP group."""
         from bootstrap import ensure_svc_fasttakapi_user
 
         api_get, api_post = mock_api
         api_get.side_effect = [
-            {"results": [{"pk": 42, "username": "svc_fasttakapi"}]},
             {"results": []},
         ]
         api_post.side_effect = [
-            {"pk": 10, "name": "tak_ROLE_ADMIN", "users": []},
-            {},
+            {"pk": 42, "username": "svc_fasttakapi"},
         ]
 
         ensure_svc_fasttakapi_user()
 
-        group_create = api_post.call_args_list[0]
-        assert group_create[0][1] == {"name": "tak_ROLE_ADMIN"}
+        for call in api_post.call_args_list:
+            assert "tak_ROLE_ADMIN" not in str(call), "Should not assign tak_ROLE_ADMIN group"
 
 
 class TestEnsureSvcNoderedUser:
-    """Tests for ensure_svc_nodered_user() (renamed from ensure_nodered_user)."""
+    """Tests for ensure_svc_nodered_user().
+
+    svc_nodered is a data service account. No groups are assigned at bootstrap —
+    the admin assigns tak_* groups via the dashboard when building flows.
+    """
 
     def test_creates_user_with_svc_prefix(self, mock_api):
         from bootstrap import ensure_svc_nodered_user
@@ -103,19 +104,35 @@ class TestEnsureSvcNoderedUser:
         api_get, api_post = mock_api
         api_get.side_effect = [
             {"results": []},
-            {"results": [{"pk": 10, "name": "tak_ROLE_ADMIN", "users": []}]},
         ]
         api_post.side_effect = [
             {"pk": 43, "username": "svc_nodered"},
-            {},
         ]
 
         ensure_svc_nodered_user()
 
+        assert api_post.call_count == 1
         create_call = api_post.call_args_list[0]
         payload = create_call[0][1]
         assert payload["username"] == "svc_nodered"
         assert payload["name"] == "Node-RED Service Account"
+
+    def test_does_not_assign_tak_role_admin(self, mock_api):
+        """svc_nodered has no groups at bootstrap — admin assigns them later."""
+        from bootstrap import ensure_svc_nodered_user
+
+        api_get, api_post = mock_api
+        api_get.side_effect = [
+            {"results": []},
+        ]
+        api_post.side_effect = [
+            {"pk": 43, "username": "svc_nodered"},
+        ]
+
+        ensure_svc_nodered_user()
+
+        for call in api_post.call_args_list:
+            assert "tak_ROLE_ADMIN" not in str(call), "Should not assign tak_ROLE_ADMIN group"
 
 
 class TestHiddenPrefixes:

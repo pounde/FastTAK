@@ -178,7 +178,6 @@ if [ -n "${LDAP_BIND_PASSWORD}" ]; then
 
     AUTH_BLOCK='    <auth default="ldap" x509groups="true" x509addAnonymous="false" x509useGroupCache="true" x509useGroupCacheDefaultActive="true" x509checkRevocation="true">\
         <ldap url="ldap://'"${LDAP_HOST}"':3389" userstring="cn={username},ou=users,'"${BASE_DN_LOWER}"'" updateinterval="30" groupprefix="cn=tak_" groupNameExtractorRegex="cn=tak_(.*?)(?:,|$)" serviceAccountDN="cn=adm_ldapservice,ou=users,'"${BASE_DN_LOWER}"'" serviceAccountCredential="'"${LDAP_BIND_PASSWORD}"'" groupBaseRDN="ou=groups,'"${BASE_DN_LOWER}"'" userBaseRDN="ou=users,'"${BASE_DN_LOWER}"'" dnAttributeName="DN" nameAttr="CN" adminGroup="ROLE_ADMIN"/>\
-        <File location="UserAuthenticationFile.xml"/>\
     </auth>'
 
     # shellcheck disable=SC1003  # intentional sed quoting for XML block replacement
