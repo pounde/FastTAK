@@ -60,7 +60,7 @@
     },
 
     async deleteGroup(group) {
-        if (!confirm('Delete group "' + group.name + '"? Users in this group will lose membership.')) return;
+        if (!confirm('Delete group ' + group.name + '? Users in this group will lose membership.')) return;
         this.groupLoading = true;
         try {
             const r = await fetch('/api/groups/' + group.id, { method: 'DELETE' });
