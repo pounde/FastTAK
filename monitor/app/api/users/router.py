@@ -107,13 +107,32 @@ class GenerateCertRequest(BaseModel):
 # ── User endpoints ────────────────────────────────────────────────
 
 
-@router.get("/api/users")
+@router.get("/api/users", summary="List users")
 def list_users(
     search: str | None = Query(default=None),
     include: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
 ):
+    """List human users with optional search and pagination.
+
+    Users with hidden prefixes (``svc_``, ``adm_``, ``ak-``, ``ma-``) are
+    automatically filtered out by the Authentik client. Pagination is
+    client-side: the full filtered list is fetched, then sliced.
+
+    Use ``include=certs`` to embed each user's certificate list (adds latency
+    from TAK Server API calls).
+
+    Args:
+        search: Filter usernames/names by substring.
+        include: Comma-separated includes. Currently only ``"certs"`` is
+            supported.
+        page: Page number (1-indexed).
+        page_size: Results per page (1-200, default 50).
+
+    Returns:
+        Paginated dict with ``results``, ``count``, ``page``, ``page_size``.
+    """
     ak = _get_authentik()
     users = ak.list_users(search=search)
 
@@ -130,8 +149,20 @@ def list_users(
     return {"results": page_users, "count": total, "page": page, "page_size": page_size}
 
 
-@router.post("/api/users", status_code=201)
+@router.post("/api/users", status_code=201, summary="Create user")
 def create_user(body: CreateUserRequest):
+    """Create a new TAK user in Authentik.
+
+    Users are passwordless by default — they enroll via the ``/enroll``
+    endpoint and connect with client certificates. An optional ``ttl_hours``
+    sets an auto-expiry so temporary users don't linger.
+
+    Args:
+        body: User creation parameters (username, name, ttl_hours, groups).
+
+    Returns:
+        Created user object.
+    """
     ak = _get_authentik()
     return ak.create_user(
         username=body.username,
@@ -141,8 +172,19 @@ def create_user(body: CreateUserRequest):
     )
 
 
-@router.get("/api/users/{user_id}")
+@router.get("/api/users/{user_id}", summary="Get user")
 def get_user(user_id: int):
+    """Get a single user by ID, including their TAK certificates.
+
+    Args:
+        user_id: Authentik user ID.
+
+    Returns:
+        User object with ``certs`` list when TAK Server is configured.
+
+    Raises:
+        HTTPException(404): If user_id doesn't exist.
+    """
     ak = _get_authentik()
     user = ak.get_user(user_id)
     if not user:
@@ -153,8 +195,26 @@ def get_user(user_id: int):
     return user
 
 
-@router.patch("/api/users/{user_id}")
+@router.patch("/api/users/{user_id}", summary="Update user")
 def update_user(user_id: int, body: UpdateUserRequest):
+    """Update user fields (name, is_active, ttl_hours).
+
+    TTL semantics: sending ``ttl_hours: null`` (JSON null) **clears** the TTL.
+    Omitting the field entirely leaves it unchanged. This distinction uses
+    Pydantic's ``model_fields_set`` to differentiate null from absent.
+
+    A deactivated user can be reactivated by setting ``is_active: true``.
+
+    Args:
+        user_id: Authentik user ID.
+        body: Fields to update (all optional).
+
+    Returns:
+        Updated user object.
+
+    Raises:
+        HTTPException(404): If user_id doesn't exist.
+    """
     ak = _get_authentik()
     user = ak.get_user(user_id)
     if not user:
@@ -173,8 +233,23 @@ def update_user(user_id: int, body: UpdateUserRequest):
     return ak.update_user(user_id, **kwargs)
 
 
-@router.delete("/api/users/{user_id}")
+@router.delete("/api/users/{user_id}", summary="Delete user")
 def delete_user(user_id: int):
+    """Deactivate a user and revoke all their certificates.
+
+    This does **not** hard-delete the Authentik user — it deactivates it to
+    preserve the audit trail. The user can be reactivated later via PATCH
+    with ``is_active: true``.
+
+    Args:
+        user_id: Authentik user ID.
+
+    Returns:
+        ``{"success": true, "username": "..."}`` on success.
+
+    Raises:
+        HTTPException(404): If user_id doesn't exist.
+    """
     ak = _get_authentik()
     user = ak.get_user(user_id)
     if not user:
@@ -191,8 +266,25 @@ def delete_user(user_id: int):
     return {"success": True, "username": user["username"]}
 
 
-@router.post("/api/users/{user_id}/password")
+@router.post("/api/users/{user_id}/password", summary="Set user password")
 def set_password(user_id: int, body: SetPasswordRequest):
+    """Set a password for a user.
+
+    Most TAK users do **not** need passwords — they authenticate via client
+    certificates. Passwords are only required for WebTAK browser access on
+    port 8446.
+
+    Args:
+        user_id: Authentik user ID.
+        body: Password to set (min 1 character).
+
+    Returns:
+        ``{"success": true}`` on success.
+
+    Raises:
+        HTTPException(400): If the user is deactivated.
+        HTTPException(404): If user_id doesn't exist.
+    """
     ak = _get_authentik()
     user = ak.get_user(user_id)
     if not user:
@@ -203,8 +295,25 @@ def set_password(user_id: int, body: SetPasswordRequest):
     return {"success": True}
 
 
-@router.post("/api/users/{user_id}/enroll")
+@router.post("/api/users/{user_id}/enroll", summary="Enroll user")
 def enroll_user(user_id: int):
+    """Generate a ``tak://`` enrollment URL for ATAK/iTAK provisioning.
+
+    The URL contains a 15-minute TTL app password token. If a valid token
+    already exists for this user, it is reused rather than creating a new one
+    (idempotent re-enrollment).
+
+    Args:
+        user_id: Authentik user ID.
+
+    Returns:
+        Dict with ``enrollment_url`` (tak:// format) and ``expires_at``
+        timestamp.
+
+    Raises:
+        HTTPException(400): If the user is deactivated.
+        HTTPException(404): If user_id doesn't exist.
+    """
     ak = _get_authentik()
     user = ak.get_user(user_id)
     if not user:
@@ -287,8 +396,27 @@ def _compute_cert_hash(pem_path: Path) -> str | None:
     return None
 
 
-@router.get("/api/users/{user_id}/certs")
+@router.get("/api/users/{user_id}/certs", summary="List user certificates")
 def list_user_certs(user_id: int):
+    """List all certificates for a user, merging on-disk and TAK Server data.
+
+    Builds a unified list by scanning on-disk .p12/.pem files and matching
+    them to TAK Server certadmin entries via SHA-256 hash. This catches both
+    API-generated certs (on-disk) and QR-enrolled certs (certadmin only).
+
+    Revocation status is checked against the CRL for on-disk certs and
+    against certadmin's ``revocation_date`` for server-side certs.
+
+    Args:
+        user_id: Authentik user ID.
+
+    Returns:
+        List of cert entries with ``name``, ``downloadable``, ``revoked``,
+        ``cert_id``, and ``expiration_date``.
+
+    Raises:
+        HTTPException(404): If user_id doesn't exist.
+    """
     ak = _get_authentik()
     user = ak.get_user(user_id)
     if not user:
@@ -368,8 +496,28 @@ def list_user_certs(user_id: int):
     return unified
 
 
-@router.post("/api/users/{user_id}/certs/generate", status_code=201)
+@router.post("/api/users/{user_id}/certs/generate", status_code=201, summary="Generate user certificate")
 def generate_user_cert(user_id: int, body: GenerateCertRequest):
+    """Generate a named client certificate for a user.
+
+    Creates ``{username}-{name}.p12`` with ``CN=username`` so all certs for a
+    user resolve to the same LDAP identity. Certificate validity is capped by
+    the user's ``fastak_expires`` if set — the cert will never outlive the user.
+
+    Args:
+        user_id: Authentik user ID.
+        body: Certificate name (alphanumeric, dots, hyphens, underscores).
+
+    Returns:
+        Dict with ``name``, ``filename``, ``validity_days``, and
+        ``download_url``.
+
+    Raises:
+        HTTPException(400): If the user is deactivated or already expired.
+        HTTPException(404): If user_id doesn't exist.
+        HTTPException(409): If a cert with the same name already exists.
+        HTTPException(500): If cert generation fails.
+    """
     from app.api.service_accounts.cert_gen import generate_client_cert
 
     ak = _get_authentik()
@@ -410,16 +558,32 @@ def generate_user_cert(user_id: int, body: GenerateCertRequest):
     }
 
 
-@router.post("/api/users/{user_id}/certs/revoke")
+@router.post("/api/users/{user_id}/certs/revoke", summary="Revoke user certificate")
 def revoke_user_cert(user_id: int, body: RevokeCertRequest):
     """Revoke a certificate and update the CRL so TAK Server rejects it.
 
-    Provide exactly one of cert_id or cert_name:
-    - cert_id: for QR-enrolled certs (fetches PEM from certadmin, revokes via CRL)
-    - cert_name: for API-generated certs (revokes via CRL using on-disk .pem)
+    Provide exactly one of ``cert_id`` or ``cert_name``:
 
-    Both paths update the CRL (actual TLS revocation) AND mark the cert as
-    revoked in certadmin if applicable.
+    - **cert_id**: For QR-enrolled certs. Fetches PEM from certadmin, revokes
+      via CRL, and marks revoked in certadmin.
+    - **cert_name**: For API-generated certs. Revokes via CRL using on-disk
+      .pem only (certadmin may not know about these).
+
+    Both paths delete enrollment tokens to prevent re-enrollment with cached
+    credentials.
+
+    Args:
+        user_id: Authentik user ID.
+        body: Exactly one of ``cert_id`` (int) or ``cert_name`` (str).
+
+    Returns:
+        ``{"success": true}`` on success.
+
+    Raises:
+        HTTPException(400): If neither or both of cert_id/cert_name provided.
+        HTTPException(404): If user or certificate not found.
+        HTTPException(500): If CRL revocation fails.
+        HTTPException(503): If TAK Server not configured (cert_id path).
     """
     ak = _get_authentik()
     user = ak.get_user(user_id)
@@ -470,8 +634,29 @@ def revoke_user_cert(user_id: int, body: RevokeCertRequest):
     raise HTTPException(400, "Provide either cert_id or cert_name")
 
 
-@router.get("/api/users/{user_id}/certs/download/{cert_name}")
+@router.get("/api/users/{user_id}/certs/download/{cert_name}", summary="Download user certificate")
 def download_user_cert(user_id: int, cert_name: str):
+    """Download a named .p12 certificate file for a user.
+
+    The ``cert_name`` is validated against an allowlist pattern to prevent
+    path traversal. Revoked certificates are blocked from download (DD-028)
+    by checking the serial against the CRL before serving.
+
+    The .p12 password is always ``atakatak`` (DD-025).
+
+    Args:
+        user_id: Authentik user ID.
+        cert_name: Certificate name (the ``{name}`` part of
+            ``{username}-{name}.p12``).
+
+    Returns:
+        .p12 file as ``application/x-pkcs12`` download.
+
+    Raises:
+        HTTPException(400): If cert_name contains invalid characters.
+        HTTPException(403): If the certificate has been revoked.
+        HTTPException(404): If user or certificate file not found.
+    """
     if not re.match(r"^[a-zA-Z0-9._-]+$", cert_name):
         raise HTTPException(400, "Invalid certificate name")
     ak = _get_authentik()
@@ -502,26 +687,64 @@ def download_user_cert(user_id: int, cert_name: str):
 # ── Group endpoints ───────────────────────────────────────────────
 
 
-@router.get("/api/groups")
+@router.get("/api/groups", summary="List groups")
 def list_groups():
+    """List all Authentik groups.
+
+    Groups with the ``tak_`` prefix are auto-managed by TAK Server
+    integration. ``ROLE_ADMIN`` is filtered out (DD-026).
+
+    Returns:
+        List of group objects.
+    """
     return _get_authentik().list_groups()
 
 
-@router.post("/api/groups", status_code=201)
+@router.post("/api/groups", status_code=201, summary="Create group")
 def create_group(body: CreateGroupRequest):
+    """Create a new Authentik group.
+
+    Args:
+        body: Group name.
+
+    Returns:
+        Created group object.
+    """
     return _get_authentik().create_group(body.name)
 
 
-@router.get("/api/groups/{group_id}")
+@router.get("/api/groups/{group_id}", summary="Get group")
 def get_group(group_id: str):
+    """Get a single group by ID.
+
+    Args:
+        group_id: Authentik group UUID.
+
+    Returns:
+        Group object.
+
+    Raises:
+        HTTPException(404): If group_id doesn't exist.
+    """
     group = _get_authentik().get_group(group_id)
     if not group:
         raise HTTPException(404, "Group not found")
     return group
 
 
-@router.delete("/api/groups/{group_id}")
+@router.delete("/api/groups/{group_id}", summary="Delete group")
 def delete_group(group_id: str):
+    """Delete an Authentik group.
+
+    Args:
+        group_id: Authentik group UUID.
+
+    Returns:
+        ``{"success": true}`` on success.
+
+    Raises:
+        HTTPException(404): If group_id doesn't exist.
+    """
     ak = _get_authentik()
     group = ak.get_group(group_id)
     if not group:
@@ -530,8 +753,24 @@ def delete_group(group_id: str):
     return {"success": True}
 
 
-@router.put("/api/users/{user_id}/groups")
+@router.put("/api/users/{user_id}/groups", summary="Set user groups")
 def set_user_groups(user_id: int, body: SetGroupsRequest):
+    """Replace a user's group memberships.
+
+    This is a full replacement, not a merge — groups not in the list are
+    removed. Groups with the ``tak_`` prefix are auto-managed by TAK Server
+    integration.
+
+    Args:
+        user_id: Authentik user ID.
+        body: List of group names to assign.
+
+    Returns:
+        ``{"success": true}`` on success.
+
+    Raises:
+        HTTPException(404): If user_id doesn't exist.
+    """
     ak = _get_authentik()
     user = ak.get_user(user_id)
     if not user:

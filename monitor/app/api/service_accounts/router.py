@@ -101,15 +101,51 @@ class UpdateServiceAccountRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────
 
 
-@router.get("/api/service-accounts")
+@router.get("/api/service-accounts", summary="List service accounts")
 def list_service_accounts():
+    """List all service accounts (svc_ prefix users).
+
+    Only returns Authentik users whose username starts with ``svc_``.
+    Regular users and other hidden-prefix accounts are excluded.
+
+    Returns:
+        Dict with ``results`` list of service account objects.
+    """
     ak = _get_authentik()
     accounts = ak.list_users(search="svc_")
     return {"results": accounts}
 
 
-@router.post("/api/service-accounts", status_code=201)
+@router.post("/api/service-accounts", status_code=201, summary="Create service account")
 def create_service_account(body: CreateServiceAccountRequest):
+    """Create a new service account with a client certificate.
+
+    Two modes are supported:
+
+    - **data**: Receives TAK data via assigned groups. Groups are required and
+      must already exist.
+    - **admin**: Gets a TAK Server admin cert. Groups are forbidden.
+
+    The ``svc_`` prefix is auto-prepended to the name if not already present.
+    Certificate validity is 1-3650 days (defaults to 365 for data, 730 for
+    admin).
+
+    If certificate generation fails after the Authentik user is created, the
+    user is automatically rolled back (deactivated) to avoid orphaned accounts.
+
+    Args:
+        body: Service account creation parameters.
+
+    Returns:
+        Created account object with mode, validity_days, and cert_download_url.
+
+    Raises:
+        HTTPException(400): If required groups don't exist, or groups are
+            provided for admin mode.
+        HTTPException(500): If certificate generation or admin registration
+            fails (Authentik user is rolled back).
+        HTTPException(503): If Authentik is not configured.
+    """
     ak = _get_authentik()
 
     # Auto-prepend svc_ if not already present
@@ -181,8 +217,25 @@ def create_service_account(body: CreateServiceAccountRequest):
     }
 
 
-@router.patch("/api/service-accounts/{account_id}")
+@router.patch("/api/service-accounts/{account_id}", summary="Update service account")
 def update_service_account(account_id: int, body: UpdateServiceAccountRequest):
+    """Update a service account's display name or group membership.
+
+    Validation is atomic: all groups are checked for existence before any
+    changes are applied. If any group is missing, the entire request is
+    rejected without side effects.
+
+    Args:
+        account_id: Authentik user ID.
+        body: Fields to update (display_name, groups).
+
+    Returns:
+        ``{"success": true}`` on success.
+
+    Raises:
+        HTTPException(400): If any specified groups don't exist.
+        HTTPException(404): If account_id doesn't exist or isn't a svc_ account.
+    """
     ak = _get_authentik()
     user = ak.get_user(account_id)
     if not user:
@@ -208,8 +261,21 @@ def update_service_account(account_id: int, body: UpdateServiceAccountRequest):
     return {"success": True}
 
 
-@router.get("/api/service-accounts/{account_id}")
+@router.get("/api/service-accounts/{account_id}", summary="Get service account")
 def get_service_account(account_id: int):
+    """Get a single service account by ID.
+
+    Includes TAK Server certificate info when the TAK API is configured.
+
+    Args:
+        account_id: Authentik user ID.
+
+    Returns:
+        Service account object, optionally with ``certs`` list.
+
+    Raises:
+        HTTPException(404): If account_id doesn't exist or isn't a svc_ account.
+    """
     ak = _get_authentik()
     user = ak.get_user(account_id)
     if not user:
@@ -222,8 +288,22 @@ def get_service_account(account_id: int):
     return user
 
 
-@router.delete("/api/service-accounts/{account_id}")
+@router.delete("/api/service-accounts/{account_id}", summary="Delete service account")
 def delete_service_account(account_id: int):
+    """Deactivate a service account and revoke all its certificates.
+
+    This does **not** hard-delete the Authentik user — it deactivates it to
+    preserve the audit trail. All associated TAK Server certs are revoked.
+
+    Args:
+        account_id: Authentik user ID.
+
+    Returns:
+        ``{"success": true, "username": "..."}`` on success.
+
+    Raises:
+        HTTPException(404): If account_id doesn't exist or isn't a svc_ account.
+    """
     ak = _get_authentik()
     user = ak.get_user(account_id)
     if not user:
@@ -242,8 +322,25 @@ def delete_service_account(account_id: int):
     return {"success": True, "username": user["username"]}
 
 
-@router.get("/api/service-accounts/{account_id}/certs/download")
+@router.get("/api/service-accounts/{account_id}/certs/download", summary="Download service account cert")
 def download_cert(account_id: int):
+    """Download the .p12 certificate for a service account.
+
+    The .p12 password is always ``atakatak`` (DD-025). Revoked certificates
+    are blocked from download (DD-028) — the serial is checked against the
+    CRL before serving.
+
+    Args:
+        account_id: Authentik user ID.
+
+    Returns:
+        .p12 file as ``application/x-pkcs12`` download.
+
+    Raises:
+        HTTPException(403): If the certificate has been revoked.
+        HTTPException(404): If account not found, not a svc_ account, or
+            cert file missing.
+    """
     ak = _get_authentik()
     user = ak.get_user(account_id)
     if not user:
