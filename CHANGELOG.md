@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.9.0 (2026-04-01)
+
+### Documentation
+
+- Add Google-style API docstrings for Swagger documentation
+  ([`2f19eb5`](https://github.com/pounde/FastTAK/commit/2f19eb54cf02028df8d13dfd26a941c3c19d444d))
+
+### Features
+
+- Filter cert health monitoring to infrastructure/service certs only
+  ([#25](https://github.com/pounde/FastTAK/pull/25),
+  [`2c34eda`](https://github.com/pounde/FastTAK/commit/2c34edabc49ebb0ccb880fd76bf393b4904c1a5b))
+
+
 ## v0.8.1 (2026-04-01)
 
 ### Bug Fixes
