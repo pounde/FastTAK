@@ -19,6 +19,67 @@
     actionResult: '',
     actionError: false,
     passwordValue: '',
+    groups: [],
+    showGroups: false,
+    newGroupName: '',
+    groupLoading: false,
+    editGroups: [],
+    editGroupDropdownOpen: false,
+
+    async init() {
+        await this.fetchGroups();
+    },
+
+    async fetchGroups() {
+        try {
+            const r = await fetch('/api/groups');
+            if (r.ok) this.groups = await r.json();
+        } catch(e) { /* groups will be empty */ }
+    },
+
+    async createGroup() {
+        const name = this.newGroupName.trim();
+        if (!name) return;
+        this.groupLoading = true;
+        try {
+            const r = await fetch('/api/groups', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name})
+            });
+            if (!r.ok) {
+                const d = await r.json();
+                alert(d.detail || 'Failed to create group');
+                return;
+            }
+            this.newGroupName = '';
+            await this.fetchGroups();
+            this.refreshList();
+        } catch(e) { alert(e.message); }
+        finally { this.groupLoading = false; }
+    },
+
+    async deleteGroup(group) {
+        if (!confirm('Delete group "' + group.name + '"? Users in this group will lose membership.')) return;
+        this.groupLoading = true;
+        try {
+            const r = await fetch('/api/groups/' + group.id, { method: 'DELETE' });
+            if (!r.ok) {
+                const d = await r.json();
+                alert(d.detail || 'Failed to delete group');
+                return;
+            }
+            await this.fetchGroups();
+            this.refreshList();
+        } catch(e) { alert(e.message); }
+        finally { this.groupLoading = false; }
+    },
+
+    toggleEditGroup(name) {
+        const idx = this.editGroups.indexOf(name);
+        if (idx === -1) this.editGroups.push(name);
+        else this.editGroups.splice(idx, 1);
+    },
 
     refreshList() {
         const search = document.getElementById('user-search').value;
@@ -56,17 +117,43 @@
             const body = {};
             if (this.editName && this.editName !== this.selectedUser.name) body.name = this.editName;
             if (this.editTtl !== '') body.ttl_hours = this.editTtl === 'clear' ? null : parseInt(this.editTtl);
-            const r = await fetch(`/api/users/${this.selectedUser.id}`, {
-                method: 'PATCH',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body)
-            });
-            if (!r.ok) {
-                const d = await r.json();
-                this.actionResult = d.detail || 'Update failed';
-                this.actionError = true;
+            const groupsChanged = JSON.stringify([...this.editGroups].sort()) !== JSON.stringify([...(this.selectedUser.groups || [])].sort());
+
+            if (Object.keys(body).length === 0 && !groupsChanged) {
+                this.actionResult = 'No changes';
                 return;
             }
+
+            // PATCH name/TTL if changed
+            if (Object.keys(body).length > 0) {
+                const r = await fetch(`/api/users/${this.selectedUser.id}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                if (!r.ok) {
+                    const d = await r.json();
+                    this.actionResult = d.detail || 'Update failed';
+                    this.actionError = true;
+                    return;
+                }
+            }
+
+            // PUT groups if changed
+            if (groupsChanged) {
+                const gr = await fetch(`/api/users/${this.selectedUser.id}/groups`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({groups: [...this.editGroups]})
+                });
+                if (!gr.ok) {
+                    const d = await gr.json();
+                    this.actionResult = d.detail || 'Group update failed';
+                    this.actionError = true;
+                    return;
+                }
+            }
+
             this.actionResult = 'Updated';
             this.refreshList();
         } catch(e) { this.actionResult = e.message; this.actionError = true; }
@@ -205,6 +292,8 @@
             this.actionResult = '';
             this.actionError = false;
             this.passwordValue = '';
+            this.editGroups = [...(user.groups || [])];
+            this.editGroupDropdownOpen = false;
             this.certName = '';
             this.certs = [];
             this.loadCerts();
