@@ -22,9 +22,23 @@ from app.status import Status
 router = APIRouter(prefix="/api/health", tags=["health"])
 
 
-@router.get("")
+@router.get("", summary="Health summary")
 def health_summary(view: str | None = None):
-    """Full health cache, or ?view=status for summary."""
+    """Aggregated health status for all monitored services.
+
+    Returns the full scheduler cache by default. Use ``?view=status`` for a
+    compact summary with per-service status and an overall roll-up.
+
+    Data comes from the background scheduler cache, not live queries, so
+    results may be up to one polling interval stale.
+
+    Args:
+        view: Set to ``"status"`` for a compact per-service summary.
+
+    Returns:
+        Full cache dict keyed by service name, or compact status dict when
+        ``view=status``.
+    """
     if view == "status":
         all_data = store.fetch_all()
         services = {}
@@ -47,15 +61,27 @@ def health_summary(view: str | None = None):
     return {"overall": worst.name, **all_data}
 
 
-@router.get("/containers")
+@router.get("/containers", summary="Container health")
 def containers():
-    """Health status for all FastTAK containers."""
+    """Health status for all FastTAK Docker Compose containers.
+
+    Returns:
+        List of container health entries with status and metadata.
+    """
     return get_all_container_health()
 
 
-@router.get("/resources")
+@router.get("/resources", summary="Container resource usage")
 def resources():
-    """CPU/memory stats for all running containers."""
+    """Live CPU and memory stats for all running containers.
+
+    Unlike most health endpoints, this fetches stats per-request via the
+    Docker API rather than reading from the scheduler cache. Expect higher
+    latency proportional to the number of running containers.
+
+    Returns:
+        List of resource-usage dicts (CPU %, memory bytes/limit) per container.
+    """
     results = []
     for name in discover_running_services():
         stats = get_container_stats(name)
@@ -64,43 +90,87 @@ def resources():
     return results
 
 
-@router.get("/certs")
+@router.get("/certs", summary="TAK certificate expiry")
 def certs():
-    """Certificate expiry status for all TAK certs."""
+    """Certificate expiry status for TAK infrastructure certs.
+
+    Reads .pem files from the TAK cert directory and reports days until
+    expiry. These are infrastructure/CA certs only — user and service-account
+    certs are managed through their respective APIs (#25).
+
+    Returns:
+        List of cert entries with name, expiry date, and days remaining.
+    """
     return get_cert_status()
 
 
-@router.get("/database")
+@router.get("/database", summary="CoT database size")
 def database():
-    """CoT database size and status."""
+    """CoT (Cursor on Target) database size and status.
+
+    Reports total and live row counts so operators can gauge database growth
+    and decide when maintenance (e.g., VACUUM) is warranted.
+
+    Returns:
+        Dict with total size, live size, and status.
+    """
     return get_cot_db_size()
 
 
-@router.get("/updates")
+@router.get("/updates", summary="Available updates")
 def updates():
-    """Check for available updates across stack components."""
+    """Check for available updates across stack components.
+
+    Returns:
+        Update availability info per component.
+    """
     return check_updates()
 
 
-@router.get("/disk")
+@router.get("/disk", summary="Disk usage")
 def disk():
-    """Disk usage for key mount points."""
+    """Disk usage for key mount points.
+
+    Returns:
+        List of mount-point entries with used/total bytes and percentage.
+    """
     return get_disk_usage()
 
 
-@router.get("/tls")
+@router.get("/tls", summary="TLS certificate expiry")
 def tls():
-    """TLS certificate expiry for Caddy-served endpoints."""
+    """TLS certificate expiry for Caddy-served endpoints.
+
+    Returns:
+        TLS status with expiry dates for each served domain.
+    """
     return get_tls_status()
 
 
-@router.get("/config")
+@router.get("/config", summary="Config drift detection")
 def config():
-    """Check if .env has changed since monitor startup."""
+    """Detect .env configuration drift since monitor startup.
+
+    Computes a SHA-256 hash of the current .env file and compares it to the
+    baseline captured at startup. A mismatch indicates someone edited .env
+    without restarting the monitor.
+
+    Returns:
+        Dict with drift status, current hash, and baseline hash.
+    """
     return check_config_drift()
 
 
-@router.get("/autovacuum")
+@router.get("/autovacuum", summary="Autovacuum health")
 def autovacuum():
-    """Autovacuum health — dead tuple ratios and last vacuum times."""
+    """Autovacuum health for the CoT database.
+
+    Reports dead-tuple ratios and last vacuum timestamps per table. High
+    dead-tuple ratios indicate autovacuum may be falling behind, which
+    degrades query performance.
+
+    Returns:
+        List of per-table entries with dead tuple count, ratio, and last
+        vacuum time.
+    """
     return get_autovacuum_health()
