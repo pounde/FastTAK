@@ -247,12 +247,43 @@ def download_cert(account_id: int):
     if not user["username"].startswith("svc_"):
         raise HTTPException(404, "Service account not found")
 
-    p12_path = CERT_FILES_PATH / f"{user['username']}.p12"
+    username = user["username"]
+    p12_path = CERT_FILES_PATH / f"{username}.p12"
     if not p12_path.exists():
         raise HTTPException(404, "Certificate file not found")
+
+    # Block download of revoked certs
+    pem_path = CERT_FILES_PATH / f"{username}.pem"
+    if pem_path.exists():
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["openssl", "x509", "-in", str(pem_path), "-noout", "-serial"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                serial = result.stdout.strip().split("=", 1)[1].lower()
+                crl_path = CERT_FILES_PATH / "ca.crl"
+                if crl_path.exists():
+                    crl_result = subprocess.run(
+                        ["openssl", "crl", "-in", str(crl_path), "-text", "-noout"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    revoked = {
+                        line.strip().split(": ")[1].strip().lower()
+                        for line in crl_result.stdout.splitlines()
+                        if line.strip().startswith("Serial Number:")
+                    }
+                    if serial in revoked:
+                        raise HTTPException(403, "Certificate has been revoked")
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # If we can't check, allow download
 
     return FileResponse(
         path=str(p12_path),
         media_type="application/x-pkcs12",
-        filename=f"{user['username']}.p12",
+        filename=f"{username}.p12",
     )
