@@ -13,6 +13,23 @@ test:
 test-integration: test
     ./tests-integration/test-stack.sh
 
+# Stand up an isolated test stack (detached — stays running until test-down)
+test-up:
+    ./tests-integration/test-setup.sh
+
+# Stand up test stack in foreground (containers die when process is killed)
+# Use with background agents: containers auto-cleanup when session ends
+test-up-fg:
+    ./tests-integration/test-setup.sh --foreground
+
+# Run test assertions against the running test stack
+test-run:
+    ./tests-integration/test-run.sh
+
+# Tear down the test stack
+test-down:
+    ./tests-integration/test-down.sh
+
 # Run ruff linter
 lint:
     uv run ruff check .
