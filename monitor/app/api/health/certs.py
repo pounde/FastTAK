@@ -1,10 +1,40 @@
-"""Parse x509 certificate files and report expiry status."""
+"""Parse x509 certificate files and report expiry status.
+
+Certs are categorized as infrastructure, service, or user:
+- Infrastructure (CA, server): triggers health degradation on expiry
+- Service (svc_*): worth monitoring but not a system health issue
+- User: excluded from health monitoring entirely
+"""
 
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 CERT_DIR = Path("/opt/tak/certs/files")
+
+# Infrastructure cert filename patterns — these affect system operation
+_INFRA_NAMES = {"ca", "root-ca", "ca-trusted", "root-ca-trusted", "takserver"}
+
+
+def _categorize_cert(filename: str) -> str:
+    """Categorize a cert file as infrastructure, service, or user.
+
+    Args:
+        filename: The .pem filename (e.g., "ca.pem", "svc_bot.pem").
+
+    Returns:
+        "infrastructure", "service", or "user".
+    """
+    stem = filename.removesuffix(".pem")
+    if stem in _INFRA_NAMES:
+        return "infrastructure"
+    if stem.startswith("svc_"):
+        return "service"
+    # Server certs for FQDN (e.g., "mbp.fold-harmonic.ts.net.pem")
+    # contain dots — user certs use alphanumeric + hyphens only
+    if "." in stem and stem not in _INFRA_NAMES:
+        return "infrastructure"
+    return "user"
 
 
 def _parse_cert_expiry(pem_path: Path) -> dict | None:
@@ -47,12 +77,21 @@ def _parse_cert_expiry(pem_path: Path) -> dict | None:
 
 
 def get_cert_status() -> dict:
-    """Return expiry info for all PEM files in the cert directory."""
+    """Return expiry info for infrastructure and service certs.
+
+    User certs are excluded — their expiry is managed through the user
+    detail panel, not the health dashboard. Only infrastructure certs
+    (CA, server) and service account certs are monitored.
+    """
     if not CERT_DIR.exists():
         return {"items": []}
     results = []
     for pem in sorted(CERT_DIR.glob("*.pem")):
+        category = _categorize_cert(pem.name)
+        if category == "user":
+            continue
         info = _parse_cert_expiry(pem)
         if info:
+            info["category"] = category
             results.append(info)
     return {"items": results}

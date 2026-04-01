@@ -92,14 +92,14 @@ def resources():
 
 @router.get("/certs", summary="TAK certificate expiry")
 def certs():
-    """Certificate expiry status for TAK infrastructure certs.
+    """Certificate expiry status for infrastructure and service certs.
 
     Reads .pem files from the TAK cert directory and reports days until
-    expiry. These are infrastructure/CA certs only — user and service-account
-    certs are managed through their respective APIs (#25).
+    expiry. User certs are excluded — their expiry is managed through the
+    user detail panel.
 
     Returns:
-        List of cert entries with name, expiry date, and days remaining.
+        List of cert entries with name, expiry date, days remaining, and category.
     """
     return get_cert_status()
 
