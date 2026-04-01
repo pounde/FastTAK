@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.8.1 (2026-04-01)
+
+### Bug Fixes
+
+- **docs**: Add mkdocs extension to render mermaid diagrams
+  ([`1104048`](https://github.com/pounde/FastTAK/commit/1104048a73c84ae974b4f3717edaf9fa5760ee0c))
+
+
 ## v0.8.0 (2026-04-01)
 
 ### Bug Fixes
