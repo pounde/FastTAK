@@ -1,18 +1,49 @@
-"""Certificate generation for service accounts via docker exec.
+"""Certificate generation and revocation utilities.
 
 Uses openssl directly (not makeCert.sh) for configurable validity.
 All operations run inside the tak-server container where the CA key resides.
+Shared CRL utilities are imported by both the users and service accounts routers.
 """
 
 import re
+import subprocess
+from pathlib import Path
 
 from app.docker_client import find_container
 
 CERT_DIR = "/opt/tak/certs"
 CERT_FILES = "/opt/tak/certs/files"
+CERT_FILES_PATH = Path("/opt/tak/certs/files")
 _VALID_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 _DEFAULTS = {"state": "XX", "city": "Default", "org_unit": "FastTAK"}
+
+
+def get_revoked_serials() -> set[str]:
+    """Get set of revoked cert serial numbers from the CRL.
+
+    Shared by both user and service account routers to check revocation
+    status on cert download and listing.
+    """
+    crl_path = CERT_FILES_PATH / "ca.crl"
+    if not crl_path.exists():
+        return set()
+    try:
+        result = subprocess.run(
+            ["openssl", "crl", "-in", str(crl_path), "-text", "-noout"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        serials = set()
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("Serial Number:"):
+                serial = line.split(":", 1)[1].strip().lower()
+                serials.add(serial)
+        return serials
+    except Exception:
+        return set()
 
 
 def _validate_name(name: str) -> str | None:

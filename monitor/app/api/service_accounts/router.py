@@ -9,7 +9,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.api.service_accounts.cert_gen import generate_client_cert, register_admin_cert
+from app.api.service_accounts.cert_gen import (
+    generate_client_cert,
+    get_revoked_serials,
+    register_admin_cert,
+)
 from app.api.users.authentik import AuthentikClient
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
@@ -264,23 +268,12 @@ def download_cert(account_id: int):
             )
             if result.returncode == 0:
                 serial = result.stdout.strip().split("=", 1)[1].lower()
-                crl_path = CERT_FILES_PATH / "ca.crl"
-                if crl_path.exists():
-                    crl_result = subprocess.run(
-                        ["openssl", "crl", "-in", str(crl_path), "-text", "-noout"],
-                        capture_output=True, text=True, timeout=5,
-                    )
-                    revoked = {
-                        line.strip().split(": ")[1].strip().lower()
-                        for line in crl_result.stdout.splitlines()
-                        if line.strip().startswith("Serial Number:")
-                    }
-                    if serial in revoked:
-                        raise HTTPException(403, "Certificate has been revoked")
+                if serial in get_revoked_serials():
+                    raise HTTPException(403, "Certificate has been revoked")
         except HTTPException:
             raise
         except Exception:
-            pass  # If we can't check, allow download
+            pass  # If we can't check, allow download (DD-028)
 
     return FileResponse(
         path=str(p12_path),
