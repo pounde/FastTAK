@@ -1,22 +1,17 @@
-"""Operations API — cert management, DB maintenance, and log viewing.
+"""Operations API — DB maintenance, alert testing, and log viewing.
 
 Note: All endpoints use sync `def` (not `async def`) because the underlying
 Docker SDK calls are blocking. FastAPI runs sync endpoints in a threadpool
 automatically, preventing the event loop from blocking.
 
 Container lifecycle management (restart/stop/start) is intentionally excluded.
+Certificate management is handled through the Users and Service Accounts APIs.
 """
 
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.alerts.email import send_alert_email
 from app.api.alerts.sms import send_alert_sms
-from app.api.ops.certs import (
-    create_client_cert,
-    create_server_cert,
-    list_certs,
-    revoke_cert,
-)
 from app.api.ops.database import vacuum_database
 from app.docker_client import discover_services, find_container
 
@@ -42,50 +37,6 @@ def svc_logs(name: str, tail: int = Query(default=200, ge=1, le=5000)):
         return {"name": name, "logs": logs}
     except Exception as e:
         raise HTTPException(500, str(e)[:300])
-
-
-# ── Certs ───────────────────────────────────────────────────────────────
-
-
-@router.get("/certs/list")
-def certs_list():
-    result = list_certs()
-    if not result.get("success", True):
-        raise HTTPException(500, result.get("error", "Unknown error"))
-    return result
-
-
-@router.post("/certs/create-client/{name}")
-def certs_create_client(name: str):
-    result = create_client_cert(name)
-    if not result.get("success", True):
-        raise HTTPException(
-            400 if "Name must" in result.get("error", "") else 500,
-            result.get("error", "Unknown error"),
-        )
-    return result
-
-
-@router.post("/certs/create-server/{name}")
-def certs_create_server(name: str):
-    result = create_server_cert(name)
-    if not result.get("success", True):
-        raise HTTPException(
-            400 if "Name must" in result.get("error", "") else 500,
-            result.get("error", "Unknown error"),
-        )
-    return result
-
-
-@router.post("/certs/revoke/{name}")
-def certs_revoke(name: str):
-    result = revoke_cert(name)
-    if not result.get("success", True):
-        raise HTTPException(
-            400 if "Name must" in result.get("error", "") else 500,
-            result.get("error", "Unknown error"),
-        )
-    return result
 
 
 # ── Database ────────────────────────────────────────────────────────────
