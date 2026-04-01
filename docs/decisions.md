@@ -4,6 +4,19 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-028: Allow Cert Download on CRL Check Failure
+
+**Date:** 2026-04-01
+**Status:** Decided
+
+**Decision:** If the CRL revocation check fails (file unreadable, openssl error, timeout), the cert download is allowed rather than blocked.
+
+**Why:** A revoked cert is useless — TAK Server rejects it on the next TLS handshake. Blocking downloads on transient CRL read failures would prevent operators from downloading valid certs when the CRL file is temporarily unavailable (e.g., during rotation or filesystem issues). The blast radius of allowing a revoked cert download is near zero since the cert can't be used.
+
+**Alternative considered:** Fail closed (block download if CRL can't be checked). This is more conservative but creates a worse failure mode — a transient filesystem issue blocks all cert downloads, including valid ones.
+
+---
+
 ## DD-027: Single Cert Per Service Account
 
 **Date:** 2026-03-30

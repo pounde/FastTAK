@@ -221,27 +221,9 @@ def enroll_user(user_id: int):
 
 def _get_revoked_serials() -> set[str]:
     """Get set of revoked cert serial numbers from the CRL."""
-    import subprocess
+    from app.api.service_accounts.cert_gen import get_revoked_serials
 
-    crl_path = CERT_FILES_PATH / "ca.crl"
-    if not crl_path.exists():
-        return set()
-    try:
-        result = subprocess.run(
-            ["openssl", "crl", "-in", str(crl_path), "-text", "-noout"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        serials = set()
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("Serial Number:"):
-                serial = line.split(":", 1)[1].strip().lower()
-                serials.add(serial)
-        return serials
-    except Exception:
-        return set()
+    return get_revoked_serials()
 
 
 def _get_cert_serial(pem_path: Path) -> str | None:
