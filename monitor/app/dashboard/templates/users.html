@@ -403,6 +403,32 @@
                 <div class="flex mb-8">
                     <input type="text" x-model="editTtl" placeholder="TTL hours (or 'clear')" style="flex: 1;">
                 </div>
+                <!-- Group editor (checkbox dropdown) -->
+                <div class="mb-8" style="position: relative;">
+                    <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">Groups</label>
+                    <button type="button" @click="editGroupDropdownOpen = !editGroupDropdownOpen"
+                            style="min-width: 180px; text-align: left; position: relative; padding-right: 24px; width: 100%;">
+                        <span x-text="editGroups.length ? editGroups.join(', ') : 'No groups'"
+                              :style="editGroups.length ? '' : 'color: #555'"></span>
+                        <span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: #555;">&#9662;</span>
+                    </button>
+                    <div x-show="editGroupDropdownOpen" x-cloak @click.outside="editGroupDropdownOpen = false"
+                         style="position: absolute; top: 100%; left: 0; z-index: 20; background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; max-height: 200px; overflow-y: auto; min-width: 180px; margin-top: 4px; width: 100%;">
+                        <template x-if="groups.length === 0">
+                            <p style="padding: 8px 12px; color: #555; font-size: 12px; margin: 0;">No groups available</p>
+                        </template>
+                        <template x-for="g in groups" :key="g.name">
+                            <label style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;"
+                                   @click.stop>
+                                <input type="checkbox"
+                                       :checked="editGroups.includes(g.name)"
+                                       @change="toggleEditGroup(g.name)"
+                                       style="accent-color: #4fc3f7;">
+                                <span x-text="g.name"></span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
                 <button :disabled="actionLoading" @click="saveEdit()">
                     <span x-text="actionLoading ? '...' : 'Save'"></span>
                 </button>
