@@ -2,6 +2,38 @@
 
 <!-- version list -->
 
+## v0.8.0 (2026-04-01)
+
+### Bug Fixes
+
+- Block revoked service account cert download
+  ([`3596f46`](https://github.com/pounde/FastTAK/commit/3596f467ad2104149ca9a6444dc4a53e5cd49448))
+
+- Restore v0.7.1 version files (reverted during branch reconstruction)
+  ([`c58434c`](https://github.com/pounde/FastTAK/commit/c58434cc8d27bbfc6305d86ce75054bfe38623dd))
+
+### Documentation
+
+- Design decisions, certificates rewrite, CLAUDE.md
+  ([`dcb5dfd`](https://github.com/pounde/FastTAK/commit/dcb5dfd4b14f3c54b666cf5d6712c3ca38a68b27))
+
+### Features
+
+- Bootstrap cleanup and ops cert endpoint removal
+  ([`0e1ac45`](https://github.com/pounde/FastTAK/commit/0e1ac45971602898e4a683a74a989a440f6bdf42))
+
+- Service account API, user cert management, and dashboard
+  ([`fde9a06`](https://github.com/pounde/FastTAK/commit/fde9a0646f70bff53d0e33197fb364ba55d62382))
+
+- Test infrastructure — test-up/run/down, idempotent tests
+  ([`39bb71e`](https://github.com/pounde/FastTAK/commit/39bb71e0f562cd8933d1ce98203c3d67d43ffc1a))
+
+### Refactoring
+
+- Extract shared CRL logic, add DD-028
+  ([`b940ef4`](https://github.com/pounde/FastTAK/commit/b940ef4bbe4a3342a2f1995626f7e1ee8aedec79))
+
+
 ## v0.7.1 (2026-03-30)
 
 ### Bug Fixes
