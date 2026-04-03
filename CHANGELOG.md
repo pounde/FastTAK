@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.10.0 (2026-04-03)
+
+### Features
+
+- Expose TAK Server API port 8443 for external integrations
+  ([`4b5619d`](https://github.com/pounde/FastTAK/commit/4b5619ddb67c9b2d06c65b1866302706a960866b))
+
+
 ## v0.9.0 (2026-04-01)
 
 ### Documentation
