@@ -19,6 +19,67 @@
     actionResult: '',
     actionError: false,
     passwordValue: '',
+    groups: [],
+    showGroups: false,
+    newGroupName: '',
+    groupLoading: false,
+    editGroups: [],
+    editGroupDropdownOpen: false,
+
+    async init() {
+        await this.fetchGroups();
+    },
+
+    async fetchGroups() {
+        try {
+            const r = await fetch('/api/groups');
+            if (r.ok) this.groups = await r.json();
+        } catch(e) { /* groups will be empty */ }
+    },
+
+    async createGroup() {
+        const name = this.newGroupName.trim();
+        if (!name) return;
+        this.groupLoading = true;
+        try {
+            const r = await fetch('/api/groups', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name})
+            });
+            if (!r.ok) {
+                const d = await r.json();
+                alert(d.detail || 'Failed to create group');
+                return;
+            }
+            this.newGroupName = '';
+            await this.fetchGroups();
+            this.refreshList();
+        } catch(e) { alert(e.message); }
+        finally { this.groupLoading = false; }
+    },
+
+    async deleteGroup(group) {
+        if (!confirm('Delete group ' + group.name + '? Users in this group will lose membership.')) return;
+        this.groupLoading = true;
+        try {
+            const r = await fetch('/api/groups/' + group.id, { method: 'DELETE' });
+            if (!r.ok) {
+                const d = await r.json();
+                alert(d.detail || 'Failed to delete group');
+                return;
+            }
+            await this.fetchGroups();
+            this.refreshList();
+        } catch(e) { alert(e.message); }
+        finally { this.groupLoading = false; }
+    },
+
+    toggleEditGroup(name) {
+        const idx = this.editGroups.indexOf(name);
+        if (idx === -1) this.editGroups.push(name);
+        else this.editGroups.splice(idx, 1);
+    },
 
     refreshList() {
         const search = document.getElementById('user-search').value;
@@ -56,17 +117,43 @@
             const body = {};
             if (this.editName && this.editName !== this.selectedUser.name) body.name = this.editName;
             if (this.editTtl !== '') body.ttl_hours = this.editTtl === 'clear' ? null : parseInt(this.editTtl);
-            const r = await fetch(`/api/users/${this.selectedUser.id}`, {
-                method: 'PATCH',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body)
-            });
-            if (!r.ok) {
-                const d = await r.json();
-                this.actionResult = d.detail || 'Update failed';
-                this.actionError = true;
+            const groupsChanged = JSON.stringify([...this.editGroups].sort()) !== JSON.stringify([...(this.selectedUser.groups || [])].sort());
+
+            if (Object.keys(body).length === 0 && !groupsChanged) {
+                this.actionResult = 'No changes';
                 return;
             }
+
+            // PATCH name/TTL if changed
+            if (Object.keys(body).length > 0) {
+                const r = await fetch(`/api/users/${this.selectedUser.id}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                if (!r.ok) {
+                    const d = await r.json();
+                    this.actionResult = d.detail || 'Update failed';
+                    this.actionError = true;
+                    return;
+                }
+            }
+
+            // PUT groups if changed
+            if (groupsChanged) {
+                const gr = await fetch(`/api/users/${this.selectedUser.id}/groups`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({groups: [...this.editGroups]})
+                });
+                if (!gr.ok) {
+                    const d = await gr.json();
+                    this.actionResult = d.detail || 'Group update failed';
+                    this.actionError = true;
+                    return;
+                }
+            }
+
             this.actionResult = 'Updated';
             this.refreshList();
         } catch(e) { this.actionResult = e.message; this.actionError = true; }
@@ -205,6 +292,8 @@
             this.actionResult = '';
             this.actionError = false;
             this.passwordValue = '';
+            this.editGroups = [...(user.groups || [])];
+            this.editGroupDropdownOpen = false;
             this.certName = '';
             this.certs = [];
             this.loadCerts();
@@ -212,7 +301,7 @@
     }
 }">
 
-    <!-- Search + Create toggle -->
+    <!-- Search + Groups + Create toggle -->
     <div class="flex mb-16" style="justify-content: space-between;">
         <div class="flex">
             <input type="text" id="user-search" placeholder="Search users..."
@@ -220,9 +309,14 @@
                    style="width: 280px;">
             <button @click="refreshList()">Search</button>
         </div>
-        <button @click="showCreate = !showCreate; createError = ''">
-            <span x-text="showCreate ? 'Cancel' : 'New User'"></span>
-        </button>
+        <div class="flex" style="gap: 8px;">
+            <button @click="showGroups = !showGroups">
+                <span x-text="showGroups ? 'Hide Groups' : 'Groups'"></span>
+            </button>
+            <button @click="showCreate = !showCreate; createError = ''">
+                <span x-text="showCreate ? 'Cancel' : 'New User'"></span>
+            </button>
+        </div>
     </div>
 
     <!-- Create user form (collapsible) -->
@@ -248,6 +342,36 @@
             </div>
         </div>
         <p x-show="createError" x-text="createError" class="text-red" style="font-size: 12px;"></p>
+    </div>
+
+    <!-- Groups card (collapsible) -->
+    <div class="card" x-show="showGroups" x-cloak style="margin-bottom: 16px;">
+        <div class="card-title">Groups</div>
+
+        <!-- Create group -->
+        <div class="flex mb-8" style="gap: 8px;">
+            <input type="text" x-model="newGroupName" placeholder="New group name"
+                   @keyup.enter="createGroup()" style="flex: 1; max-width: 280px;">
+            <button :disabled="!newGroupName.trim() || groupLoading" @click="createGroup()">
+                <span x-text="groupLoading ? '...' : 'Create'"></span>
+            </button>
+        </div>
+
+        <!-- Group list -->
+        <template x-if="groups.length > 0">
+            <div>
+                <template x-for="g in groups" :key="g.id">
+                    <div class="flex" style="margin-bottom: 6px; gap: 12px; align-items: center;">
+                        <span style="font-size: 13px;" x-text="g.name"></span>
+                        <a href="#" style="color: #ef5350; font-size: 11px;"
+                           @click.prevent="deleteGroup(g)">delete</a>
+                    </div>
+                </template>
+            </div>
+        </template>
+        <p x-show="groups.length === 0" class="text-muted" style="font-size: 12px;">
+            No groups. Create one to organize users into TAK channels.
+        </p>
     </div>
 
     <!-- User list (HTMX partial) -->
@@ -278,6 +402,32 @@
                 </div>
                 <div class="flex mb-8">
                     <input type="text" x-model="editTtl" placeholder="TTL hours (or 'clear')" style="flex: 1;">
+                </div>
+                <!-- Group editor (checkbox dropdown) -->
+                <div class="mb-8" style="position: relative;">
+                    <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">Groups</label>
+                    <button type="button" @click="editGroupDropdownOpen = !editGroupDropdownOpen"
+                            style="min-width: 180px; text-align: left; position: relative; padding-right: 24px; width: 100%;">
+                        <span x-text="editGroups.length ? editGroups.join(', ') : 'No groups'"
+                              :style="editGroups.length ? '' : 'color: #555'"></span>
+                        <span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: #555;">&#9662;</span>
+                    </button>
+                    <div x-show="editGroupDropdownOpen" x-cloak @click.outside="editGroupDropdownOpen = false"
+                         style="position: absolute; top: 100%; left: 0; z-index: 20; background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; max-height: 200px; overflow-y: auto; min-width: 180px; margin-top: 4px; width: 100%;">
+                        <template x-if="groups.length === 0">
+                            <p style="padding: 8px 12px; color: #555; font-size: 12px; margin: 0;">No groups available</p>
+                        </template>
+                        <template x-for="g in groups" :key="g.name">
+                            <label style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;"
+                                   @click.stop>
+                                <input type="checkbox"
+                                       :checked="editGroups.includes(g.name)"
+                                       @change="toggleEditGroup(g.name)"
+                                       style="accent-color: #4fc3f7;">
+                                <span x-text="g.name"></span>
+                            </label>
+                        </template>
+                    </div>
                 </div>
                 <button :disabled="actionLoading" @click="saveEdit()">
                     <span x-text="actionLoading ? '...' : 'Save'"></span>
