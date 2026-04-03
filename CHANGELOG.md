@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v0.11.0 (2026-04-03)
+
+### Bug Fixes
+
+- Remove double quotes in confirm() that broke x-data attribute
+  ([`fde46f5`](https://github.com/pounde/FastTAK/commit/fde46f510b830a233da5a32f8b1a5787d8e4d745))
+
+### Documentation
+
+- Add group management UI design spec
+  ([`f633e48`](https://github.com/pounde/FastTAK/commit/f633e488a642b43bdc0ac75f439421fc5d7956a5))
+
+- Add group management UI implementation plan
+  ([`91fa544`](https://github.com/pounde/FastTAK/commit/91fa5441c332a011bc114e2739755a24dc8cde0e))
+
+### Features
+
+- Add Alpine.js state and methods for group management
+  ([`bbdabb8`](https://github.com/pounde/FastTAK/commit/bbdabb8b3d87b058b3e8bc5056771cf671fe2cd8))
+
+- Add group assignment dropdown to user detail panel
+  ([`3b7aac1`](https://github.com/pounde/FastTAK/commit/3b7aac175e5aa916ec805ce11873255f93ba3cd6))
+
+- Add groups card with create/delete on users page
+  ([`b34172b`](https://github.com/pounde/FastTAK/commit/b34172bcc1b5902572756b72866fc9f8572233d8))
+
+
 ## v0.10.0 (2026-04-03)
 
 ### Features
