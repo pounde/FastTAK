@@ -593,15 +593,24 @@ def configure_tak_portal(token: str) -> None:
             "svc_fasttakapi.p12 not found at %s — portal TAK API access may not work", p12_src
         )
 
-    fqdn = os.environ.get("FQDN", "localhost")
-    portal_subdomain = os.environ.get("TAKPORTAL_SUBDOMAIN", "portal")
+    server_address = os.environ.get("SERVER_ADDRESS", "localhost")
+    deploy_mode = os.environ.get("DEPLOY_MODE", "direct")
     authentik_subdomain = os.environ.get("AUTHENTIK_SUBDOMAIN", "auth")
+    portal_subdomain = os.environ.get("TAKPORTAL_SUBDOMAIN", "portal")
+    authentik_port = os.environ.get("AUTHENTIK_PORT", "9443")
+
+    if deploy_mode == "direct":
+        authentik_public_url = f"https://{server_address}:{authentik_port}"
+        portal_public_url = f"https://{server_address}"
+    else:
+        authentik_public_url = f"https://{authentik_subdomain}.{server_address}"
+        portal_public_url = f"https://{portal_subdomain}.{server_address}"
 
     settings = {
         "AUTHENTIK_URL": AUTHENTIK_URL,
         "AUTHENTIK_TOKEN": token,
-        "AUTHENTIK_PUBLIC_URL": f"https://{authentik_subdomain}.{fqdn}",
-        "TAK_PORTAL_PUBLIC_URL": f"https://{portal_subdomain}.{fqdn}",
+        "AUTHENTIK_PUBLIC_URL": authentik_public_url,
+        "TAK_PORTAL_PUBLIC_URL": portal_public_url,
         "USERS_HIDDEN_PREFIXES": "ak-,adm_,svc_,ma-",
         "GROUPS_HIDDEN_PREFIXES": "authentik, MA -",
         "USERS_ACTIONS_HIDDEN_PREFIXES": "",
