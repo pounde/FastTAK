@@ -42,24 +42,20 @@ fmt:
 setup-dev:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 
-# Start production stack (services only reachable through Caddy + Authentik)
+# Helper: read DEPLOY_MODE from .env and set COMPOSE_FILE
+_compose_env := '''
+  DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2)
+  DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
+  if [ "$DEPLOY_MODE" = "direct" ]; then
+    export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
+  fi
+'''
+
+# Start the stack (reads DEPLOY_MODE from .env to select compose files)
 # Pass service names to rebuild and force-recreate specific services: `just up monitor`
-# Without arguments, starts the full stack. With arguments, adds --force-recreate
-# to ensure containers pick up code changes even when Docker's layer cache hits.
 up *services:
-    docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
+    {{ _compose_env }} && docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
 
-# Stop the production stack
+# Stop the stack
 down:
-    docker compose down
-
-# Start stack for local development (direct-access ports enabled)
-# Pass service names to rebuild and force-recreate specific services: `just dev-up monitor`
-# Without arguments, starts the full stack. With arguments, adds --force-recreate
-# to ensure containers pick up code changes even when Docker's layer cache hits.
-dev-up *services:
-    COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
-
-# Stop the dev stack
-dev-down:
-    COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml docker compose down
+    {{ _compose_env }} && docker compose down
