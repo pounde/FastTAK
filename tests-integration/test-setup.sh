@@ -95,7 +95,8 @@ if [ -z "${ZIP}" ]; then
 fi
 "${REPO_DIR}/setup.sh" -d "${TEST_DIR}" "${ZIP}" >&2
 
-sed -i.bak "s/^FQDN=.*/FQDN=test.fastak.local/" "${TEST_DIR}/.env"
+sed -i.bak "s/^SERVER_ADDRESS=.*/SERVER_ADDRESS=test.fastak.local/" "${TEST_DIR}/.env"
+sed -i.bak "s/^DEPLOY_MODE=.*/DEPLOY_MODE=direct/" "${TEST_DIR}/.env"
 rm -f "${TEST_DIR}/.env.bak"
 
 # ── Build and start ────────────────────────────────────────────────────
