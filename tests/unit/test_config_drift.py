@@ -10,7 +10,7 @@ class TestConfigDrift:
     def test_init_captures_baseline(self, tmp_path, monkeypatch):
         self._reset()
         env_file = tmp_path / ".env"
-        env_file.write_text("FQDN=test.example.com")
+        env_file.write_text("SERVER_ADDRESS=test.example.com")
         monkeypatch.setattr(config_drift, "ENV_FILE", env_file)
 
         config_drift.init_config_hash()
@@ -19,7 +19,7 @@ class TestConfigDrift:
     def test_unchanged_returns_changed_false(self, tmp_path, monkeypatch):
         self._reset()
         env_file = tmp_path / ".env"
-        env_file.write_text("FQDN=test.example.com")
+        env_file.write_text("SERVER_ADDRESS=test.example.com")
         monkeypatch.setattr(config_drift, "ENV_FILE", env_file)
 
         config_drift.init_config_hash()
@@ -29,11 +29,11 @@ class TestConfigDrift:
     def test_changed_returns_changed_true(self, tmp_path, monkeypatch):
         self._reset()
         env_file = tmp_path / ".env"
-        env_file.write_text("FQDN=test.example.com")
+        env_file.write_text("SERVER_ADDRESS=test.example.com")
         monkeypatch.setattr(config_drift, "ENV_FILE", env_file)
 
         config_drift.init_config_hash()
-        env_file.write_text("FQDN=new.example.com")
+        env_file.write_text("SERVER_ADDRESS=new.example.com")
         result = config_drift.check_config_drift()
         assert result["changed"] is True
         assert "message" in result
@@ -51,7 +51,7 @@ class TestConfigDrift:
     def test_file_becomes_unreadable(self, tmp_path, monkeypatch):
         self._reset()
         env_file = tmp_path / ".env"
-        env_file.write_text("FQDN=test.example.com")
+        env_file.write_text("SERVER_ADDRESS=test.example.com")
         monkeypatch.setattr(config_drift, "ENV_FILE", env_file)
 
         config_drift.init_config_hash()

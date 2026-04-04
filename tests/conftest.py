@@ -16,7 +16,7 @@ def mock_settings(monkeypatch):
     from app.config import Settings
 
     test_settings = Settings(
-        fqdn="test.example.com",
+        server_address="test.example.com",
         tak_db_password="testpass",
         tak_db_url="",
         authentik_url="http://authentik-test:9000",
