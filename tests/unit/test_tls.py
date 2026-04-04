@@ -48,7 +48,7 @@ class TestProbeTlsExpiry:
 class TestGetTlsStatus:
     def test_returns_empty_for_localhost(self, mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.health.tls.settings", mock_settings)
-        mock_settings.fqdn = "localhost"
+        mock_settings.server_address = "localhost"
 
         from app.api.health.tls import get_tls_status
 
@@ -57,7 +57,7 @@ class TestGetTlsStatus:
     @patch("app.api.health.tls._probe_tls_expiry")
     def test_deduplicates_by_expiry(self, mock_probe, mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.health.tls.settings", mock_settings)
-        mock_settings.fqdn = "example.com"
+        mock_settings.server_address = "example.com"
 
         # All subdomains return the same wildcard cert expiry
         mock_probe.return_value = {

@@ -12,13 +12,24 @@ class Settings(BaseSettings):
     nodered_version: str = ""
     tak_portal_version: str = ""
 
-    # Domain
-    fqdn: str = "localhost"
+    # Deployment
+    server_address: str = "localhost"
+    deploy_mode: str = "direct"
+
+    # Subdomains (subdomain mode)
     takserver_subdomain: str = "takserver"
     mediamtx_subdomain: str = "stream"
     authentik_subdomain: str = "auth"
     takportal_subdomain: str = "portal"
     nodered_subdomain: str = "nodered"
+    monitor_subdomain: str = "monitor"
+
+    # Ports (direct mode)
+    authentik_port: int = 9443
+    nodered_port: int = 1880
+    monitor_port: int = 8180
+    takserver_admin_port: int = 8446
+    mediamtx_port: int = 8888
 
     # Alert email (SMTP)
     smtp_host: str = ""
