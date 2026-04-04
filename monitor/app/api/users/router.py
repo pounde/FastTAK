@@ -321,7 +321,9 @@ def enroll_user(user_id: int):
     if not user["is_active"]:
         raise HTTPException(400, "Cannot enroll deactivated user")
     token, expires_at = ak.get_or_create_enrollment_token(user_id, settings.enrollment_ttl_minutes)
-    url = build_enrollment_url(token=token, fqdn=settings.fqdn, username=user["username"])
+    url = build_enrollment_url(
+        token=token, server_address=settings.server_address, username=user["username"]
+    )
     return {"enrollment_url": url, "expires_at": expires_at}
 
 
@@ -496,7 +498,9 @@ def list_user_certs(user_id: int):
     return unified
 
 
-@router.post("/api/users/{user_id}/certs/generate", status_code=201, summary="Generate user certificate")
+@router.post(
+    "/api/users/{user_id}/certs/generate", status_code=201, summary="Generate user certificate"
+)
 def generate_user_cert(user_id: int, body: GenerateCertRequest):
     """Generate a named client certificate for a user.
 

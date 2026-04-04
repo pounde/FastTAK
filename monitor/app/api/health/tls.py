@@ -40,16 +40,16 @@ def _probe_tls_expiry(hostname: str, port: int = 443) -> dict | None:
 
 def get_tls_status() -> dict:
     """Probe TLS expiry on all Caddy-served endpoints."""
-    fqdn = settings.fqdn
-    if not fqdn or fqdn == "localhost":
+    server_address = settings.server_address
+    if not server_address or server_address == "localhost":
         return {"items": []}
 
     endpoints = [
-        f"{settings.takserver_subdomain}.{fqdn}",
-        f"{settings.authentik_subdomain}.{fqdn}",
-        f"{settings.takportal_subdomain}.{fqdn}",
-        f"{settings.nodered_subdomain}.{fqdn}",
-        f"{settings.mediamtx_subdomain}.{fqdn}",
+        f"{settings.takserver_subdomain}.{server_address}",
+        f"{settings.authentik_subdomain}.{server_address}",
+        f"{settings.takportal_subdomain}.{server_address}",
+        f"{settings.nodered_subdomain}.{server_address}",
+        f"{settings.mediamtx_subdomain}.{server_address}",
     ]
 
     results = []
