@@ -90,7 +90,8 @@ if $TEST; then
   if docker image inspect "takserver:${TAK_VER}" > /dev/null 2>&1; then pass "Image: takserver:${TAK_VER}"; else fail "Image: takserver:${TAK_VER}"; fi
   if docker image inspect "takserver-database:${TAK_VER}" > /dev/null 2>&1; then pass "Image: takserver-database:${TAK_VER}"; else fail "Image: takserver-database:${TAK_VER}"; fi
 
-  sed -i.bak 's/^FQDN=.*/FQDN=localhost/' .env && rm -f .env.bak
+  sed -i.bak 's/^SERVER_ADDRESS=.*/SERVER_ADDRESS=localhost/' .env && rm -f .env.bak
+  sed -i.bak 's/^DEPLOY_MODE=.*/DEPLOY_MODE=direct/' .env && rm -f .env.bak
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -104,9 +105,9 @@ if ! $TEST; then
   if [ ! -f "$SCRIPT_DIR/.env" ]; then
     echo "ERROR: .env not found. Run: ./setup.sh <zip>" >&2; exit 1
   fi
-  FQDN=$(grep '^FQDN=' .env | cut -d= -f2)
-  if [ "$FQDN" = "tak.example.com" ] || [ -z "$FQDN" ]; then
-    echo "ERROR: Set FQDN in .env first. vim .env" >&2; exit 1
+  SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' .env | cut -d= -f2)
+  if [ "$SERVER_ADDRESS" = "tak.example.com" ] || [ -z "$SERVER_ADDRESS" ]; then
+    echo "ERROR: Set SERVER_ADDRESS in .env first. vim .env" >&2; exit 1
   fi
 fi
 
@@ -114,7 +115,14 @@ fi
 # START
 # ═══════════════════════════════════════════════════════════════════════════
 
-FQDN=$(grep '^FQDN=' .env | cut -d= -f2)
+SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' .env | cut -d= -f2)
+DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env | cut -d= -f2)
+DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
+
+# Set compose file based on deploy mode
+if [ "$DEPLOY_MODE" = "direct" ]; then
+  export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
+fi
 
 if ! $TEST; then
   echo ""
@@ -122,7 +130,8 @@ if ! $TEST; then
   echo "║       Starting FastTAK                   ║"
   echo "╚══════════════════════════════════════════╝"
   echo ""
-  echo "  FQDN:   $FQDN"
+  echo "  Address: $SERVER_ADDRESS"
+  echo "  Mode:    $DEPLOY_MODE"
   echo ""
 fi
 
@@ -213,15 +222,22 @@ log ""
 log "Ports"
 log "─────"
 
+TAKSERVER_ADMIN_PORT=$(grep '^TAKSERVER_ADMIN_PORT=' .env | cut -d= -f2)
+TAKSERVER_ADMIN_PORT="${TAKSERVER_ADMIN_PORT:-8446}"
+MEDIAMTX_PORT=$(grep '^MEDIAMTX_PORT=' .env | cut -d= -f2)
+MEDIAMTX_PORT="${MEDIAMTX_PORT:-8888}"
+NODERED_PORT=$(grep '^NODERED_PORT=' .env | cut -d= -f2)
+NODERED_PORT="${NODERED_PORT:-1880}"
+
 assert_port 8089 "CoT TLS"
 assert_port 8443 "Cert HTTPS"
-assert_port 8446 "Admin HTTPS"
-assert_port 8888 "MediaMTX HLS"
+assert_port "$TAKSERVER_ADMIN_PORT" "Admin HTTPS"
+assert_port "$MEDIAMTX_PORT" "MediaMTX HLS"
 assert_port 8554 "MediaMTX RTSP"
-assert_port 1880 "Node-RED"
+assert_port "$NODERED_PORT" "Node-RED"
 
-HTTP_8446=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 https://localhost:8446 2>/dev/null)
-assert_not "$HTTP_8446" "000" "8446 TLS (HTTP $HTTP_8446)"
+HTTP_8446=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "https://localhost:${TAKSERVER_ADMIN_PORT}" 2>/dev/null)
+assert_not "$HTTP_8446" "000" "${TAKSERVER_ADMIN_PORT} TLS (HTTP $HTTP_8446)"
 
 log ""
 log "Health"
@@ -306,9 +322,15 @@ echo "╔═══════════════════════�
 echo "║       FastTAK is running                 ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
-echo "  TAK Server:  https://${FQDN}:8446"
+echo "  TAK Server:  https://${SERVER_ADDRESS}:${TAKSERVER_ADMIN_PORT}"
 echo "               webadmin / ${WA_MASKED}"
-echo "  TAK Portal:  http://localhost:3000"
+if [ "$DEPLOY_MODE" = "direct" ]; then
+  echo "  TAK Portal:  https://${SERVER_ADDRESS}"
+else
+  PORTAL_SUB=$(grep '^TAKPORTAL_SUBDOMAIN=' .env | cut -d= -f2)
+  PORTAL_SUB="${PORTAL_SUB:-portal}"
+  echo "  TAK Portal:  https://${PORTAL_SUB}.${SERVER_ADDRESS}"
+fi
 echo ""
 echo "  Passwords:   cat .env"
 echo "  Stop:        docker compose down"
