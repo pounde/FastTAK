@@ -1,0 +1,17 @@
+# =============================================================================
+# FastTAK — Direct Mode Override
+# =============================================================================
+# Exposes per-service ports on Caddy for direct (port-based) routing.
+# Used when DEPLOY_MODE=direct in .env.
+#
+#   Activated automatically by start.sh / justfile when DEPLOY_MODE=direct.
+# =============================================================================
+
+services:
+  caddy:
+    ports:
+      - "${AUTHENTIK_PORT:-9443}:${AUTHENTIK_PORT:-9443}"
+      - "${NODERED_PORT:-1880}:${NODERED_PORT:-1880}"
+      - "${MONITOR_PORT:-8180}:${MONITOR_PORT:-8180}"
+      - "${TAKSERVER_ADMIN_PORT:-8446}:${TAKSERVER_ADMIN_PORT:-8446}"
+      - "${MEDIAMTX_PORT:-8888}:${MEDIAMTX_PORT:-8888}"
