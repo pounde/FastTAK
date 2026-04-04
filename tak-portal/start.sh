@@ -18,16 +18,16 @@ else
     echo "[tak-portal] WARNING: no certs in /opt/tak/portal/certs/ — TAK API calls may fail"
 fi
 
-# Patch QR enrollment to use FQDN instead of internal TAK_URL hostname.
+# Patch QR enrollment to use SERVER_ADDRESS instead of internal TAK_URL hostname.
 # TAK_URL points to tak-server:8443 (internal) for API calls, but the QR
-# enrollment URL needs the external FQDN so TAK clients can reach the server.
-if [ -n "$FQDN" ] && [ -f /usr/src/app/services/qr.service.js ]; then
-    if grep -q "return \"${FQDN}\"" /usr/src/app/services/qr.service.js 2>/dev/null; then
-        echo "[tak-portal] QR enrollment host already set to ${FQDN}"
+# enrollment URL needs the external SERVER_ADDRESS so TAK clients can reach the server.
+if [ -n "$SERVER_ADDRESS" ] && [ -f /usr/src/app/services/qr.service.js ]; then
+    if grep -q "return \"${SERVER_ADDRESS}\"" /usr/src/app/services/qr.service.js 2>/dev/null; then
+        echo "[tak-portal] QR enrollment host already set to ${SERVER_ADDRESS}"
     elif grep -q 'function getTakHost()' /usr/src/app/services/qr.service.js; then
-        sed -i "s|function getTakHost() {|function getTakHost() { return \"${FQDN}\";|" \
+        sed -i "s|function getTakHost() {|function getTakHost() { return \"${SERVER_ADDRESS}\";|" \
             /usr/src/app/services/qr.service.js
-        echo "[tak-portal] QR enrollment host set to ${FQDN}"
+        echo "[tak-portal] QR enrollment host set to ${SERVER_ADDRESS}"
     else
         echo "[tak-portal] WARNING: getTakHost() not found — QR codes may use internal hostname"
     fi

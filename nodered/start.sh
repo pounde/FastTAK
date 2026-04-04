@@ -24,12 +24,12 @@ elif [ -f /opt/tak/certs/svc_nodered.p12 ]; then
        -passin "pass:${P12_PASSWORD}" -out /data/svc_nodered.key.pem 2>/dev/null; then
     chmod 600 /data/svc_nodered.key.pem
     # Set TLS servername to match the TAK Server certificate's SAN
-    if [ -n "${FQDN}" ] && [ -f /data/flows.json ]; then
+    if [ -n "${SERVER_ADDRESS}" ] && [ -f /data/flows.json ]; then
       node -e "
 const fs = require('fs');
 const flows = JSON.parse(fs.readFileSync('/data/flows.json', 'utf8'));
 const tls = flows.find(n => n.id === 'fastak-tls');
-if (tls) { tls.servername = process.env.FQDN; fs.writeFileSync('/data/flows.json', JSON.stringify(flows, null, 4)); }
+if (tls) { tls.servername = process.env.SERVER_ADDRESS; fs.writeFileSync('/data/flows.json', JSON.stringify(flows, null, 4)); }
 "
     fi
     echo "[nodered] Extracted PEM cert/key from svc_nodered.p12"

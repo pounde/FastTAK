@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Defaults ─────────────────────────────────────────────────────────────
 
-FQDN=$(grep '^FQDN=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d= -f2)
+SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d= -f2)
 CERT_DIR="$SCRIPT_DIR/tak/certs/files"
 CERT_NAME="nodered"  # nodered cert is in tak_ROLE_ADMIN, reaches all clients
 CERT_PASS="atakatak" # TAK Server default cert password
@@ -55,7 +55,7 @@ Options:
   --fov <degrees>          Sensor field of view (default: 60)
   --azimuth <degrees>      Sensor direction 0-360 (default: 0)
   --range <meters>         Sensor visible range (default: 500)
-  --fqdn <hostname>        Override FQDN from .env
+  --server-address <hostname>  Override SERVER_ADDRESS from .env
   --cert <name>            Client cert name (default: nodered)
   --video <file>           Stream a video file instead of the test pattern
   --no-stream              Skip ffmpeg — only send CoT (stream must exist)
@@ -95,7 +95,7 @@ while [ $# -gt 0 ]; do
         --fov)       FOV="$2";           shift 2 ;;
         --azimuth)   AZIMUTH="$2";       shift 2 ;;
         --range)     RANGE="$2";         shift 2 ;;
-        --fqdn)      FQDN="$2";         shift 2 ;;
+        --server-address) SERVER_ADDRESS="$2"; shift 2 ;;
         --cert)      CERT_NAME="$2";     shift 2 ;;
         --video)     VIDEO_FILE="$2";     shift 2 ;;
         --no-stream) TEST_STREAM="false"; shift ;;
@@ -111,8 +111,8 @@ esac
 
 # ── Validate ─────────────────────────────────────────────────────────────
 
-if [ -z "$FQDN" ]; then
-    echo "ERROR: FQDN not set. Pass --fqdn or set it in .env" >&2
+if [ -z "$SERVER_ADDRESS" ]; then
+    echo "ERROR: SERVER_ADDRESS not set. Pass --server-address or set it in .env" >&2
     exit 1
 fi
 
@@ -217,10 +217,10 @@ time=\"${NOW}\" start=\"${NOW}\" stale=\"${STALE}\">\
 <contact callsign=\"${CALLSIGN}\"/>\
 <sensor fov=\"${FOV}\" azimuth=\"${AZIMUTH}\" range=\"${RANGE}\" \
 hideFov=\"true\" fovRed=\"1\" fovGreen=\"1\" fovBlue=\"0\" fovAlpha=\"0.3\"/>\
-<__video url=\"${PROTOCOL}://${FQDN}:${PORT}${STREAM_URL_PATH}\">\
+<__video url=\"${PROTOCOL}://${SERVER_ADDRESS}:${PORT}${STREAM_URL_PATH}\">\
 <ConnectionEntry networkTimeout=\"12000\" uid=\"${FEED_UID}\" \
 path=\"${STREAM_URL_PATH}\" protocol=\"${PROTOCOL}\" bufferTime=\"-1\" \
-address=\"${FQDN}\" port=\"${PORT}\" roverPort=\"-1\" rtspReliable=\"0\" \
+address=\"${SERVER_ADDRESS}\" port=\"${PORT}\" roverPort=\"-1\" rtspReliable=\"0\" \
 alias=\"${CALLSIGN}\"/>\
 </__video>\
 <remarks>Video feed via FastTAK MediaMTX</remarks>\
@@ -246,7 +246,7 @@ ssock.close()
 
 echo "Sent video CoT to TAK Server:"
 echo "  Callsign: ${CALLSIGN}"
-echo "  Stream:   ${PROTOCOL}://${FQDN}:${PORT}${STREAM_URL_PATH}"
+echo "  Stream:   ${PROTOCOL}://${SERVER_ADDRESS}:${PORT}${STREAM_URL_PATH}"
 echo "  Position: ${LAT}, ${LON}"
 echo "  Stale:    ${STALE_MINUTES} minutes"
 echo "  UID:      ${FEED_UID}"

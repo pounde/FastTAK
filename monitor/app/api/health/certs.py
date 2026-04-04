@@ -30,7 +30,7 @@ def _categorize_cert(filename: str) -> str:
         return "infrastructure"
     if stem.startswith("svc_"):
         return "service"
-    # Server certs for FQDN (e.g., "mbp.fold-harmonic.ts.net.pem")
+    # Server certs for SERVER_ADDRESS (e.g., "mbp.fold-harmonic.ts.net.pem")
     # contain dots — user certs use alphanumeric + hyphens only
     if "." in stem and stem not in _INFRA_NAMES:
         return "infrastructure"
