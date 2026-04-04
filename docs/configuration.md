@@ -2,6 +2,65 @@
 
 FastTAK configuration is spread across a few files, each with a distinct purpose.
 
+## Deployment Modes
+
+FastTAK supports two deployment modes controlled by `DEPLOY_MODE` in `.env`.
+
+### `SERVER_ADDRESS`
+
+The address clients and services use to reach this deployment. Can be an IP address, a Tailscale hostname, or a fully qualified domain name (FQDN):
+
+```
+SERVER_ADDRESS=192.168.1.10
+SERVER_ADDRESS=my-node.tail1234.ts.net
+SERVER_ADDRESS=tak.example.com
+```
+
+### `DEPLOY_MODE=direct`
+
+**Use when:** you don't have public DNS — air-gapped networks, Tailscale, local IP, or any address that isn't resolvable by Let's Encrypt.
+
+- Caddy serves HTTPS on a single port, using its internal CA (self-signed)
+- Services are routed by port number (see port variables below)
+- No DNS required — works with IPs and private hostnames
+- TLS is still enforced; browsers will show an untrusted certificate warning on first visit
+
+**Self-signed certificate warnings:** To suppress the browser warning, install Caddy's root CA as a trusted root on client devices. The cert is at `caddy-data/pki/authorities/local/root.crt` in the Caddy data volume. You can extract it with:
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+```
+
+**ATAK enrollment:** Some ATAK versions do not support IP-only enrollment URLs — they expect an FQDN. TAKAware (iOS) works with both. This is a platform limitation, not a FastTAK issue.
+
+### `DEPLOY_MODE=subdomain`
+
+**Use when:** you have a public FQDN with DNS that Let's Encrypt can resolve.
+
+- Caddy terminates HTTPS using Let's Encrypt certificates (automatic)
+- Services are routed by subdomain (e.g., `tak.example.com`, `auth.example.com`)
+- Requires DNS records pointing to the host running FastTAK
+- The subdomain variables in `.env` (e.g., `TAK_SUBDOMAIN`, `AUTH_SUBDOMAIN`) are only used in this mode
+
+### Port variables (direct mode only)
+
+These control which host ports Caddy exposes for each service. Defaults are used if not set. These variables are ignored in subdomain mode.
+
+| Variable | Default | Service |
+|---|---|---|
+| `AUTHENTIK_PORT` | `9000` | Authentik |
+| `TAK_PORT` | `8089` | TAK Server (TCP CoT) |
+| `NODERED_PORT` | `1880` | Node-RED |
+| `PORTAL_PORT` | `3000` | TAK Portal |
+
+See `.env.example` for the full list with defaults.
+
+### Troubleshooting
+
+If Caddy or auth is misconfigured and you're locked out, access services directly via `docker compose exec` for debugging without going through the reverse proxy.
+
+---
+
 ## `.env`
 
 The primary configuration interface. All deployment settings — hostnames, credentials, feature flags, database tuning, data retention, and monitoring threshold overrides — are set here. See `.env.example` for all available variables with inline documentation.
