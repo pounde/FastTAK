@@ -26,6 +26,19 @@ if [ ! -f /opt/tak/TAKIgniteConfig.xml ] && [ -f /opt/tak/TAKIgniteConfig.exampl
   echo "[tak-server] Created TAKIgniteConfig.xml"
 fi
 
+# Clear stale FileAuthenticator entries from previous runs. TAK Server's
+# FileAuthenticator captures cert users with __ANON__ groups when LDAP is
+# unavailable. These stale entries persist across restarts and cause authentication
+# and group access issues.
+AUTH_FILE="/opt/tak/UserAuthenticationFile.xml"
+if [ -f "${AUTH_FILE}" ]; then
+  cat >"${AUTH_FILE}" <<'EOF'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<UserAuthenticationFile xmlns="http://bbn.com/marti/xml/bindings"/>
+EOF
+  echo "[tak-server] Cleared UserAuthenticationFile.xml"
+fi
+
 # Register API service cert after TAK Server is ready (background, idempotent)
 /opt/tak/register-api-cert.sh &
 
