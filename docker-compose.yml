@@ -30,6 +30,7 @@ x-authentik-env: &authentik-env
   AUTHENTIK_POSTGRESQL__USER: fastak
   AUTHENTIK_POSTGRESQL__NAME: authentik
   AUTHENTIK_POSTGRESQL__PASSWORD: ${APP_DB_PASSWORD}
+  AUTHENTIK_POSTGRESQL__CONN_MAX_AGE: 300
   AUTHENTIK_REDIS__HOST: redis
   AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
   AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_ADMIN_PASSWORD}
@@ -110,8 +111,8 @@ services:
         condition: service_completed_successfully
       init-identity:
         condition: service_completed_successfully
-      authentik-ldap:
-        condition: service_healthy
+      init-ldap-ready:
+        condition: service_completed_successfully
     ports:
       - "8089:8089"
       - "8443:8443"
@@ -230,6 +231,25 @@ services:
       start_period: 30s
     # ports:
     #   - "389:3389"  # Uncomment for external LDAP clients (TAK Server uses Docker DNS internally)
+
+  # This is some hacky shit to fix TAK Server's inability to respect LDAP-only
+  # authentication. TAK Server always enables its FileAuthenticator on start even
+  # if removed from CoreConfig prior to start.
+  # If a client connects before LDAP is serving queries, the FileAuthenticator registers the
+  # user with __ANON__ groups, creating authentication and group issues.
+  # The authentik-ldap healthcheck (HTTP ping on :9300) passes before LDAP on :3389 is actually ready,
+  # so we need this init container to perform a real LDAP bind before TAK Server starts.
+  init-ldap-ready:
+    build: ./init-ldap-ready
+    restart: "no"
+    logging: *default-logging
+    depends_on:
+      authentik-ldap:
+        condition: service_healthy
+    environment:
+      LDAP_HOST: ${LDAP_HOST:-authentik-ldap}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
 
   tak-portal:
     build: https://github.com/AdventureSeeker423/TAK-Portal.git#${TAK_PORTAL_VERSION:-main}

@@ -8,7 +8,8 @@
 # in case .env was regenerated while the data volume persisted.
 # Works because pg_hba.conf trusts local (Unix socket) connections.
 
-docker-entrypoint.sh postgres &
+docker-entrypoint.sh postgres \
+  -c max_connections="${PG_APP_MAX_CONNECTIONS:-200}" &
 PG_PID=$!
 
 until pg_isready -U "$POSTGRES_USER" -q; do sleep 1; done
