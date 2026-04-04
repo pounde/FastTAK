@@ -64,7 +64,7 @@ class TestCategorize:
 
         assert _categorize_cert("takserver.pem") == "infrastructure"
 
-    def test_fqdn_server_cert_is_infrastructure(self):
+    def test_server_address_cert_is_infrastructure(self):
         from app.api.health.certs import _categorize_cert
 
         assert _categorize_cert("mbp.fold-harmonic.ts.net.pem") == "infrastructure"
