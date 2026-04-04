@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.11.1 (2026-04-04)
+
+### Bug Fixes
+
+- Prevent LDAP/FileAuthenticator race and app-db connection exhaustion
+  ([`1e14f62`](https://github.com/pounde/FastTAK/commit/1e14f621e6daceec665b5bed0e473d3b8aafea0a))
+
+
 ## v0.11.0 (2026-04-03)
 
 ### Bug Fixes
