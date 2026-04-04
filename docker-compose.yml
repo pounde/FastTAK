@@ -88,13 +88,19 @@ services:
         condition: service_healthy
     environment:
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
-      FQDN: ${FQDN}
+      SERVER_ADDRESS: ${SERVER_ADDRESS}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
       LDAP_HOST: ${LDAP_HOST:-authentik-ldap}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       COT_RETENTION_DAYS: ${COT_RETENTION_DAYS:-}
       GEOCHAT_RETENTION_DAYS: ${GEOCHAT_RETENTION_DAYS:-}
       RETENTION_CRON: ${RETENTION_CRON:-}
+      DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
+      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-9443}
+      NODERED_PORT: ${NODERED_PORT:-1880}
+      MONITOR_PORT: ${MONITOR_PORT:-8180}
+      TAKSERVER_ADMIN_PORT: ${TAKSERVER_ADMIN_PORT:-8446}
+      MEDIAMTX_PORT: ${MEDIAMTX_PORT:-8888}
     volumes:
       - *tak-mount
 
@@ -114,9 +120,8 @@ services:
       init-ldap-ready:
         condition: service_completed_successfully
     ports:
-      - "8089:8089"
-      - "8443:8443"
-      - "8446:8446"
+      - "8443:8443"   # Cert enrollment HTTPS
+      - "8089:8089"   # Streaming CoT
     volumes:
       - *tak-mount
       - ./tak-server/start.sh:/start.sh:ro
@@ -206,9 +211,11 @@ services:
       TAK_WEBADMIN_PASSWORD: ${TAK_WEBADMIN_PASSWORD}
       LDAP_HOST: authentik-ldap
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
-      FQDN: ${FQDN}
+      SERVER_ADDRESS: ${SERVER_ADDRESS}
       TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN:-portal}
       AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN:-auth}
+      DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
+      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-9443}
     volumes:
       - *tak-mount
 
@@ -267,7 +274,8 @@ services:
       - *tak-mount
       - ./tak-portal/start.sh:/usr/src/app/start.sh:ro
     environment:
-      FQDN: ${FQDN}
+      SERVER_ADDRESS: ${SERVER_ADDRESS}
+      DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
     entrypoint: ["/bin/sh", "/usr/src/app/start.sh"]
 
   # ── Networking (reverse proxy + SSL) ───────────────────────────────────
@@ -275,19 +283,14 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
+    depends_on:
+      init-config:
+        condition: service_completed_successfully
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      FQDN: ${FQDN}
-      TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
-      MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
-      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
-      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
-      NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
-      MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${TAK_HOST_PATH:-./tak}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
 
   # ── Streaming (video ingress + playback) ───────────────────────────────
@@ -298,9 +301,8 @@ services:
     # No healthcheck — scratch-based image has no shell/tools.
     # Monitor checks via Docker API container status instead.
     ports:
-      - "8554:8554"   # RTSP — video ingress from ATAK cameras, drones, body cams
-      - "1935:1935"   # RTMP — video ingress from OBS, encoders
-      - "8888:8888"   # HLS  — browser playback (also proxied via Caddy)
+      - "8554:8554"   # RTSP
+      - "1935:1935"   # RTMP
 
   # ── Automation ─────────────────────────────────────────────────────────
   nodered:
@@ -326,7 +328,7 @@ services:
       DB_PASSWORD: ${APP_DB_PASSWORD}
       TAK_HOST: tak-server
       TAK_PORT: "8089"
-      FQDN: ${FQDN}
+      SERVER_ADDRESS: ${SERVER_ADDRESS}
     volumes:
       - nodered-data:/data
       - ./nodered/flows.json:/opt/fastak/flows.json:ro
@@ -350,13 +352,19 @@ services:
       MEDIAMTX_VERSION: ${MEDIAMTX_VERSION}
       NODERED_VERSION: ${NODERED_VERSION}
       TAK_PORTAL_VERSION: ${TAK_PORTAL_VERSION}
-      FQDN: ${FQDN}
+      SERVER_ADDRESS: ${SERVER_ADDRESS}
       TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
       MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
       AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
       TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
       NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
       MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
+      DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
+      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-9443}
+      NODERED_PORT: ${NODERED_PORT:-1880}
+      MONITOR_PORT: ${MONITOR_PORT:-8180}
+      TAKSERVER_ADMIN_PORT: ${TAKSERVER_ADMIN_PORT:-8446}
+      MEDIAMTX_PORT: ${MEDIAMTX_PORT:-8888}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
