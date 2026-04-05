@@ -42,20 +42,25 @@ fmt:
 setup-dev:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 
-# Helper: read DEPLOY_MODE from .env and set COMPOSE_FILE
-_compose_env := '''
-  DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2)
-  DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
-  if [ "$DEPLOY_MODE" = "direct" ]; then
-    export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
-  fi
-'''
-
 # Start the stack (reads DEPLOY_MODE from .env to select compose files)
 # Pass service names to rebuild and force-recreate specific services: `just up monitor`
 up *services:
-    {{ _compose_env }} && docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
+    #!/bin/bash
+    set -euo pipefail
+    DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2 || true)
+    DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
+    if [ "$DEPLOY_MODE" = "direct" ]; then
+      export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
+    fi
+    docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
 
 # Stop the stack
 down:
-    {{ _compose_env }} && docker compose down
+    #!/bin/bash
+    set -euo pipefail
+    DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2 || true)
+    DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
+    if [ "$DEPLOY_MODE" = "direct" ]; then
+      export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
+    fi
+    docker compose down
