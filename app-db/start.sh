@@ -8,11 +8,23 @@
 # in case .env was regenerated while the data volume persisted.
 # Works because pg_hba.conf trusts local (Unix socket) connections.
 
+# Authentik's worker opens hundreds of DB connections and leaves them idle.
+# These settings let PostgreSQL reap idle connections automatically.
+# See issue #31 for details.
 docker-entrypoint.sh postgres \
-  -c max_connections="${PG_APP_MAX_CONNECTIONS:-200}" &
+  -c max_connections="${PG_APP_MAX_CONNECTIONS:-300}" \
+  -c idle_session_timeout=300s \
+  -c idle_in_transaction_session_timeout=120s \
+  -c tcp_keepalives_idle=60 \
+  -c tcp_keepalives_interval=10 \
+  -c tcp_keepalives_count=6 &
 PG_PID=$!
 
 until pg_isready -U "$POSTGRES_USER" -q; do sleep 1; done
+
+# Clear stale ALTER SYSTEM settings that conflict with command-line args
+psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "ALTER SYSTEM RESET ALL;" > /dev/null 2>&1
 
 # Sync password using ALTER ROLE via stdin to avoid shell interpolation issues
 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
