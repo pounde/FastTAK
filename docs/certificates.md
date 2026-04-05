@@ -136,12 +136,30 @@ Example: `svc_fasttakapi` connects to TAK Server's admin API over the Docker net
 
 FastTAK runs **two independent certificate systems** that don't interact:
 
-| System                    | What it secures                         | Who manages it                       | Where                    |
-| ------------------------- | --------------------------------------- | ------------------------------------ | ------------------------ |
-| **Caddy / Let's Encrypt** | Web browser HTTPS (admin UI, portal)    | Automatic — Caddy handles everything | Caddy's internal storage |
-| **TAK Server CA**         | Device connections (ATAK, iTAK, WinTAK) | You, via dashboard or `./certs.sh`   | `./tak/certs/files/`     |
+| System         | What it secures                         | Who manages it                       | Where                    |
+| -------------- | --------------------------------------- | ------------------------------------ | ------------------------ |
+| **Caddy TLS**  | Web browser HTTPS (admin UI, portal)    | Automatic — Caddy handles everything | Caddy's internal storage |
+| **TAK Server CA** | Device connections (ATAK, iTAK, WinTAK) | You, via dashboard or `./certs.sh`   | `./tak/certs/files/`     |
 
-When you visit `https://takserver.example.com` in a browser, that's a Let's Encrypt cert (managed by Caddy). When ATAK connects to port 8089, that's a TAK CA cert (managed by FastTAK). Completely separate trust chains are utilized.
+In **subdomain mode**, Caddy obtains trusted certificates from Let's Encrypt (ACME). In **direct mode**, Caddy generates self-signed certificates using its built-in internal CA — browsers will show a certificate warning on first visit (see [Self-signed certificate warnings](#self-signed-certificate-warnings) below).
+
+When you visit the web UI in a browser, that's a Caddy-managed cert. When ATAK connects to port 8089, that's a TAK CA cert. Completely separate trust chains.
+
+### Self-signed certificate warnings
+
+In direct mode (`DEPLOY_MODE=direct`), browsers show a self-signed warning on first visit to each service port. Accept the warning to proceed. To suppress warnings permanently, install Caddy's root CA certificate as a trusted root on your devices. The CA cert is stored in the `caddy-data` Docker volume at `pki/authorities/local/root.crt`.
+
+## Changing Server Address
+
+When switching `SERVER_ADDRESS` (e.g., from an IP to an FQDN), the **TAK server cert** must be regenerated because it contains the address as a SAN. **Client certs are unaffected** — they're signed by the CA and don't contain the server's address. Enrolled devices keep working; they just need to point at the new address.
+
+What to do:
+1. Update `SERVER_ADDRESS` (and optionally `DEPLOY_MODE`) in `.env`
+2. Delete the old server cert: `rm tak/certs/files/takserver.{jks,pem,p12}`
+3. Delete the old address-specific cert: `rm tak/certs/files/${old_address}.*`
+4. Restart — `init-config` regenerates the server cert and Caddyfile, Caddy gets fresh TLS certs
+
+The CA, client certs, and `ca-signing.jks` are all preserved. No re-enrollment needed.
 
 ## Key Files
 
