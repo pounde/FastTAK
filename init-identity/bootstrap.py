@@ -38,6 +38,15 @@ LDAP_APP_NAME = "LDAP"
 LDAP_PROVIDER_NAME = "LDAP"
 LDAP_OUTPOST_NAME = "LDAP Outpost"
 
+# Forward auth proxy providers — services protected by Caddy forward auth.
+# Each gets a proxy provider (forward_single mode) + application.
+# (name, slug, port_env_var, default_port) — portal is on 443 (Caddy default).
+FORWARD_AUTH_SERVICES = [
+    ("TAK Portal", "portal", None, "443"),
+    ("Monitor", "monitor", "MONITOR_PORT", "8180"),
+    ("Node-RED", "nodered", "NODERED_PORT", "1880"),
+]
+
 TAK_DIR = "/opt/tak"
 CONFIG = f"{TAK_DIR}/CoreConfig.xml"
 
@@ -100,6 +109,8 @@ def api_patch(path: str, data: dict):
     for attempt in range(1, API_RETRIES + 1):
         try:
             r = requests.patch(f"{API_BASE}/{path}", json=data, headers=HEADERS, timeout=TIMEOUT)
+            if r.status_code == 400:
+                log.warning("PATCH %s returned 400: %s", path, r.text[:200])
             r.raise_for_status()
             return
         except requests.RequestException as exc:
@@ -558,7 +569,154 @@ def ensure_ldap_outpost(provider_pk: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 6: Generate TAK Portal configuration
+# Step 6: Forward auth proxy providers
+# ---------------------------------------------------------------------------
+
+
+def get_authorization_flow() -> str:
+    """Return pk of the implicit consent authorization flow.
+
+    The worker creates default flows asynchronously, so we retry
+    for up to 60 seconds waiting for them to appear.
+    """
+    for attempt in range(12):
+        flows = api_get("flows/instances/?designation=authorization").get("results", [])
+        target = "default-provider-authorization-implicit-consent"
+        flow = next(
+            (f for f in flows if f.get("slug") == target),
+            None,
+        )
+        if not flow and flows:
+            flow = flows[0]
+        if flow:
+            return flow["pk"]
+        log.info("Authorization flow not yet available, waiting... (%s/12)", attempt + 1)
+        time.sleep(5)
+    log.error("No authorization flow found after 60s. Is the worker running?")
+    sys.exit(1)
+
+
+def ensure_forward_auth_providers() -> list[int]:
+    """Create proxy providers + applications for forward-auth-protected services.
+
+    Returns list of proxy provider pks (for linking to the embedded outpost).
+    """
+    server_address = os.environ.get("SERVER_ADDRESS", "localhost")
+    deploy_mode = os.environ.get("DEPLOY_MODE", "direct")
+
+    auth_flow_pk = get_authorization_flow()
+    inv_flow_pk = get_invalidation_flow()
+
+    provider_pks = []
+
+    for name, slug, port_env, default_port in FORWARD_AUTH_SERVICES:
+        provider_name = f"{name} Forward Auth"
+
+        # Build external URL based on deploy mode
+        if deploy_mode == "direct":
+            port = os.environ.get(port_env, default_port) if port_env else default_port
+            if port == "443":
+                external_host = f"https://{server_address}"
+            else:
+                external_host = f"https://{server_address}:{port}"
+        else:
+            subdomain_env = f"{slug.upper()}_SUBDOMAIN"
+            if slug == "portal":
+                subdomain_env = "TAKPORTAL_SUBDOMAIN"
+            subdomain = os.environ.get(subdomain_env, slug)
+            external_host = f"https://{subdomain}.{server_address}"
+
+        # Check if provider already exists
+        existing = api_get("providers/proxy/", params={"search": provider_name}).get("results", [])
+        provider = next((p for p in existing if p.get("name") == provider_name), None)
+
+        if provider:
+            pk = provider["pk"]
+            if provider.get("external_host") != external_host:
+                try:
+                    api_patch(
+                        f"providers/proxy/{pk}/",
+                        {"external_host": external_host},
+                    )
+                    log.info("Proxy provider '%s' (pk=%s) external_host updated", name, pk)
+                except Exception:
+                    log.warning("Could not update proxy provider '%s', skipping", name)
+            else:
+                log.info("Proxy provider '%s' already exists (pk=%s)", name, pk)
+        else:
+            log.info("Creating proxy provider '%s' (external_host=%s)...", name, external_host)
+            r = api_post(
+                "providers/proxy/",
+                {
+                    "name": provider_name,
+                    "authorization_flow": auth_flow_pk,
+                    "invalidation_flow": inv_flow_pk,
+                    "mode": "forward_single",
+                    "external_host": external_host,
+                },
+            )
+            pk = r["pk"]
+            log.info("Proxy provider '%s' created (pk=%s)", name, pk)
+
+        provider_pks.append(pk)
+
+        # Ensure application exists
+        apps = api_get("core/applications/", params={"slug": slug}).get("results", [])
+        if not apps:
+            log.info("Creating application '%s'...", slug)
+            api_post(
+                "core/applications/",
+                {
+                    "name": name,
+                    "slug": slug,
+                    "provider": pk,
+                },
+            )
+        else:
+            log.info("Application '%s' already exists.", slug)
+
+    return provider_pks
+
+
+def ensure_embedded_outpost(ldap_provider_pk: int, proxy_provider_pks: list[int]) -> None:
+    """Configure the embedded outpost with all providers and the correct external URL."""
+    server_address = os.environ.get("SERVER_ADDRESS", "localhost")
+    deploy_mode = os.environ.get("DEPLOY_MODE", "direct")
+    authentik_port = os.environ.get("AUTHENTIK_PORT", "9443")
+    authentik_subdomain = os.environ.get("AUTHENTIK_SUBDOMAIN", "auth")
+
+    if deploy_mode == "direct":
+        authentik_host = f"https://{server_address}:{authentik_port}"
+    else:
+        authentik_host = f"https://{authentik_subdomain}.{server_address}"
+
+    all_providers = [ldap_provider_pk] + proxy_provider_pks
+
+    r = api_get("outposts/instances/", params={"name": "authentik Embedded Outpost"})
+    results = r.get("results", [])
+    if results:
+        outpost_pk = results[0]["pk"]
+        api_patch(
+            f"outposts/instances/{outpost_pk}/",
+            {
+                "providers": all_providers,
+                "config": {
+                    "authentik_host": authentik_host,
+                    "log_level": "info",
+                },
+            },
+        )
+        log.info(
+            "Embedded outpost updated: providers=%s, authentik_host=%s",
+            all_providers,
+            authentik_host,
+        )
+    else:
+        log.warning("Embedded outpost not found — forward auth may not work.")
+
+
+# ---------------------------------------------------------------------------
+# Step 7: Generate TAK Portal configuration
 # ---------------------------------------------------------------------------
 
 
@@ -675,7 +833,11 @@ def main() -> None:
     ensure_ldap_application(provider_pk)
     ensure_ldap_outpost(provider_pk)
 
-    # 6. Generate TAK Portal config
+    # 6. Forward auth proxy providers + embedded outpost config
+    proxy_pks = ensure_forward_auth_providers()
+    ensure_embedded_outpost(provider_pk, proxy_pks)
+
+    # 7. Generate TAK Portal config
     configure_tak_portal(token)
 
     log.info("=== Identity bootstrap complete ===")
