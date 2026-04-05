@@ -40,20 +40,21 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
 - Caddy terminates HTTPS using Let's Encrypt certificates (automatic)
 - Services are routed by subdomain (e.g., `tak.example.com`, `auth.example.com`)
 - Requires DNS records pointing to the host running FastTAK
-- The subdomain variables in `.env` (e.g., `TAK_SUBDOMAIN`, `AUTH_SUBDOMAIN`) are only used in this mode
+- The subdomain variables in `.env` (e.g., `TAKSERVER_SUBDOMAIN`, `AUTHENTIK_SUBDOMAIN`) are only used in this mode
 
 ### Port variables (direct mode only)
 
-These control which host ports Caddy exposes for each service. Defaults are used if not set. These variables are ignored in subdomain mode.
+These control which host ports Caddy exposes for each service. Defaults are used if not set. Portal is always on 443 (Caddy's default HTTPS port). These variables are ignored in subdomain mode.
 
 | Variable | Default | Service |
 |---|---|---|
-| `AUTHENTIK_PORT` | `9000` | Authentik |
-| `TAK_PORT` | `8089` | TAK Server (TCP CoT) |
+| `TAKSERVER_ADMIN_PORT` | `8446` | TAK Server admin UI |
+| `AUTHENTIK_PORT` | `9443` | Authentik SSO |
 | `NODERED_PORT` | `1880` | Node-RED |
-| `PORTAL_PORT` | `3000` | TAK Portal |
+| `MONITOR_PORT` | `8180` | Monitor dashboard |
+| `MEDIAMTX_PORT` | `8888` | MediaMTX streaming |
 
-See `.env.example` for the full list with defaults.
+TAK client ports (8443, 8089) are not configurable — they connect directly to TAK Server, not through Caddy.
 
 ### Troubleshooting
 
