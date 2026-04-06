@@ -25,13 +25,9 @@ SERVER_ADDRESS=tak.example.com
 - No DNS required — works with IPs and private hostnames
 - TLS is still enforced; browsers will show an untrusted certificate warning on first visit
 
-**Self-signed certificate warnings:** To suppress the browser warning, install Caddy's root CA as a trusted root on client devices. The cert is at `caddy-data/pki/authorities/local/root.crt` in the Caddy data volume. You can extract it with:
+**Self-signed certificate warnings:** See [Self-signed certificate warnings](certificates.md#self-signed-certificate-warnings) in the certificate guide for how to suppress browser warnings.
 
-```bash
-docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
-```
-
-**ATAK enrollment:** Some ATAK versions do not support IP-only enrollment URLs — they expect an FQDN. TAKAware (iOS) works with both. This is a platform limitation, not a FastTAK issue.
+**TAK enrollment:** Some TAK client versions do not support IP-only enrollment URLs — they expect an FQDN. This is a platform limitation, not a FastTAK issue.
 
 ### `DEPLOY_MODE=subdomain`
 
