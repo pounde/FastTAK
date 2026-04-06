@@ -4,6 +4,26 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+### DD-030: PgBouncer for Authentik connection pooling
+
+**Decision:** Add PgBouncer between Authentik's server and `app-db` in transaction-pool mode. The worker bypasses PgBouncer and connects directly to `app-db`.
+
+**Context:** Authentik's Dramatiq worker creates hundreds of psycopg3 connection pools, exhausting PostgreSQL's `max_connections`. The Postgres tuning (`idle_session_timeout`, `max_connections=300`) mitigates but doesn't prevent the issue under load or with accumulated state.
+
+**Alternatives considered:**
+1. Postgres tuning only (current state) — fragile, doesn't cap concurrent connections
+2. PgBouncer for all Authentik services — failed: worker migrations use advisory locks incompatible with transaction pooling
+3. Replace Authentik entirely — too disruptive for a connection management issue
+
+**Consequences:**
+- One additional container (`pgbouncer`), ~10MB RAM
+- `authentik-server` connects to `pgbouncer` instead of `app-db`
+- `authentik-worker` environment overrides the shared anchor to connect directly to `app-db`
+- Server-side cursors disabled for Authentik server (required for transaction pooling)
+- Postgres tuning remains as defense-in-depth for the worker's direct connections
+
+---
+
 ## DD-029: Deploy Modes (direct / subdomain)
 
 **Date:** 2026-04-04

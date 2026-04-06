@@ -102,6 +102,11 @@ else
           "$TARGET_DIR/tak/certs/files"/*.txt \
           "$TARGET_DIR/tak/certs/files"/*.attr 2>/dev/null
   fi
+  # Copy healthcheck script into tak/ so the bind mount has a real file
+  # before tak-server starts. Without this, Docker creates an empty
+  # placeholder that shadows the file bind mount.
+  cp "$SCRIPT_DIR/tak-server/healthcheck.sh" "$TARGET_DIR/tak/healthcheck.sh"
+  chmod +x "$TARGET_DIR/tak/healthcheck.sh"
   echo "  Done."
 fi
 

@@ -26,10 +26,11 @@ x-logging: &default-logging
 x-tak-mount: &tak-mount ${TAK_HOST_PATH:-./tak}:/opt/tak
 
 x-authentik-env: &authentik-env
-  AUTHENTIK_POSTGRESQL__HOST: app-db
+  AUTHENTIK_POSTGRESQL__HOST: pgbouncer
   AUTHENTIK_POSTGRESQL__USER: fastak
   AUTHENTIK_POSTGRESQL__NAME: authentik
   AUTHENTIK_POSTGRESQL__PASSWORD: ${APP_DB_PASSWORD}
+  AUTHENTIK_POSTGRESQL__DISABLE_SERVER_SIDE_CURSORS: "true"
   AUTHENTIK_REDIS__HOST: redis
   AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
   AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_ADMIN_PASSWORD}
@@ -151,6 +152,34 @@ services:
       retries: 5
       start_period: 10s
 
+  # ── Connection Pooler (PgBouncer) ──────────────────────────────────────
+  # Authentik's worker opens hundreds of DB connections during startup,
+  # easily exceeding PostgreSQL's max_connections. PgBouncer multiplexes
+  # the server's connections down to a fixed pool. The worker bypasses
+  # PgBouncer because migrations use advisory locks that don't work in
+  # transaction-pool mode. See issue #31 for details.
+  pgbouncer:
+    image: edoburu/pgbouncer@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      app-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://fastak:${APP_DB_PASSWORD}@app-db:5432/authentik
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: "20"
+      MAX_CLIENT_CONN: "500"
+      MIN_POOL_SIZE: "5"
+      LISTEN_PORT: "5432"
+      SERVER_TLS_SSLMODE: disable
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+
   # ── Identity (Authentik SSO, LDAP, TAK Portal) ────────────────────────
   # Start order: redis → authentik-server/worker → init-identity → authentik-ldap → tak-portal
 
@@ -169,7 +198,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     depends_on:
-      app-db:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -191,8 +220,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Worker connects directly to app-db — advisory locks used during
+    # migrations don't work through PgBouncer's transaction pooling.
     environment:
       <<: *authentik-env
+      AUTHENTIK_POSTGRESQL__HOST: app-db
+      AUTHENTIK_POSTGRESQL__DISABLE_SERVER_SIDE_CURSORS: "false"
 
   init-identity:
     build: ./init-identity
