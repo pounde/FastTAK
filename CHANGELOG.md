@@ -2,6 +2,64 @@
 
 <!-- version list -->
 
+## v0.12.0 (2026-04-06)
+
+### Bug Fixes
+
+- Add default_sni to direct mode Caddyfile
+  ([`6233fd5`](https://github.com/pounde/FastTAK/commit/6233fd56331c139c5923aad7b3205fe136121166))
+
+- Justfile up/down recipes use shebang for DEPLOY_MODE logic
+  ([`991bda8`](https://github.com/pounde/FastTAK/commit/991bda836b9145213ee215e6160bc2db124d79db))
+
+- Postgres tuning to prevent Authentik connection exhaustion
+  ([`3e942c6`](https://github.com/pounde/FastTAK/commit/3e942c6686a5ca5d43ef249a696a0845c52d5c2e))
+
+- TLS health probe mode-aware, fix docs port table
+  ([`0f05036`](https://github.com/pounde/FastTAK/commit/0f05036a7b94c5016f9a3a6e9a6eb491aae44a93))
+
+### Chores
+
+- Rename FQDN to SERVER_ADDRESS in portal, nodered, setup, and video-cot scripts
+  ([`2318635`](https://github.com/pounde/FastTAK/commit/2318635a70f5e1e8570a2b65599e19fdf27ad40a))
+
+### Documentation
+
+- Add deploy modes documentation and decision record
+  ([`f5b106e`](https://github.com/pounde/FastTAK/commit/f5b106e0ed2e723ef8ab9423800d60efdc09fc4f))
+
+- Address PR review — link to cert guide, broaden TAK enrollment note
+  ([`cef5177`](https://github.com/pounde/FastTAK/commit/cef51779a0183f455e440a26202a673ad37f0073))
+
+- Update certificate guide for deploy modes
+  ([`e99210b`](https://github.com/pounde/FastTAK/commit/e99210bf972fbeb85b719c72b3fa2d8c3998f01e))
+
+### Features
+
+- Generate Caddyfile from init-config based on DEPLOY_MODE
+  ([`8819af6`](https://github.com/pounde/FastTAK/commit/8819af67d153165088b8a67e2266511cc9758c92))
+
+- Mode-aware start.sh and justfile, remove dev-up/dev-down
+  ([`b6e74dc`](https://github.com/pounde/FastTAK/commit/b6e74dc958125b5e91705d9c832d4a81a85754a1))
+
+- **init-identity**: Create proxy providers for forward auth
+  ([`33a0484`](https://github.com/pounde/FastTAK/commit/33a0484fd0134ba722447de660187b3d6c3e815a))
+
+- **init-identity**: Mode-aware URL construction for settings.json
+  ([`924b791`](https://github.com/pounde/FastTAK/commit/924b7918297aece902bfdadb8fcd5c7d24662c14))
+
+- **monitor**: Replace Caddyfile parser with mode-aware URL builder
+  ([`3fd9359`](https://github.com/pounde/FastTAK/commit/3fd935920879896a5d26e1c7b4b292fdf53ad9b3))
+
+### Testing
+
+- Update integration test setup for SERVER_ADDRESS rename
+  ([`66b66c8`](https://github.com/pounde/FastTAK/commit/66b66c8e29e57cc9179476aca9d359c89168e960))
+
+- Update tests for FQDN -> SERVER_ADDRESS rename
+  ([`0f0a267`](https://github.com/pounde/FastTAK/commit/0f0a267db0af11c38ce1d160702aa084f082e200))
+
+
 ## v0.11.1 (2026-04-04)
 
 ### Bug Fixes
