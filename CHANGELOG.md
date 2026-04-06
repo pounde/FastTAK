@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.13.0 (2026-04-06)
+
+### Features
+
+- Add PgBouncer for Authentik connection pooling
+  ([`37b2632`](https://github.com/pounde/FastTAK/commit/37b2632e671ca3e7237b73e8030f8769fd82aa37))
+
+
 ## v0.12.0 (2026-04-06)
 
 ### Bug Fixes
