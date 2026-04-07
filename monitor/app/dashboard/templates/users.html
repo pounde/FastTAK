@@ -486,6 +486,9 @@
                                 <a x-show="c.downloadable && !c.revoked"
                                    :href="'/api/users/' + selectedUser?.id + '/certs/download/' + c.name"
                                    style="color: #4fc3f7; font-size: 11px;">download</a>
+                                <a x-show="c.downloadable && !c.revoked"
+                                   :href="'/api/users/' + selectedUser?.id + '/certs/download_data_package/' + c.name"
+                                   style="color: #4fc3f7; font-size: 11px;">data package</a>
                                 <a href="#" x-show="!c.revoked && (c.cert_id || c.name)"
                                    style="color: #ef5350; font-size: 11px;"
                                    @click.prevent="revokeCert(c)">revoke</a>

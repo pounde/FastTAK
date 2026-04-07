@@ -30,6 +30,7 @@ def mock_settings(monkeypatch):
         tak_enrollment_port=8446,
     )
     monkeypatch.setattr("app.config.settings", test_settings)
+    monkeypatch.setattr("app.api.users.router.settings", test_settings)
     return test_settings
 
 
