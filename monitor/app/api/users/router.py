@@ -1,10 +1,15 @@
 """User management API routes — /api/users and /api/groups."""
 
+import io
 import re
 import time
+import uuid
+import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from cryptography import x509
+from cryptography.hazmat.primitives.serialization import BestAvailableEncryption, pkcs12
+from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -398,6 +403,28 @@ def _compute_cert_hash(pem_path: Path) -> str | None:
     return None
 
 
+def _build_truststore_p12() -> bytes:
+    """Build a PKCS#12 truststore containing the CA certificate.
+
+    Returns:
+        PKCS#12 bytes with friendly name ``truststore``, password ``atakatak``.
+
+    Raises:
+        HTTPException(500): If ``ca.pem`` is not found.
+    """
+    ca_pem_path = CERT_FILES_PATH / "ca.pem"
+    if not ca_pem_path.exists():
+        raise HTTPException(500, "CA certificate not found")
+    ca_cert = x509.load_pem_x509_certificate(ca_pem_path.read_bytes())
+    return pkcs12.serialize_key_and_certificates(
+        name=b"truststore",
+        key=None,
+        cert=None,
+        cas=[ca_cert],
+        encryption_algorithm=BestAvailableEncryption(b"atakatak"),
+    )
+
+
 @router.get("/api/users/{user_id}/certs", summary="List user certificates")
 def list_user_certs(user_id: int):
     """List all certificates for a user, merging on-disk and TAK Server data.
@@ -685,6 +712,108 @@ def download_user_cert(user_id: int, cert_name: str):
         path=p12_path,
         media_type="application/x-pkcs12",
         filename=filename,
+    )
+
+
+@router.get(
+    "/api/users/{user_id}/certs/download_data_package/{cert_name}",
+    summary="Download data package",
+)
+def download_data_package(user_id: int, cert_name: str):
+    """Download a TAK connection data package (.zip) for a named certificate.
+
+    Bundles the client .p12, a CA truststore, connection preferences, and a
+    manifest into a zip that ATAK/WinTAK can import directly.
+
+    Validation and revocation checks are identical to ``download_user_cert``.
+
+    Args:
+        user_id: Authentik user ID.
+        cert_name: Certificate name (the ``{name}`` part of
+            ``{username}-{name}.p12``).
+
+    Returns:
+        .zip file as ``application/zip`` download.
+
+    Raises:
+        HTTPException(400): If cert_name contains invalid characters.
+        HTTPException(403): If the certificate has been revoked.
+        HTTPException(404): If user or certificate file not found.
+        HTTPException(500): If CA certificate is missing.
+    """
+    if not re.match(r"^[a-zA-Z0-9._-]+$", cert_name):
+        raise HTTPException(400, "Invalid certificate name")
+    ak = _get_authentik()
+    user = ak.get_user(user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    username = user["username"]
+    cert_filename = f"{username}-{cert_name}"
+    p12_path = CERT_FILES_PATH / f"{cert_filename}.p12"
+    if not p12_path.exists():
+        raise HTTPException(404, f"Certificate '{cert_name}' not found")
+
+    # Block download of revoked certs
+    pem_path = CERT_FILES_PATH / f"{cert_filename}.pem"
+    if pem_path.exists():
+        serial = _get_cert_serial(pem_path)
+        if serial and serial in _get_revoked_serials():
+            raise HTTPException(403, "Certificate has been revoked")
+
+    # Build zip contents
+    client_p12 = p12_path.read_bytes()
+    truststore_p12 = _build_truststore_p12()
+
+    connect_str = f"{settings.server_address}:8089:ssl"
+    cert_loc = f"cert/{cert_filename}.p12"
+
+    config_pref = f"""\
+<?xml version='1.0' encoding='ASCII' standalone='yes'?>
+<preferences>
+  <preference version="1" name="cot_streams">
+    <entry key="count" class="class java.lang.Integer">1</entry>
+    <entry key="description0" class="class java.lang.String">FastTAK</entry>
+    <entry key="enabled0" class="class java.lang.Boolean">true</entry>
+    <entry key="connectString0" class="class java.lang.String">{connect_str}</entry>
+  </preference>
+  <preference version="1" name="com.atakmap.app_preferences">
+    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>
+    <entry key="caLocation" class="class java.lang.String">cert/truststore.p12</entry>
+    <entry key="caPassword" class="class java.lang.String">atakatak</entry>
+    <entry key="certificateLocation" class="class java.lang.String">{cert_loc}</entry>
+    <entry key="clientPassword" class="class java.lang.String">atakatak</entry>
+  </preference>
+</preferences>"""
+
+    pkg_uid = str(uuid.uuid4())
+    zip_name = f"{cert_filename}.zip"
+
+    manifest_xml = f"""\
+<MissionPackageManifest version="2">
+  <Configuration>
+    <Parameter name="uid" value="{pkg_uid}"/>
+    <Parameter name="name" value="{zip_name}"/>
+    <Parameter name="onReceiveDelete" value="true"/>
+  </Configuration>
+  <Contents>
+    <Content ignore="false" zipEntry="config.pref"/>
+    <Content ignore="false" zipEntry="certs/truststore.p12"/>
+    <Content ignore="false" zipEntry="certs/{cert_filename}.p12"/>
+  </Contents>
+</MissionPackageManifest>"""
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"certs/{cert_filename}.p12", client_p12)
+        zf.writestr("certs/truststore.p12", truststore_p12)
+        zf.writestr("config.pref", config_pref)
+        zf.writestr("MANIFEST/manifest.xml", manifest_xml)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
     )
 
 

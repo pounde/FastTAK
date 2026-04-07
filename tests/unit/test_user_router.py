@@ -1,5 +1,6 @@
 """Tests for user management API routes."""
 
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -7,6 +8,29 @@ from app.main import app
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
+
+
+def _make_test_ca_pem() -> bytes:
+    """Generate a minimal self-signed CA cert for testing truststore generation."""
+    from datetime import datetime, timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name([x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, "Test CA")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(UTC))
+        .not_valid_after(datetime.now(UTC) + timedelta(days=365))
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM)
 
 
 @pytest.fixture(autouse=True)
@@ -377,6 +401,116 @@ class TestUserCertDownload:
         # FastAPI rejects this at the URL routing level (/ in path segment)
         # but even if it got through, the validation would catch it
         assert r.status_code in (400, 404, 422)
+
+
+class TestUserCertDataPackage:
+    def test_returns_valid_zip(self, mock_clients, mock_settings, tmp_path):
+        """Happy path: returns a zip with the expected 4 entries."""
+        import zipfile
+        from io import BytesIO
+
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        # Create client .p12 and ca.pem on disk
+        (tmp_path / "jsmith-tablet.p12").write_bytes(b"fake-p12")
+        (tmp_path / "ca.pem").write_bytes(
+            # Minimal self-signed cert for truststore generation
+            _make_test_ca_pem()
+        )
+
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/1/certs/download_data_package/tablet")
+
+        assert r.status_code == 200
+        assert "application/zip" in r.headers["content-type"]
+        assert "jsmith-tablet.zip" in r.headers["content-disposition"]
+
+        with zipfile.ZipFile(BytesIO(r.content)) as zf:
+            names = zf.namelist()
+            assert "certs/jsmith-tablet.p12" in names
+            assert "certs/truststore.p12" in names
+            assert "config.pref" in names
+            assert "MANIFEST/manifest.xml" in names
+
+            # Verify config.pref contains the server address
+            config = zf.read("config.pref").decode()
+            assert "test.example.com:8089:ssl" in config
+            assert "cert/truststore.p12" in config
+            assert "cert/jsmith-tablet.p12" in config
+
+            # Verify manifest references all zip entries
+            manifest = zf.read("MANIFEST/manifest.xml").decode()
+            assert "certs/jsmith-tablet.p12" in manifest
+            assert "certs/truststore.p12" in manifest
+            assert "config.pref" in manifest
+
+    def test_404_when_cert_missing(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        # No .p12 file on disk
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/1/certs/download_data_package/tablet")
+        assert r.status_code == 404
+
+    def test_404_when_user_not_found(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = None
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/999/certs/download_data_package/tablet")
+        assert r.status_code == 404
+
+    def test_400_for_invalid_cert_name(self, mock_clients):
+        r = client.get("/api/users/1/certs/download_data_package/../../etc/passwd")
+        assert r.status_code in (400, 404, 422)
+
+    def test_403_for_revoked_cert(self, mock_clients, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        (tmp_path / "jsmith-tablet.p12").write_bytes(b"fake-p12")
+        (tmp_path / "jsmith-tablet.pem").write_bytes(b"fake-pem")
+
+        with (
+            patch("app.api.users.router.CERT_FILES_PATH", tmp_path),
+            patch("app.api.users.router._get_cert_serial", return_value="abc123"),
+            patch("app.api.users.router._get_revoked_serials", return_value={"abc123"}),
+        ):
+            r = client.get("/api/users/1/certs/download_data_package/tablet")
+        assert r.status_code == 403
+
+    def test_500_when_ca_pem_missing(self, mock_clients, mock_settings, tmp_path):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        (tmp_path / "jsmith-tablet.p12").write_bytes(b"fake-p12")
+        # No ca.pem — should 500
+
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/1/certs/download_data_package/tablet")
+        assert r.status_code == 500
+        assert "CA certificate" in r.json()["detail"]
 
 
 class TestUserCertGeneration:
