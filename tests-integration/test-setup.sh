@@ -99,6 +99,13 @@ sed -i.bak "s/^SERVER_ADDRESS=.*/SERVER_ADDRESS=test.fastak.local/" "${TEST_DIR}
 sed -i.bak "s/^DEPLOY_MODE=.*/DEPLOY_MODE=direct/" "${TEST_DIR}/.env"
 rm -f "${TEST_DIR}/.env.bak"
 
+# Copy repo scripts into TAK_HOST_PATH so the single volume mount picks them
+# up. This avoids overlaying individual file bind mounts onto the TAK volume,
+# which fails on Docker Desktop virtiofs when TAK_HOST_PATH is on a different
+# filesystem (e.g., /private/tmp).
+cp "${REPO_DIR}/tak-server/healthcheck.sh" "${TAK_HOST_PATH}/healthcheck.sh"
+cp "${REPO_DIR}/tak-server/register-api-cert.sh" "${TAK_HOST_PATH}/register-api-cert.sh"
+
 # ── Build and start ────────────────────────────────────────────────────
 echo "=== Starting stack ===" >&2
 ${COMPOSE} up -d --build >&2
