@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v0.14.0 (2026-04-07)
+
+### Chores
+
+- Update video test script to default to downtown NYC
+  ([`0b077f3`](https://github.com/pounde/FastTAK/commit/0b077f31505a3d13c54a5f66c8b349fa38906881))
+
+### Features
+
+- Add data package download for TAK client provisioning
+  ([`cc6f834`](https://github.com/pounde/FastTAK/commit/cc6f834144a5abace6bf1be890b4f02bd159b874))
+
+### Testing
+
+- Migrate integration tests from bash to pytest (69 tests)
+  ([`b59e3f8`](https://github.com/pounde/FastTAK/commit/b59e3f8cfae297096295f221204b014b3afbc105))
+
+
 ## v0.13.0 (2026-04-06)
 
 ### Features
