@@ -156,8 +156,22 @@ if [ "$TEST_STREAM" = "true" ]; then
         exit 1
     fi
 
+    # Build the ingest URL based on protocol
+    case "$PROTOCOL" in
+        rtsp)  INGEST_URL="rtsp://localhost:8554/${STREAM_PATH}"
+               FFMPEG_FORMAT="rtsp"
+               INGEST_LABEL="RTSP :8554" ;;
+        rtmp)  INGEST_URL="rtmp://localhost:1935/${STREAM_PATH}"
+               FFMPEG_FORMAT="flv"
+               INGEST_LABEL="RTMP :1935" ;;
+        http)  INGEST_URL="rtmp://localhost:1935/${STREAM_PATH}"
+               FFMPEG_FORMAT="flv"
+               INGEST_LABEL="RTMP :1935 (HLS served on :8888)" ;;
+        *)     echo "ERROR: Unsupported protocol '$PROTOCOL' for streaming" >&2; exit 1 ;;
+    esac
+
     # Kill any existing test stream on this path
-    pkill -f "rtmp://localhost:1935/${STREAM_PATH}" 2>/dev/null || true
+    pkill -f "${INGEST_URL}" 2>/dev/null || true
     sleep 1
 
     if [ -n "$VIDEO_FILE" ]; then
@@ -166,7 +180,7 @@ if [ "$TEST_STREAM" = "true" ]; then
             -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p \
             -preset ultrafast -tune zerolatency -g 30 \
             -c:a aac -b:a 64k \
-            -f flv "rtmp://localhost:1935/${STREAM_PATH}" \
+            -f "$FFMPEG_FORMAT" "$INGEST_URL" \
             >/dev/null 2>&1 &
     else
         # H.264 Baseline profile + AAC test pattern — compatible with iOS/TAK Aware
@@ -176,7 +190,7 @@ if [ "$TEST_STREAM" = "true" ]; then
             -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p \
             -preset ultrafast -tune zerolatency -g 30 \
             -c:a aac -b:a 64k \
-            -f flv "rtmp://localhost:1935/${STREAM_PATH}" \
+            -f "$FFMPEG_FORMAT" "$INGEST_URL" \
             >/dev/null 2>&1 &
     fi
     FFPID=$!
@@ -184,10 +198,10 @@ if [ "$TEST_STREAM" = "true" ]; then
     # Wait for MediaMTX to pick up the stream
     sleep 3
     if ! kill -0 "$FFPID" 2>/dev/null; then
-        echo "ERROR: ffmpeg exited — is MediaMTX accepting RTMP on port 1935?" >&2
+        echo "ERROR: ffmpeg exited — is MediaMTX accepting ${INGEST_LABEL}?" >&2
         exit 1
     fi
-    echo "Streaming ${VIDEO_FILE:-test pattern} (ffmpeg PID $FFPID)"
+    echo "Streaming ${VIDEO_FILE:-test pattern} via ${INGEST_LABEL} (ffmpeg PID $FFPID)"
 fi
 
 # ── Build CoT XML ────────────────────────────────────────────────────────
@@ -202,6 +216,7 @@ else
 fi
 
 FEED_UID="FastTAK-video-$(echo "$STREAM_PATH" | tr '/' '-')"
+VIDEO_UID="FastTAK-stream-$(echo "$STREAM_PATH" | tr '/' '-')"
 
 # Build the URL path based on protocol
 case "$PROTOCOL" in
@@ -217,11 +232,11 @@ time=\"${NOW}\" start=\"${NOW}\" stale=\"${STALE}\">\
 <contact callsign=\"${CALLSIGN}\"/>\
 <sensor fov=\"${FOV}\" azimuth=\"${AZIMUTH}\" range=\"${RANGE}\" \
 hideFov=\"true\" fovRed=\"1\" fovGreen=\"1\" fovBlue=\"0\" fovAlpha=\"0.3\"/>\
-<__video url=\"${PROTOCOL}://${SERVER_ADDRESS}:${PORT}${STREAM_URL_PATH}\">\
-<ConnectionEntry networkTimeout=\"12000\" uid=\"${FEED_UID}\" \
+<__video uid=\"${VIDEO_UID}\">\
+<ConnectionEntry networkTimeout=\"12000\" uid=\"${VIDEO_UID}\" \
 path=\"${STREAM_URL_PATH}\" protocol=\"${PROTOCOL}\" bufferTime=\"-1\" \
-address=\"${SERVER_ADDRESS}\" port=\"${PORT}\" roverPort=\"-1\" rtspReliable=\"0\" \
-alias=\"${CALLSIGN}\"/>\
+address=\"${SERVER_ADDRESS}\" port=\"${PORT}\" roverPort=\"-1\" rtspReliable=\"1\" \
+ignoreEmbeddedKLV=\"false\" alias=\"${CALLSIGN}\"/>\
 </__video>\
 <remarks>Video feed via FastTAK MediaMTX</remarks>\
 </detail></event>"
