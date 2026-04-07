@@ -22,12 +22,23 @@ def get_client() -> docker.DockerClient:
 _CACHE_TTL = 30  # seconds — avoid hitting Docker API on every request
 _cache_lock = threading.Lock()
 _cached_services: list[str] = []
+_cached_project: str = ""
 _cache_time: float = 0
+
+
+def _get_project() -> str:
+    """Return the compose project name for this monitor instance."""
+    with _cache_lock:
+        if _cached_project and (time.monotonic() - _cache_time) < _CACHE_TTL:
+            return _cached_project
+    # Fall through to refresh which sets _cached_project
+    _refresh_cache()
+    return _cached_project
 
 
 def _refresh_cache() -> list[str]:
     """Query Docker for all compose services in our project."""
-    global _cached_services, _cache_time
+    global _cached_services, _cached_project, _cache_time
     client = get_client()
 
     # Find the compose project name from our own container's labels
@@ -53,6 +64,7 @@ def _refresh_cache() -> list[str]:
 
     with _cache_lock:
         _cached_services = services
+        _cached_project = project
         _cache_time = time.monotonic()
     return services
 
@@ -76,10 +88,11 @@ def _is_running(name: str) -> bool:
 
 
 def find_container(name: str):
-    """Find a container by its compose service name (handles project name prefixes)."""
+    """Find a container by its compose service name, scoped to our project."""
     client = get_client()
-    matches = client.containers.list(
-        all=True,
-        filters={"label": f"com.docker.compose.service={name}"},
-    )
+    project = _get_project()
+    filters = {"label": [f"com.docker.compose.service={name}"]}
+    if project:
+        filters["label"].append(f"com.docker.compose.project={project}")
+    matches = client.containers.list(all=True, filters=filters)
     return matches[0] if matches else None

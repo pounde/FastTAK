@@ -26,4 +26,4 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # ── Run assertions ───────────────────────────────────────────────────
-"${SCRIPT_DIR}/test-run.sh" "${PROJECT}"
+FASTAK_TEST_PROJECT="${PROJECT}" uv run pytest tests-integration/ -v

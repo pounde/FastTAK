@@ -24,7 +24,7 @@ test-up-fg:
 
 # Run test assertions against the running test stack
 test-run:
-    ./tests-integration/test-run.sh
+    uv run pytest tests-integration/ -v
 
 # Tear down the test stack
 test-down:

@@ -1,29 +1,37 @@
 # =============================================================================
 # FastTAK — Test Override
 # =============================================================================
-# Remaps all host ports with +10000 offset so integration tests can run
-# alongside a development stack without port conflicts.
+# Remaps host ports so integration tests can run alongside dev and
+# CloudTAK stacks without port conflicts. Most use +10000 offset;
+# mediamtx uses +20000 to avoid CloudTAK's media-infra ports.
 #
 # Used internally by tests-integration/test-stack.sh — not invoked directly.
 #
-# Requires Docker Compose v2.24+ for !reset directive.
+# Requires Docker Compose v2.24+ for !override directive.
 # =============================================================================
 
 services:
   tak-server:
-    ports: !reset
+    ports: !override
       - "18089:8089"
       - "18443:8443"
       - "18446:8446"
+    # Reset volumes to drop per-file bind mounts that overlay onto the TAK
+    # volume. test-setup.sh copies healthcheck.sh and register-api-cert.sh
+    # into TAK_HOST_PATH instead, avoiding Docker Desktop virtiofs conflicts
+    # when TAK_HOST_PATH is on /private/tmp.
+    volumes: !override
+      - ${TAK_HOST_PATH:-./tak}:/opt/tak
+      - ./tak-server/start.sh:/start.sh:ro
   caddy:
-    ports: !reset
+    ports: !override
       - "10080:80"
       - "10443:443"
   mediamtx:
-    ports: !reset
-      - "18554:8554"
-      - "11935:1935"
-      - "18888:8888"
+    ports: !override
+      - "28554:8554"
+      - "21935:1935"
+      - "28888:8888"
   tak-portal:
     ports:
       - "13000:3000"
