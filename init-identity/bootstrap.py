@@ -636,7 +636,10 @@ def ensure_forward_auth_providers() -> list[int]:
                 try:
                     api_patch(
                         f"providers/proxy/{pk}/",
-                        {"external_host": external_host},
+                        {
+                            "external_host": external_host,
+                            "mode": "forward_single",
+                        },
                     )
                     log.info("Proxy provider '%s' (pk=%s) external_host updated", name, pk)
                 except Exception:
