@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.15.0 (2026-04-07)
+
+### Bug Fixes
+
+- Include mode in Authentik proxy provider PATCH
+  ([`549b48a`](https://github.com/pounde/FastTAK/commit/549b48a9bb08a9b515bc980183ba39e201f74d3b))
+
+- Make video-cot.sh protocol flag control actual ingest method
+  ([`86dda85`](https://github.com/pounde/FastTAK/commit/86dda853de53ea66625f4ae11074cde66472a20e))
+
+### Features
+
+- Add custom MediaMTX config with TCP-only RTSP
+  ([`04c3c35`](https://github.com/pounde/FastTAK/commit/04c3c35a636d2953fca9cce21b00e9192ed87b5a))
+
+
 ## v0.14.0 (2026-04-07)
 
 ### Chores
