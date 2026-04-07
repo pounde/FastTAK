@@ -1,0 +1,62 @@
+# MediaMTX configuration for FastTAK
+# Docs: https://github.com/bluenviron/mediamtx
+
+# Logging
+logLevel: info
+
+# API — used by Node-RED to register video proxy paths
+api: yes
+apiAddress: :9997
+
+# RTSP — TCP only, UDP doesn't work through Docker Desktop's NAT
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+# RTMP — video ingress from OBS, encoders, drones
+rtmp: yes
+rtmpAddress: :1935
+
+# HLS — browser playback
+hls: yes
+hlsAddress: :8888
+
+# WebRTC
+webrtc: yes
+webrtcAddress: :8889
+
+# Timeouts — 30s accommodates intermittent mobile streams
+readTimeout: 30s
+writeTimeout: 10s
+writeQueueSize: 512
+
+# Authentication — allow publish/read from any IP, API access from Docker network
+authInternalUsers:
+  # Anyone can publish/read/playback streams
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path:
+      - action: read
+        path:
+      - action: playback
+        path:
+  # API access from any IP (internal Docker network)
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: api
+      - action: metrics
+
+# Default path settings — applied to all paths including dynamically created ones
+pathDefaults:
+  rtspTransport: tcp
+
+# Wildcard path — allows any publish/read path without pre-registration.
+# DroneSense proxy paths are also added dynamically via the API by Node-RED.
+paths:
+  all_others:
+    name: ""

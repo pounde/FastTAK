@@ -336,6 +336,8 @@ services:
     logging: *default-logging
     # No healthcheck — scratch-based image has no shell/tools.
     # Monitor checks via Docker API container status instead.
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     ports:
       - "8554:8554"   # RTSP
       - "1935:1935"   # RTMP
