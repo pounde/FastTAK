@@ -22,8 +22,8 @@ CERT_PASS="atakatak" # TAK Server default cert password
 STREAM_PATH="live/test1"
 PROTOCOL="rtsp"
 PORT="8554"
-LAT="38.8977"
-LON="-77.0365"
+LAT="40.7128"
+LON="-74.0060"
 HAE="0"
 CALLSIGN="FastTAK Test Stream"
 STALE_MINUTES="60"
@@ -41,14 +41,14 @@ Usage: ./video-cot.sh [options]
 
 Starts a test video stream on MediaMTX and announces it to TAK Server
 as a CoT sensor marker. With no arguments, runs a full test using RTSP
-with a test pattern near the White House.
+with a test pattern in downtown Manhattan.
 
 Options:
   --path <path>            MediaMTX stream path (default: live/test1)
   --protocol <proto>       Stream protocol: rtsp (default), http (HLS), rtmp
   --port <port>            Stream port (default: 8554 for RTSP, 8888 for HLS)
-  --lat <latitude>         Marker latitude (default: 38.8977)
-  --lon <longitude>        Marker longitude (default: -77.0365)
+  --lat <latitude>         Marker latitude (default: 40.7128)
+  --lon <longitude>        Marker longitude (default: -74.0060)
   --hae <altitude>         Height above ellipsoid in meters (default: 0)
   --callsign <name>        Display name on map (default: "FastTAK Test Stream")
   --stale <minutes>        Minutes until marker expires (default: 60)
