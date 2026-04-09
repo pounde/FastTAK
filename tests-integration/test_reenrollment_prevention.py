@@ -7,22 +7,14 @@ pytestmark = pytest.mark.integration
 
 class TestReenrollmentPrevention:
     @pytest.mark.dependency(name="reenroll_token")
-    def test_create_enrollment_token(self, compose_exec, webadmin_id, run_id, created_resources):
-        """Create an enrollment token via AuthentikClient inside monitor."""
-        script = f"""
-from app.api.users.authentik import AuthentikClient
-from app.config import settings
-ak = AuthentikClient(
-    base_url=settings.authentik_url,
-    token=settings.authentik_api_token,
-    hidden_prefixes=[],
-)
-token, _ = ak.get_or_create_enrollment_token({webadmin_id}, 15)
-print(token)
-"""
-        result = compose_exec("monitor", ["python3", "-c", script])
-        token = result.stdout.strip()
-        assert token, "Failed to create enrollment token"
+    def test_create_enrollment_token(self, api, webadmin_id, run_id, created_resources):
+        """Create an enrollment token via monitor API."""
+        status, data = api("POST", f"/api/users/{webadmin_id}/enroll")
+        assert status == 200, f"Failed to create enrollment token: {data}"
+        url = data.get("enrollment_url", "")
+        assert "token=" in url, f"No token in enrollment URL: {url}"
+        token = url.split("token=")[1]
+        assert token, "Empty token in enrollment URL"
         created_resources["reenroll_token"] = token
 
     @pytest.mark.dependency(depends=["reenroll_token"])

@@ -15,8 +15,8 @@ LDAP_BIND_SCRIPT = """
 import socket
 s = socket.socket()
 s.settimeout(5)
-s.connect(('authentik-ldap', 3389))
-dn = b'cn={username},ou=users,dc=takldap'
+s.connect(('ldap-proxy', 3389))
+dn = b'uid={username},ou=people,dc=takldap'
 pw = b'{password}'
 version = b'\\x02\\x01\\x03'
 name = bytes([0x04, len(dn)]) + dn
@@ -50,35 +50,17 @@ def attempt_ldap_bind(compose_exec, username: str, password: str = "") -> int:
 
 class TestLDAPAuth:
     @pytest.fixture(autouse=True)
-    def _create_test_user(self, compose_exec, authentik_token):
+    def _create_test_user(self, api):
         """Create a passwordless user for the LDAP bind test, clean up after."""
-        create_script = f"""
-import urllib.request, json
-user = {{'username':'test_nopassword','name':'Test',
-    'is_active':True,'path':'users'}}
-data = json.dumps(user).encode()
-hdrs = {{'Authorization': 'Bearer {authentik_token}',
-    'Content-Type': 'application/json'}}
-url = 'http://authentik-server:9000/api/v3/core/users/'
-req = urllib.request.Request(url, data=data, headers=hdrs)
-resp = json.loads(urllib.request.urlopen(req).read())
-print(resp['pk'])
-"""
-        result = compose_exec("monitor", ["python3", "-c", create_script])
-        self.user_pk = result.stdout.strip()
+        status, data = api(
+            "POST", "/api/users", {"username": "test_nopassword", "name": "Test No Password"}
+        )
+        assert status == 200 or status == 201, f"Failed to create test user: {data}"
+        self.user_id = data["id"]
         yield
         # Cleanup
-        if self.user_pk:
-            delete_script = f"""
-import urllib.request
-req = urllib.request.Request('http://authentik-server:9000/api/v3/core/users/{self.user_pk}/',
-    method='DELETE', headers={{'Authorization': 'Bearer {authentik_token}'}})
-try:
-    urllib.request.urlopen(req)
-except Exception:
-    pass
-"""
-            compose_exec("monitor", ["python3", "-c", delete_script])
+        if self.user_id:
+            api("DELETE", f"/api/users/{self.user_id}")
 
     def test_passwordless_user_rejected(self, compose_exec):
         """A user with no password should get LDAP result code 49 (invalidCredentials)."""

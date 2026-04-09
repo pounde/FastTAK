@@ -4,6 +4,30 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-031: Replace Authentik with LLDAP + ldap-proxy
+
+**Date:** 2026-04-09
+**Status:** Decided
+
+**Decision:** Replace Authentik (6 containers, ~750MB, 5+ min startup) with LLDAP + a custom Go LDAP bind proxy (2 containers, ~60MB, ~15s startup).
+
+**Why:** Authentik was the single largest source of operational issues — connection storms exhausting PostgreSQL (requiring PgBouncer), slow startup blocking the entire stack, heavy memory usage, and complex bootstrap logic (~850 lines). See [issue #31](https://github.com/pounde/FastTAK/issues/31) for the full history.
+
+**Architecture:**
+- **LLDAP** — lightweight Rust LDAP server (stock Docker image), backed by PostgreSQL. Provides the user directory and a GraphQL management API.
+- **ldap-proxy** — custom Go binary sitting in front of LLDAP on port 3389. Intercepts LDAP bind requests to check enrollment tokens (SQLite on tmpfs) before falling through to LLDAP for real passwords. Also exposes `/auth/verify` for Caddy forward auth and a REST API for token management.
+- **init-identity** — one-shot Python container bootstrapping LLDAP via GraphQL (~250 lines replacing ~850).
+
+**Notable constraints discovered during implementation:**
+- LLDAP requires email on user creation (v0.5+ security fix). Placeholder `{username}@dummy.example.com` used since TAK Server doesn't query email attributes.
+- LLDAP uses `uid=`/`ou=people` DN format (not `cn=`/`ou=users` like Authentik's LDAP outpost).
+- LLDAP uses the OPAQUE protocol for passwords — requires the `lldap_set_password` binary (copied from LLDAP image via multi-stage Docker build).
+- TAK Server's `LdapAuthenticator` binds as the user twice during enrollment (auth + group assignment), so enrollment tokens must be non-one-time. TTL (default 15 min) is the security boundary.
+- Enrollment token plaintext is stored alongside the hash to support idempotent get-or-create. The SQLite database lives on tmpfs (RAM only, dies with the container) to mitigate the exposure.
+- LLDAP custom attribute schemas (`fastak_expires`, `fastak_certs_revoked`, `is_active`) must be registered before use — handled by init-identity bootstrap.
+
+---
+
 ### DD-030: PgBouncer for Authentik connection pooling
 
 **Decision:** Add PgBouncer between Authentik's server and `app-db` in transaction-pool mode. The worker bypasses PgBouncer and connects directly to `app-db`.
