@@ -162,7 +162,7 @@ def api(compose_exec):
 
 @pytest.fixture(scope="session")
 def run_id():
-    """Unique suffix for test resources, preventing Authentik name collisions."""
+    """Unique suffix for test resources, preventing name collisions."""
     return str(int(time.time()))
 
 
@@ -217,12 +217,12 @@ def webadmin_id(api):
 
 
 @pytest.fixture(scope="session")
-def authentik_token(stack_info):
-    """Read the Authentik API token from the test .env."""
+def ldap_admin_password(stack_info):
+    """Read LDAP admin password from test .env."""
     for line in Path(stack_info.env_file).read_text().splitlines():
-        if line.startswith("AUTHENTIK_API_TOKEN="):
+        if line.startswith("LDAP_BIND_PASSWORD="):
             return line.split("=", 1)[1].strip()
-    pytest.fail("AUTHENTIK_API_TOKEN not found in test .env")
+    pytest.fail("LDAP_BIND_PASSWORD not found in test .env")
 
 
 # ---------------------------------------------------------------------------
