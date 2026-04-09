@@ -1,7 +1,10 @@
+ARG LLDAP_VERSION=v0.6.1
+FROM lldap/lldap:${LLDAP_VERSION} AS lldap
+
 FROM python:3.12-alpine
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Copy lldap_set_password for OPAQUE-based password setting
+COPY --from=lldap /app/lldap_set_password /usr/local/bin/lldap_set_password
 
 COPY bootstrap.py /app/bootstrap.py
 

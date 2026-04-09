@@ -1,799 +1,197 @@
 #!/usr/bin/env python3
-"""Authentik LDAP bootstrap for FastTAK.
+"""Bootstrap LLDAP with users, groups, and service accounts for FastTAK.
 
-Runs as an init container after Authentik is healthy. Creates the LDAP
-service account, configures the LDAP authentication flow with 3 stages,
-creates the LDAP provider/application/outpost, optionally creates a
-webadmin user, and generates TAK Portal settings.
+Runs as a one-shot init container after LLDAP is healthy. Creates default
+groups, optionally creates a webadmin user, and creates passwordless service
+accounts.
 
 Idempotent — safe to run multiple times.
 
 Environment variables:
-    AUTHENTIK_URL          — Authentik internal URL (default: http://authentik-server:9000)
-    AUTHENTIK_API_TOKEN    — bootstrap API token (required)
-    LDAP_BIND_PASSWORD     — password for adm_ldapservice account (required)
+    LLDAP_URL              — LLDAP HTTP URL (default: http://lldap:17170)
+    LDAP_ADMIN_PASSWORD    — admin bind password (required)
     TAK_WEBADMIN_PASSWORD  — password for webadmin user (optional)
-    LDAP_HOST              — LDAP outpost hostname (default: authentik-ldap)
     LDAP_BASE_DN           — LDAP base DN (default: DC=takldap)
 """
 
+import json
 import logging
 import os
-import sys
+import subprocess
 import time
+import urllib.error
+import urllib.request
 
-import requests
+log = logging.getLogger("init-identity")
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+# --- Configuration ---
+LLDAP_URL = os.environ.get("LLDAP_URL", "http://lldap:17170").rstrip("/")
+ADMIN_USER = os.environ.get("LLDAP_ADMIN_USER", "adm_ldapservice")
+ADMIN_PASS = os.environ["LDAP_ADMIN_PASSWORD"]
+BASE_DN = os.environ.get("LDAP_BASE_DN", "DC=takldap").strip() or "DC=takldap"
 
-AUTHENTIK_URL = os.environ.get("AUTHENTIK_URL", "http://authentik-server:9000").rstrip("/")
-API_BASE = f"{AUTHENTIK_URL}/api/v3"
+WEBADMIN_PASS = os.environ.get("TAK_WEBADMIN_PASSWORD", "").strip()
 
-LDAP_SERVICE_USER = "adm_ldapservice"
-LDAP_HOST = os.environ.get("LDAP_HOST", "authentik-ldap")
-LDAP_APP_SLUG = "ldap"
-LDAP_APP_NAME = "LDAP"
-LDAP_PROVIDER_NAME = "LDAP"
-LDAP_OUTPOST_NAME = "LDAP Outpost"
+SERVICE_ACCOUNTS = ["svc_nodered", "svc_fasttakapi"]
+DEFAULT_GROUPS = ["tak_ROLE_ADMIN"]
 
-# Forward auth proxy providers — services protected by Caddy forward auth.
-# Each gets a proxy provider (forward_single mode) + application.
-# (name, slug, port_env_var, default_port) — portal is on 443 (Caddy default).
-FORWARD_AUTH_SERVICES = [
-    ("TAK Portal", "portal", None, "443"),
-    ("Monitor", "monitor", "MONITOR_PORT", "8180"),
-    ("Node-RED", "nodered", "NODERED_PORT", "1880"),
-]
-
-TAK_DIR = "/opt/tak"
-CONFIG = f"{TAK_DIR}/CoreConfig.xml"
-
-READY_TIMEOUT = 300
-READY_INTERVAL = 5
-API_RETRIES = 3
-API_RETRY_DELAY = 5
-
-log = logging.getLogger("bootstrap")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
 
 # ---------------------------------------------------------------------------
-# Helpers
+# API helpers
 # ---------------------------------------------------------------------------
 
 
-def env_required(name: str) -> str:
-    val = os.environ.get(name, "").strip()
-    if not val:
-        log.error("Required env var %s is not set", name)
-        sys.exit(1)
-    return val
-
-
-HEADERS: dict = {}
-TIMEOUT = 60
-
-
-def api_get(path: str, params: dict | None = None):
-    for attempt in range(1, API_RETRIES + 1):
+def lldap_login(base_url, username, password, retries=60, delay=5):
+    """Authenticate to LLDAP and return JWT token. Retries until LLDAP is ready."""
+    url = f"{base_url}/auth/simple/login"
+    body = json.dumps({"username": username, "password": password}).encode()
+    for attempt in range(1, retries + 1):
         try:
-            r = requests.get(f"{API_BASE}/{path}", headers=HEADERS, params=params, timeout=TIMEOUT)
-            r.raise_for_status()
-            return r.json()
-        except requests.RequestException as exc:
-            log.warning("GET %s attempt %d/%d failed: %s", path, attempt, API_RETRIES, exc)
-            if attempt == API_RETRIES:
-                raise
-            time.sleep(API_RETRY_DELAY)
+            req = urllib.request.Request(
+                url, data=body, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                return data["token"]
+        except Exception as e:
+            if attempt < retries:
+                log.info("Waiting for LLDAP (%d/%d): %s", attempt, retries, e)
+                time.sleep(delay)
+            else:
+                raise SystemExit(f"LLDAP not ready after {retries} attempts") from e
 
 
-def api_post(path: str, data: dict):
-    for attempt in range(1, API_RETRIES + 1):
-        try:
-            r = requests.post(f"{API_BASE}/{path}", json=data, headers=HEADERS, timeout=TIMEOUT)
-            r.raise_for_status()
-            return r.json() if r.text.strip() else {}
-        except requests.RequestException as exc:
-            log.warning("POST %s attempt %d/%d failed: %s", path, attempt, API_RETRIES, exc)
-            if attempt == API_RETRIES:
-                raise
-            time.sleep(API_RETRY_DELAY)
+def graphql(base_url, token, query, variables=None):
+    """Execute a GraphQL query against LLDAP."""
+    body = json.dumps({"query": query, "variables": variables or {}}).encode()
+    req = urllib.request.Request(
+        f"{base_url}/api/graphql",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read())
+    if data.get("errors"):
+        err_msg = str(data["errors"])
+        # Treat "already exists" / "duplicate" as idempotent success
+        if "already exists" in err_msg.lower() or "duplicate" in err_msg.lower():
+            log.info("Already exists (idempotent): %s", err_msg)
+            return data.get("data")
+        raise RuntimeError(f"GraphQL error: {data['errors']}")
+    return data.get("data")
 
 
-def api_patch(path: str, data: dict):
-    for attempt in range(1, API_RETRIES + 1):
-        try:
-            r = requests.patch(f"{API_BASE}/{path}", json=data, headers=HEADERS, timeout=TIMEOUT)
-            if r.status_code == 400:
-                log.warning("PATCH %s returned 400: %s", path, r.text[:200])
-            r.raise_for_status()
-            return
-        except requests.RequestException as exc:
-            log.warning("PATCH %s attempt %d/%d failed: %s", path, attempt, API_RETRIES, exc)
-            if attempt == API_RETRIES:
-                raise
-            time.sleep(API_RETRY_DELAY)
+# ---------------------------------------------------------------------------
+# Ensure helpers
+# ---------------------------------------------------------------------------
 
 
-def api_delete(path: str):
+def ensure_group(base_url, token, name):
+    """Create group if it doesn't exist. Returns group ID (int)."""
+    data = graphql(base_url, token, "query { groups { id displayName } }")
+    for g in (data or {}).get("groups", []):
+        if g["displayName"] == name:
+            log.info("Group '%s' exists (id=%s)", name, g["id"])
+            return g["id"]
+
+    data = graphql(
+        base_url,
+        token,
+        """
+        mutation($name: String!) {
+            createGroup(name: $name) { id displayName }
+        }
+        """,
+        {"name": name},
+    )
+    gid = data["createGroup"]["id"]
+    log.info("Created group '%s' (id=%s)", name, gid)
+    return gid
+
+
+def ensure_user(base_url, token, username, display_name):
+    """Create user if it doesn't exist. Returns user ID (string username)."""
+    # Query for existing user — LLDAP returns an error if user doesn't exist
     try:
-        requests.delete(f"{API_BASE}/{path}", headers=HEADERS, timeout=TIMEOUT)
-    except Exception:
-        pass
-
-
-def find_stage(api_path: str, name: str):
-    """Find a stage by name, paginating through results."""
-    for page in range(1, 4):
-        data = api_get(f"{api_path}?page={page}&page_size=100")
-        for s in data.get("results", []):
-            if s.get("name") == name:
-                return s.get("pk")
-        if not data.get("pagination", {}).get("next"):
-            break
-    return None
-
-
-def find_or_create_stage(api_path: str, name: str, attrs: dict):
-    """Find existing stage or create it."""
-    pk = find_stage(api_path, name)
-    if pk:
-        return pk
-    try:
-        result = api_post(api_path, {"name": name, **attrs})
-        return result.get("pk")
-    except requests.HTTPError:
-        return find_stage(api_path, name)
-
-
-# ---------------------------------------------------------------------------
-# Step 1: Wait for Authentik
-# ---------------------------------------------------------------------------
-
-
-def wait_for_authentik() -> None:
-    log.info("Waiting for Authentik API at %s ...", AUTHENTIK_URL)
-    for _ in range(60):
-        try:
-            api_get("core/users/?page_size=1")
-            log.info("Authentik API is ready.")
-            return
-        except Exception:
-            time.sleep(READY_INTERVAL)
-    log.error("Authentik API not reachable after %ds", READY_TIMEOUT)
-    sys.exit(1)
-
-
-# ---------------------------------------------------------------------------
-# Step 2: Create/ensure LDAP service account
-# ---------------------------------------------------------------------------
-
-
-def ensure_service_account(ldap_password: str) -> int:
-    """Create the LDAP service account if it doesn't exist. Return user pk."""
-    log.info("Ensuring LDAP service account...")
-    users = api_get("core/users/?search=adm_ldapservice").get("results", [])
-    user = next((u for u in users if u.get("username") == LDAP_SERVICE_USER), None)
-
-    if not user:
-        user = api_post(
-            "core/users/",
-            {
-                "username": LDAP_SERVICE_USER,
-                "name": "LDAP Service Account",
-                "is_active": True,
-                "type": "service_account",
-                "path": "users",
-            },
+        data = graphql(
+            base_url,
+            token,
+            """
+            query($id: String!) { user(userId: $id) { id displayName } }
+            """,
+            {"id": username},
         )
-        log.info("Created %s (pk=%s)", LDAP_SERVICE_USER, user["pk"])
-    else:
-        # Ensure path is 'users' (not 'service-accounts') for correct LDAP DN
-        patches = {}
-        if not user.get("is_active", True):
-            patches["is_active"] = True
-        if user.get("path", "") != "users":
-            patches["path"] = "users"
-        if patches:
-            api_patch(f"core/users/{user['pk']}/", patches)
-        log.info("%s exists (pk=%s)", LDAP_SERVICE_USER, user["pk"])
+        if data and data.get("user"):
+            log.info("User '%s' exists", username)
+            return data["user"]["id"]
+    except RuntimeError:
+        pass  # User doesn't exist, create below
 
-    uid = user["pk"]
-
-    # Set password
-    api_post(f"core/users/{uid}/set_password/", {"password": ldap_password})
-
-    # Add to authentik Admins group
-    groups = api_get("core/groups/?search=authentik+Admins").get("results", [])
-    admins = next((g for g in groups if "admins" in g.get("name", "").lower()), None)
-    if admins:
-        member_pks = [
-            u.get("pk") if isinstance(u, dict) else u for u in (admins.get("users") or [])
-        ]
-        if uid not in member_pks:
-            api_post(f"core/groups/{admins['pk']}/add_user/", {"pk": uid})
-            log.info("Added %s to authentik Admins", LDAP_SERVICE_USER)
-    else:
-        log.warning("authentik Admins group not found")
-
-    return uid
+    data = graphql(
+        base_url,
+        token,
+        """
+        mutation($user: CreateUserInput!) {
+            createUser(user: $user) { id displayName }
+        }
+        """,
+        {
+            "user": {
+                "id": username,
+                "displayName": display_name,
+                "email": f"{username}@dummy.example.com",
+            }
+        },
+    )
+    if data and data.get("createUser"):
+        uid = data["createUser"]["id"]
+        log.info("Created user '%s'", uid)
+        return uid
+    # Idempotent: user was created by a concurrent run or already-exists was swallowed
+    log.info("User '%s' already exists (idempotent)", username)
+    return username
 
 
-# ---------------------------------------------------------------------------
-# Step 3: Create/ensure webadmin user
-# ---------------------------------------------------------------------------
-
-
-def ensure_webadmin_user() -> None:
-    """Create webadmin user in Authentik with tak_ROLE_ADMIN group."""
-    webadmin_pass = os.environ.get("TAK_WEBADMIN_PASSWORD", "").strip()
-    if not webadmin_pass:
-        log.info("No TAK_WEBADMIN_PASSWORD set, skipping webadmin user")
-        return
-
-    log.info("Ensuring webadmin user...")
-    users = api_get("core/users/?search=webadmin").get("results", [])
-    user = next((u for u in users if u.get("username") == "webadmin"), None)
-
-    if not user:
-        user = api_post(
-            "core/users/",
-            {
-                "username": "webadmin",
-                "name": "TAK Web Admin",
-                "is_active": True,
-                "path": "users",
-            },
-        )
-        log.info("Created webadmin (pk=%s)", user["pk"])
-
-    # Set password
-    api_post(f"core/users/{user['pk']}/set_password/", {"password": webadmin_pass})
-
-    # Add to tak_ROLE_ADMIN group — required for TAK Server web UI access on port 8446.
-    # Unlike service accounts (which use certmod -A for admin access), the webadmin user
-    # authenticates via LDAP password on 8446 where group membership determines admin status.
-    groups = api_get("core/groups/?search=tak_ROLE_ADMIN").get("results", [])
-    admin_group = next((g for g in groups if g.get("name") == "tak_ROLE_ADMIN"), None)
-    if not admin_group:
-        admin_group = api_post("core/groups/", {"name": "tak_ROLE_ADMIN"})
-        log.info("Created tak_ROLE_ADMIN group")
-
-    member_pks = [
-        u.get("pk") if isinstance(u, dict) else u for u in (admin_group.get("users") or [])
+def set_password(base_url, token, username, password):
+    """Set a user's password using the lldap_set_password binary."""
+    cmd = [
+        "/usr/local/bin/lldap_set_password",
+        "--base-url",
+        base_url,
+        "--token",
+        token,
+        "--username",
+        username,
+        "--password",
+        password,
     ]
-    if user["pk"] not in member_pks:
-        api_post(f"core/groups/{admin_group['pk']}/add_user/", {"pk": user["pk"]})
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"lldap_set_password failed for {username}: {result.stderr.strip()}")
+    log.info(f"Set password for '{username}'")
 
 
-# ---------------------------------------------------------------------------
-# Step 3b: Create/ensure service accounts
-# ---------------------------------------------------------------------------
+def add_to_group(base_url, token, user_id, group_id):
+    """Add user to group (idempotent).
 
-
-def ensure_svc_nodered_user() -> None:
-    """Create svc_nodered user in Authentik.
-
-    Node-RED connects to TAK Server via client cert (CN=svc_nodered). TAK Server
-    looks up the CN in LDAP to determine group membership. No groups are assigned
-    at bootstrap — the admin assigns tak_* groups via the dashboard when they
-    build flows that need channel access.
+    Args:
+        user_id: String username (LLDAP GraphQL userId is String!)
+        group_id: Int group ID (LLDAP GraphQL groupId is Int!)
     """
-    log.info("Ensuring svc_nodered user...")
-    users = api_get("core/users/?search=svc_nodered").get("results", [])
-    user = next((u for u in users if u.get("username") == "svc_nodered"), None)
-
-    if not user:
-        user = api_post(
-            "core/users/",
-            {
-                "username": "svc_nodered",
-                "name": "Node-RED Service Account",
-                "is_active": True,
-                "type": "service_account",
-                "path": "users",
-            },
-        )
-        log.info("Created svc_nodered user (pk=%s)", user["pk"])
-    else:
-        log.info("svc_nodered user exists (pk=%s)", user["pk"])
-
-
-def ensure_svc_fasttakapi_user() -> None:
-    """Create svc_fasttakapi user in Authentik.
-
-    The FastTAK API connects to TAK Server via client cert (CN=svc_fasttakapi).
-    Admin API access (ROLE_ADMIN) is granted by register-api-cert.sh via certmod -A.
-    """
-    log.info("Ensuring svc_fasttakapi user...")
-    users = api_get("core/users/?search=svc_fasttakapi").get("results", [])
-    user = next((u for u in users if u.get("username") == "svc_fasttakapi"), None)
-
-    if not user:
-        user = api_post(
-            "core/users/",
-            {
-                "username": "svc_fasttakapi",
-                "name": "FastTAK API Service Account",
-                "is_active": True,
-                "type": "service_account",
-                "path": "users",
-            },
-        )
-        log.info("Created svc_fasttakapi user (pk=%s)", user["pk"])
-    else:
-        log.info("svc_fasttakapi user exists (pk=%s)", user["pk"])
-
-
-# ---------------------------------------------------------------------------
-# Step 4: Configure LDAP authentication flow with 3 stages
-# ---------------------------------------------------------------------------
-
-
-def ensure_ldap_flow() -> str:
-    """Create or update the LDAP authentication flow with 3 stages. Return flow pk."""
-    log.info("Configuring LDAP authentication flow...")
-
-    flows = api_get("flows/instances/?slug=ldap-authentication-flow").get("results", [])
-
-    if flows:
-        flow = flows[0]
-        api_patch("flows/instances/ldap-authentication-flow/", {"authentication": "none"})
-    else:
-        flow = api_post(
-            "flows/instances/",
-            {
-                "name": "ldap-authentication-flow",
-                "slug": "ldap-authentication-flow",
-                "title": "ldap-authentication-flow",
-                "designation": "authentication",
-                "authentication": "none",
-                "layout": "stacked",
-                "denied_action": "message_continue",
-                "policy_engine_mode": "any",
-            },
-        )
-        log.info("Created ldap-authentication-flow")
-
-    flow_pk = flow["pk"]
-
-    # Check existing bindings
-    all_bindings = []
-    page = 1
-    while True:
-        data = api_get(f"flows/bindings/?ordering=order&page_size=500&page={page}")
-        all_bindings.extend(data.get("results", []))
-        if not data.get("pagination", {}).get("next"):
-            break
-        page += 1
-
-    flow_bindings = [b for b in all_bindings if str(b.get("target")) == str(flow_pk)]
-    stage_names = {(b.get("stage_obj") or {}).get("name", "") for b in flow_bindings}
-    need_names = {
-        "ldap-identification-stage",
-        "ldap-authentication-password",
-        "ldap-authentication-login",
-    }
-
-    if len(flow_bindings) < 3 or need_names != stage_names:
-        # Delete wrong bindings
-        for b in flow_bindings:
-            api_delete(f"flows/bindings/{b['pk']}/")
-
-        # Find or create the 3 LDAP stages
-        id_stage = find_or_create_stage(
-            "stages/identification/",
-            "ldap-identification-stage",
-            {
-                "case_insensitive_matching": True,
-                "pretend_user_exists": True,
-                "show_matched_user": True,
-                "user_fields": ["username"],
-            },
-        )
-        pw_stage = find_or_create_stage(
-            "stages/password/",
-            "ldap-authentication-password",
-            {
-                "backends": [
-                    "authentik.core.auth.InbuiltBackend",
-                    "authentik.core.auth.TokenBackend",
-                ],
-                "failed_attempts_before_cancel": 5,
-            },
-        )
-        login_stage = find_or_create_stage(
-            "stages/user_login/",
-            "ldap-authentication-login",
-            {
-                "session_duration": "seconds=0",
-                "remember_me_offset": "seconds=0",
-            },
-        )
-
-        if not all([id_stage, pw_stage, login_stage]):
-            log.error(
-                "Could not create stages: id=%s pw=%s login=%s",
-                id_stage,
-                pw_stage,
-                login_stage,
-            )
-            sys.exit(1)
-
-        # Bind stages to flow
-        for order, stage_pk in [(10, id_stage), (15, pw_stage), (20, login_stage)]:
-            try:
-                api_post(
-                    "flows/bindings/",
-                    {
-                        "target": flow_pk,
-                        "stage": stage_pk,
-                        "order": order,
-                        "evaluate_on_plan": True,
-                        "re_evaluate_policies": True,
-                        "policy_engine_mode": "any",
-                        "invalid_response_action": "retry",
-                    },
-                )
-            except requests.HTTPError:
-                pass  # binding may already exist
-
-        log.info("LDAP flow stages bound")
-
-    # Clear password_stage on identification stage (prevents recursion depth error)
-    id_stage_pk = find_stage("stages/identification/", "ldap-identification-stage")
-    if id_stage_pk:
-        try:
-            api_patch(
-                f"stages/identification/{id_stage_pk}/",
-                {
-                    "password_stage": None,
-                    "user_fields": ["username"],
-                },
-            )
-        except Exception:
-            pass
-
-    return flow_pk
-
-
-# ---------------------------------------------------------------------------
-# Step 5: Create LDAP provider, application, outpost
-# ---------------------------------------------------------------------------
-
-
-def get_invalidation_flow() -> str:
-    """Return the pk of the default invalidation flow."""
-    flows = api_get("flows/instances/?designation=invalidation").get("results", [])
-    inv = next((f for f in flows if f.get("slug") == "default-provider-invalidation-flow"), None)
-    if not inv and flows:
-        inv = flows[0]
-    if not inv:
-        log.error("No invalidation flow found in Authentik.")
-        sys.exit(1)
-    return inv["pk"]
-
-
-def ensure_ldap_provider(base_dn: str, flow_pk: str) -> int:
-    """Create LDAP provider if it doesn't exist. Return provider pk."""
-    providers = api_get("providers/ldap/?search=LDAP").get("results", [])
-    ldap_prov = next((p for p in providers if p.get("name") == LDAP_PROVIDER_NAME), None)
-
-    if ldap_prov:
-        pk = ldap_prov["pk"]
-        api_patch(
-            f"providers/ldap/{pk}/",
-            {
-                "authentication_flow": flow_pk,
-                "authorization_flow": flow_pk,
-            },
-        )
-        log.info("LDAP provider exists (pk=%s), updated flow", pk)
-        return pk
-
-    invalidation_flow = get_invalidation_flow()
-    log.info("Creating LDAP provider...")
-    r = api_post(
-        "providers/ldap/",
-        {
-            "name": LDAP_PROVIDER_NAME,
-            "authorization_flow": flow_pk,
-            "authentication_flow": flow_pk,
-            "invalidation_flow": invalidation_flow,
-            "base_dn": base_dn,
-            "bind_mode": "direct",
-            "search_mode": "direct",
-        },
+    graphql(
+        base_url,
+        token,
+        """
+        mutation($userId: String!, $groupId: Int!) {
+            addUserToGroup(userId: $userId, groupId: $groupId) { ok }
+        }
+        """,
+        {"userId": user_id, "groupId": group_id},
     )
-    pk = r["pk"]
-    log.info("LDAP provider created (pk=%s)", pk)
-    return pk
-
-
-def ensure_ldap_application(provider_pk: int) -> str:
-    """Create application linked to the LDAP provider. Return slug."""
-    r = api_get("core/applications/", params={"slug": LDAP_APP_SLUG})
-    results = r.get("results", [])
-    if results:
-        log.info("Application '%s' already exists.", LDAP_APP_SLUG)
-        return results[0]["slug"]
-
-    log.info("Creating application '%s' ...", LDAP_APP_SLUG)
-    api_post(
-        "core/applications/",
-        {
-            "name": LDAP_APP_NAME,
-            "slug": LDAP_APP_SLUG,
-            "provider": provider_pk,
-        },
-    )
-    log.info("Application '%s' created.", LDAP_APP_SLUG)
-    return LDAP_APP_SLUG
-
-
-def ensure_ldap_outpost(provider_pk: int) -> None:
-    """Create LDAP outpost linked to the provider. Idempotent."""
-    r = api_get("outposts/instances/", params={"name": LDAP_OUTPOST_NAME})
-    results = r.get("results", [])
-
-    if results:
-        outpost = results[0]
-        outpost_pk = outpost["pk"]
-        linked = outpost.get("providers", [])
-        if provider_pk not in linked:
-            log.info("Outpost exists but provider not linked — fixing.")
-            api_patch(f"outposts/instances/{outpost_pk}/", {"providers": [provider_pk]})
-        else:
-            log.info("Outpost '%s' already exists and linked.", LDAP_OUTPOST_NAME)
-        return
-
-    log.info("Creating outpost '%s' ...", LDAP_OUTPOST_NAME)
-    api_post(
-        "outposts/instances/",
-        {
-            "name": LDAP_OUTPOST_NAME,
-            "type": "ldap",
-            "providers": [provider_pk],
-            "config": {
-                "authentik_host": AUTHENTIK_URL,
-                "log_level": "info",
-            },
-        },
-    )
-    log.info("Outpost '%s' created and linked.", LDAP_OUTPOST_NAME)
-
-
-# ---------------------------------------------------------------------------
-# Step 6: Forward auth proxy providers
-# ---------------------------------------------------------------------------
-
-
-def get_authorization_flow() -> str:
-    """Return pk of the implicit consent authorization flow.
-
-    The worker creates default flows asynchronously, so we retry
-    for up to 60 seconds waiting for them to appear.
-    """
-    for attempt in range(12):
-        flows = api_get("flows/instances/?designation=authorization").get("results", [])
-        target = "default-provider-authorization-implicit-consent"
-        flow = next(
-            (f for f in flows if f.get("slug") == target),
-            None,
-        )
-        if not flow and flows:
-            flow = flows[0]
-        if flow:
-            return flow["pk"]
-        log.info("Authorization flow not yet available, waiting... (%s/12)", attempt + 1)
-        time.sleep(5)
-    log.error("No authorization flow found after 60s. Is the worker running?")
-    sys.exit(1)
-
-
-def ensure_forward_auth_providers() -> list[int]:
-    """Create proxy providers + applications for forward-auth-protected services.
-
-    Returns list of proxy provider pks (for linking to the embedded outpost).
-    """
-    server_address = os.environ.get("SERVER_ADDRESS", "localhost")
-    deploy_mode = os.environ.get("DEPLOY_MODE", "direct")
-
-    auth_flow_pk = get_authorization_flow()
-    inv_flow_pk = get_invalidation_flow()
-
-    provider_pks = []
-
-    for name, slug, port_env, default_port in FORWARD_AUTH_SERVICES:
-        provider_name = f"{name} Forward Auth"
-
-        # Build external URL based on deploy mode
-        if deploy_mode == "direct":
-            port = os.environ.get(port_env, default_port) if port_env else default_port
-            if port == "443":
-                external_host = f"https://{server_address}"
-            else:
-                external_host = f"https://{server_address}:{port}"
-        else:
-            subdomain_env = f"{slug.upper()}_SUBDOMAIN"
-            if slug == "portal":
-                subdomain_env = "TAKPORTAL_SUBDOMAIN"
-            subdomain = os.environ.get(subdomain_env, slug)
-            external_host = f"https://{subdomain}.{server_address}"
-
-        # Check if provider already exists
-        existing = api_get("providers/proxy/", params={"search": provider_name}).get("results", [])
-        provider = next((p for p in existing if p.get("name") == provider_name), None)
-
-        if provider:
-            pk = provider["pk"]
-            if provider.get("external_host") != external_host:
-                try:
-                    api_patch(
-                        f"providers/proxy/{pk}/",
-                        {
-                            "external_host": external_host,
-                            "mode": "forward_single",
-                        },
-                    )
-                    log.info("Proxy provider '%s' (pk=%s) external_host updated", name, pk)
-                except Exception:
-                    log.warning("Could not update proxy provider '%s', skipping", name)
-            else:
-                log.info("Proxy provider '%s' already exists (pk=%s)", name, pk)
-        else:
-            log.info("Creating proxy provider '%s' (external_host=%s)...", name, external_host)
-            r = api_post(
-                "providers/proxy/",
-                {
-                    "name": provider_name,
-                    "authorization_flow": auth_flow_pk,
-                    "invalidation_flow": inv_flow_pk,
-                    "mode": "forward_single",
-                    "external_host": external_host,
-                },
-            )
-            pk = r["pk"]
-            log.info("Proxy provider '%s' created (pk=%s)", name, pk)
-
-        provider_pks.append(pk)
-
-        # Ensure application exists
-        apps = api_get("core/applications/", params={"slug": slug}).get("results", [])
-        if not apps:
-            log.info("Creating application '%s'...", slug)
-            api_post(
-                "core/applications/",
-                {
-                    "name": name,
-                    "slug": slug,
-                    "provider": pk,
-                },
-            )
-        else:
-            log.info("Application '%s' already exists.", slug)
-
-    return provider_pks
-
-
-def ensure_embedded_outpost(ldap_provider_pk: int, proxy_provider_pks: list[int]) -> None:
-    """Configure the embedded outpost with all providers and the correct external URL."""
-    server_address = os.environ.get("SERVER_ADDRESS", "localhost")
-    deploy_mode = os.environ.get("DEPLOY_MODE", "direct")
-    authentik_port = os.environ.get("AUTHENTIK_PORT", "9443")
-    authentik_subdomain = os.environ.get("AUTHENTIK_SUBDOMAIN", "auth")
-
-    if deploy_mode == "direct":
-        authentik_host = f"https://{server_address}:{authentik_port}"
-    else:
-        authentik_host = f"https://{authentik_subdomain}.{server_address}"
-
-    all_providers = [ldap_provider_pk] + proxy_provider_pks
-
-    r = api_get("outposts/instances/", params={"name": "authentik Embedded Outpost"})
-    results = r.get("results", [])
-    if results:
-        outpost_pk = results[0]["pk"]
-        api_patch(
-            f"outposts/instances/{outpost_pk}/",
-            {
-                "providers": all_providers,
-                "config": {
-                    "authentik_host": authentik_host,
-                    "log_level": "info",
-                },
-            },
-        )
-        log.info(
-            "Embedded outpost updated: providers=%s, authentik_host=%s",
-            all_providers,
-            authentik_host,
-        )
-    else:
-        log.warning("Embedded outpost not found — forward auth may not work.")
-
-
-# ---------------------------------------------------------------------------
-# Step 7: Generate TAK Portal configuration
-# ---------------------------------------------------------------------------
-
-
-def configure_tak_portal(token: str) -> None:
-    """Write settings.json and copy certs for TAK Portal."""
-    import json
-    import shutil
-
-    portal_dir = f"{TAK_DIR}/portal"
-    certs_dir = f"{portal_dir}/certs"
-    settings_path = f"{portal_dir}/settings.json"
-
-    os.makedirs(certs_dir, exist_ok=True)
-
-    # Copy TAK CA cert
-    ca_src = f"{TAK_DIR}/certs/files/ca.pem"
-    ca_dst = f"{certs_dir}/tak-ca.pem"
-    if os.path.isfile(ca_src):
-        shutil.copy2(ca_src, ca_dst)
-        log.info("Copied CA cert to %s", ca_dst)
-    else:
-        log.warning("CA cert not found at %s — portal cert features may not work", ca_src)
-
-    # Copy svc_fasttakapi.p12 for TAK API access
-    p12_src = f"{TAK_DIR}/certs/files/svc_fasttakapi.p12"
-    p12_dst = f"{certs_dir}/svc_fasttakapi.p12"
-    if os.path.isfile(p12_src):
-        shutil.copy2(p12_src, p12_dst)
-        log.info("Copied svc_fasttakapi.p12 to %s", p12_dst)
-    else:
-        log.warning(
-            "svc_fasttakapi.p12 not found at %s — portal TAK API access may not work", p12_src
-        )
-
-    server_address = os.environ.get("SERVER_ADDRESS", "localhost")
-    deploy_mode = os.environ.get("DEPLOY_MODE", "direct")
-    authentik_subdomain = os.environ.get("AUTHENTIK_SUBDOMAIN", "auth")
-    portal_subdomain = os.environ.get("TAKPORTAL_SUBDOMAIN", "portal")
-    authentik_port = os.environ.get("AUTHENTIK_PORT", "9443")
-
-    if deploy_mode == "direct":
-        authentik_public_url = f"https://{server_address}:{authentik_port}"
-        portal_public_url = f"https://{server_address}"
-    else:
-        authentik_public_url = f"https://{authentik_subdomain}.{server_address}"
-        portal_public_url = f"https://{portal_subdomain}.{server_address}"
-
-    settings = {
-        "AUTHENTIK_URL": AUTHENTIK_URL,
-        "AUTHENTIK_TOKEN": token,
-        "AUTHENTIK_PUBLIC_URL": authentik_public_url,
-        "TAK_PORTAL_PUBLIC_URL": portal_public_url,
-        "USERS_HIDDEN_PREFIXES": "ak-,adm_,svc_,ma-",
-        "GROUPS_HIDDEN_PREFIXES": "authentik, MA -",
-        "USERS_ACTIONS_HIDDEN_PREFIXES": "",
-        "GROUPS_ACTIONS_HIDDEN_PREFIXES": "",
-        "DASHBOARD_AUTHENTIK_STATS_REFRESH_SECONDS": "300",
-        "PORTAL_AUTH_ENABLED": "false",
-        "PORTAL_AUTH_REQUIRED_GROUP": "",
-        "TAK_URL": "https://tak-server:8443/Marti",
-        "TAK_API_P12_PATH": "./data/certs/svc_fasttakapi.p12",
-        "TAK_API_P12_PASSPHRASE": "atakatak",
-        "TAK_CA_PATH": "./data/certs/tak-ca.pem",
-        "TAK_REVOKE_ON_DISABLE": "true",
-        "TAK_DEBUG": "false",
-        "TAK_BYPASS_ENABLED": "false",
-        "CLOUDTAK_URL": "",
-        "EMAIL_ENABLED": "false",
-    }
-
-    with open(settings_path, "w") as f:
-        json.dump(settings, f, indent=2)
-
-    log.info("TAK Portal settings.json written to %s", settings_path)
+    log.info("User '%s' added to group %s", user_id, group_id)
 
 
 # ---------------------------------------------------------------------------
@@ -801,49 +199,74 @@ def configure_tak_portal(token: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    global HEADERS
-    log.info("=== Identity bootstrap starting ===")
+def ensure_custom_attributes(base_url, token):
+    """Register custom user attribute schemas required by FastTAK."""
+    attrs = [
+        ("fastak_expires", "INTEGER"),
+        ("fastak_certs_revoked", "STRING"),
+        ("is_active", "STRING"),
+    ]
+    for attr_name, attr_type in attrs:
+        try:
+            graphql(
+                base_url,
+                token,
+                """
+                mutation($name: String!, $attributeType: AttributeType!,
+                         $isList: Boolean!, $isVisible: Boolean!, $isEditable: Boolean!) {
+                    addUserAttribute(name: $name, attributeType: $attributeType,
+                                     isList: $isList, isVisible: $isVisible,
+                                     isEditable: $isEditable) { ok }
+                }
+                """,
+                {
+                    "name": attr_name,
+                    "attributeType": attr_type,
+                    "isList": False,
+                    "isVisible": True,
+                    "isEditable": True,
+                },
+            )
+            log.info("Registered attribute schema '%s' (%s)", attr_name, attr_type)
+        except RuntimeError as e:
+            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                log.info("Attribute schema '%s' already exists", attr_name)
+            else:
+                raise
 
-    token = env_required("AUTHENTIK_API_TOKEN")
-    ldap_password = env_required("LDAP_BIND_PASSWORD")
-    base_dn = os.environ.get("LDAP_BASE_DN", "DC=takldap").strip() or "DC=takldap"
 
-    HEADERS = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    log.info("Bootstrapping LLDAP at %s", LLDAP_URL)
 
-    # 1. Wait for Authentik
-    wait_for_authentik()
+    token = lldap_login(LLDAP_URL, ADMIN_USER, ADMIN_PASS)
+    log.info("Authenticated to LLDAP")
 
-    # 2. LDAP service account
-    ensure_service_account(ldap_password)
+    # Register custom attribute schemas
+    ensure_custom_attributes(LLDAP_URL, token)
 
-    # 3. Webadmin user
-    ensure_webadmin_user()
+    # Ensure default groups
+    group_ids = {}
+    for group_name in DEFAULT_GROUPS:
+        group_ids[group_name] = ensure_group(LLDAP_URL, token, group_name)
 
-    # 3b. Service accounts (map cert CN to LDAP groups for x509groups)
-    ensure_svc_nodered_user()
-    ensure_svc_fasttakapi_user()
+    # Webadmin user (optional)
+    if WEBADMIN_PASS:
+        webadmin_id = ensure_user(LLDAP_URL, token, "webadmin", "Web Admin")
+        set_password(LLDAP_URL, token, "webadmin", WEBADMIN_PASS)
+        add_to_group(LLDAP_URL, token, webadmin_id, group_ids["tak_ROLE_ADMIN"])
+    else:
+        log.info("No TAK_WEBADMIN_PASSWORD set, skipping webadmin user")
 
-    # 4. LDAP authentication flow with 3 stages
-    flow_pk = ensure_ldap_flow()
+    # Service accounts (passwordless — they auth via client certs)
+    for svc_name in SERVICE_ACCOUNTS:
+        ensure_user(LLDAP_URL, token, svc_name, svc_name)
 
-    # 5. LDAP provider, application, outpost
-    provider_pk = ensure_ldap_provider(base_dn, flow_pk)
-    ensure_ldap_application(provider_pk)
-    ensure_ldap_outpost(provider_pk)
-
-    # 6. Forward auth proxy providers + embedded outpost config
-    proxy_pks = ensure_forward_auth_providers()
-    ensure_embedded_outpost(provider_pk, proxy_pks)
-
-    # 7. Generate TAK Portal config
-    configure_tak_portal(token)
-
-    log.info("=== Identity bootstrap complete ===")
+    log.info("Bootstrap complete")
 
 
 if __name__ == "__main__":
