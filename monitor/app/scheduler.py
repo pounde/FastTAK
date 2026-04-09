@@ -20,7 +20,7 @@ from app.api.health.database import get_cot_db_size
 from app.api.health.disk import get_disk_usage
 from app.api.health.tls import get_tls_status
 from app.api.health.updates import check_updates
-from app.api.users.authentik import AuthentikClient
+from app.api.users.identity import IdentityClient
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
 from app.evaluator import evaluate
@@ -45,16 +45,17 @@ _HEALTH_FUNCTIONS = {
 # Created once on first use and reused across ticks to avoid the overhead of
 # re-initialising SSL contexts / HTTP connections every check interval.
 
-_scheduler_ak: AuthentikClient | None = None
+_scheduler_ak: IdentityClient | None = None
 _scheduler_tak: TakServerClient | None = None
 
 
-def _get_scheduler_ak() -> AuthentikClient | None:
+def _get_scheduler_ak() -> IdentityClient | None:
     global _scheduler_ak
-    if _scheduler_ak is None and settings.authentik_api_token:
-        _scheduler_ak = AuthentikClient(
-            base_url=settings.authentik_url,
-            token=settings.authentik_api_token,
+    if _scheduler_ak is None and settings.ldap_admin_password:
+        _scheduler_ak = IdentityClient(
+            lldap_url=settings.lldap_url,
+            proxy_url=settings.ldap_proxy_url,
+            admin_password=settings.ldap_admin_password,
             hidden_prefixes=settings.users_hidden_prefixes.split(","),
         )
     return _scheduler_ak
@@ -92,7 +93,7 @@ def _poll(service_name, health_fn, service_config):
 
 
 def _check_user_expiry(
-    ak: AuthentikClient | None = None,
+    ak: IdentityClient | None = None,
     tak: TakServerClient | None = None,
 ):
     """Check for expired TTL users and deactivate + revoke certs.
@@ -110,18 +111,18 @@ def _check_user_expiry(
     try:
         pending = ak.get_users_pending_expiry()
     except Exception:
-        log.warning("TTL check: failed to query Authentik for expired users")
+        log.warning("TTL check: failed to query LLDAP for expired users")
         return
 
     for user in pending:
-        pk = user["pk"]
+        user_id = user["id"]
         username = user["username"]
         is_active = user.get("is_active", True)
 
         try:
             if is_active:
-                ak.deactivate_user(pk)
-                log.info("TTL expired: deactivated user %s (pk=%d)", username, pk)
+                ak.deactivate_user(user_id)
+                log.info("TTL expired: deactivated user %s (id=%d)", username, user_id)
 
             if tak:
                 all_revoked = tak.revoke_all_user_certs(username)
@@ -129,13 +130,13 @@ def _check_user_expiry(
                 all_revoked = True
 
             if all_revoked:
-                ak.mark_certs_revoked(pk)
-                log.info("TTL expired: revoked certs for %s (pk=%d)", username, pk)
+                ak.mark_certs_revoked(user_id)
+                log.info("TTL expired: revoked certs for %s (id=%d)", username, user_id)
             else:
                 log.warning("TTL expired: cert revocation incomplete for %s, will retry", username)
 
         except Exception:
-            log.exception("TTL check: error processing user %s (pk=%d)", username, pk)
+            log.exception("TTL check: error processing user %s (id=%d)", username, user_id)
             continue
 
 
@@ -158,8 +159,8 @@ def start_scheduler():
             args=[service_name, health_fn, service_config],
         )
 
-    # TTL enforcement (only if Authentik is configured)
-    if settings.authentik_api_token:
+    # TTL enforcement (only if identity provider is configured)
+    if settings.ldap_admin_password:
         scheduler.add_job(
             _check_user_expiry,
             "interval",

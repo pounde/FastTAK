@@ -1,7 +1,7 @@
-"""Tests for init-identity service account creation functions.
+"""Tests for init-identity LLDAP bootstrap functions.
 
-These test the ensure_svc_*_user() functions that create Authentik LDAP
-users matching cert CNs for x509groups resolution.
+These test the ensure_user() and ensure_group() functions that create
+LLDAP users and groups for TAK Server x509groups resolution.
 """
 
 import sys
@@ -17,143 +17,139 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "init-identity"))
 @pytest.fixture(autouse=True)
 def _mock_env(monkeypatch):
     """Set required env vars so bootstrap module can import."""
-    monkeypatch.setenv("AUTHENTIK_API_TOKEN", "test-token")
-    monkeypatch.setenv("LDAP_BIND_PASSWORD", "test-password")
+    monkeypatch.setenv("LDAP_ADMIN_PASSWORD", "test-password")
+    monkeypatch.setenv("LLDAP_URL", "http://lldap:17170")
 
 
 @pytest.fixture
-def mock_api(monkeypatch):
-    """Mock api_get and api_post in the bootstrap module."""
+def mock_graphql(monkeypatch):
+    """Mock graphql() in the bootstrap module."""
     import bootstrap
 
-    get = MagicMock()
-    post = MagicMock()
-    monkeypatch.setattr(bootstrap, "api_get", get)
-    monkeypatch.setattr(bootstrap, "api_post", post)
-    return get, post
+    gql = MagicMock()
+    monkeypatch.setattr(bootstrap, "graphql", gql)
+    return gql
 
 
-class TestEnsureSvcFasttakapiUser:
-    """Tests for ensure_svc_fasttakapi_user().
+class TestEnsureUser:
+    """Tests for ensure_user() — creates LLDAP users for cert CN matching."""
 
-    Admin access is granted via certmod -A in register-api-cert.sh, not LDAP groups.
-    Bootstrap only creates the Authentik user — no group assignment.
+    def test_creates_user_when_not_found(self, mock_graphql):
+        from bootstrap import ensure_user
+
+        # First call: user query raises (not found)
+        # Second call: createUser mutation succeeds
+        mock_graphql.side_effect = [
+            RuntimeError("GraphQL error: user not found"),
+            {"createUser": {"id": "svc_fasttakapi", "displayName": "svc_fasttakapi"}},
+        ]
+
+        uid = ensure_user("http://lldap:17170", "fake-token", "svc_fasttakapi", "svc_fasttakapi")
+
+        assert uid == "svc_fasttakapi"
+        assert mock_graphql.call_count == 2
+
+    def test_skips_creation_when_user_exists(self, mock_graphql):
+        from bootstrap import ensure_user
+
+        mock_graphql.return_value = {"user": {"id": "svc_nodered", "displayName": "svc_nodered"}}
+
+        uid = ensure_user("http://lldap:17170", "fake-token", "svc_nodered", "svc_nodered")
+
+        assert uid == "svc_nodered"
+        # Only the query call, no create mutation
+        assert mock_graphql.call_count == 1
+
+    def test_returns_string_user_id(self, mock_graphql):
+        """LLDAP user IDs are strings (the username), not integers."""
+        from bootstrap import ensure_user
+
+        mock_graphql.return_value = {"user": {"id": "webadmin", "displayName": "Web Admin"}}
+
+        uid = ensure_user("http://lldap:17170", "fake-token", "webadmin", "Web Admin")
+
+        assert isinstance(uid, str)
+        assert uid == "webadmin"
+
+
+class TestEnsureGroup:
+    """Tests for ensure_group() — creates default groups like tak_ROLE_ADMIN."""
+
+    def test_creates_group_when_not_found(self, mock_graphql):
+        from bootstrap import ensure_group
+
+        mock_graphql.side_effect = [
+            {"groups": []},  # No existing groups
+            {"createGroup": {"id": 1, "displayName": "tak_ROLE_ADMIN"}},
+        ]
+
+        gid = ensure_group("http://lldap:17170", "fake-token", "tak_ROLE_ADMIN")
+
+        assert gid == 1
+        assert mock_graphql.call_count == 2
+
+    def test_returns_existing_group_id(self, mock_graphql):
+        from bootstrap import ensure_group
+
+        mock_graphql.return_value = {
+            "groups": [
+                {"id": 5, "displayName": "tak_ROLE_ADMIN"},
+            ]
+        }
+
+        gid = ensure_group("http://lldap:17170", "fake-token", "tak_ROLE_ADMIN")
+
+        assert gid == 5
+        assert mock_graphql.call_count == 1
+
+
+class TestAddToGroup:
+    """Tests for add_to_group() — uses String userId and Int groupId."""
+
+    def test_uses_correct_graphql_types(self, mock_graphql):
+        """addUserToGroup(userId: String!, groupId: Int!) per LLDAP schema."""
+        from bootstrap import add_to_group
+
+        mock_graphql.return_value = {"addUserToGroup": {"ok": True}}
+
+        add_to_group("http://lldap:17170", "fake-token", "webadmin", 1)
+
+        call_args = mock_graphql.call_args
+        variables = call_args[1].get("variables") or call_args[0][3]
+        assert variables["userId"] == "webadmin"
+        assert variables["groupId"] == 1
+        assert isinstance(variables["userId"], str)
+        assert isinstance(variables["groupId"], int)
+
+
+class TestServiceAccountsHaveNoPassword:
+    """Service accounts (svc_nodered, svc_fasttakapi) are passwordless.
+
+    They authenticate via client certs, not passwords. LDAP user exists
+    only for x509groups group membership lookup.
     """
 
-    def test_creates_user_when_not_found(self, mock_api):
-        from bootstrap import ensure_svc_fasttakapi_user
-
-        api_get, api_post = mock_api
-        api_get.side_effect = [
-            {"results": []},
-        ]
-        api_post.side_effect = [
-            {"pk": 42, "username": "svc_fasttakapi"},
-        ]
-
-        ensure_svc_fasttakapi_user()
-
-        assert api_post.call_count == 1
-        create_call = api_post.call_args_list[0]
-        assert create_call[0][0] == "core/users/"
-        payload = create_call[0][1]
-        assert payload["username"] == "svc_fasttakapi"
-        assert payload["name"] == "FastTAK API Service Account"
-        assert payload["type"] == "service_account"
-
-    def test_skips_creation_when_user_exists(self, mock_api):
-        from bootstrap import ensure_svc_fasttakapi_user
-
-        api_get, api_post = mock_api
-        api_get.side_effect = [
-            {"results": [{"pk": 42, "username": "svc_fasttakapi"}]},
-        ]
-
-        ensure_svc_fasttakapi_user()
-
-        api_post.assert_not_called()
-
-    def test_does_not_assign_tak_role_admin(self, mock_api):
-        """svc_fasttakapi gets admin via certmod -A, not LDAP group."""
-        from bootstrap import ensure_svc_fasttakapi_user
-
-        api_get, api_post = mock_api
-        api_get.side_effect = [
-            {"results": []},
-        ]
-        api_post.side_effect = [
-            {"pk": 42, "username": "svc_fasttakapi"},
-        ]
-
-        ensure_svc_fasttakapi_user()
-
-        for call in api_post.call_args_list:
-            assert "tak_ROLE_ADMIN" not in str(call), "Should not assign tak_ROLE_ADMIN group"
-
-
-class TestEnsureSvcNoderedUser:
-    """Tests for ensure_svc_nodered_user().
-
-    svc_nodered is a data service account. No groups are assigned at bootstrap —
-    the admin assigns tak_* groups via the dashboard when building flows.
-    """
-
-    def test_creates_user_with_svc_prefix(self, mock_api):
-        from bootstrap import ensure_svc_nodered_user
-
-        api_get, api_post = mock_api
-        api_get.side_effect = [
-            {"results": []},
-        ]
-        api_post.side_effect = [
-            {"pk": 43, "username": "svc_nodered"},
-        ]
-
-        ensure_svc_nodered_user()
-
-        assert api_post.call_count == 1
-        create_call = api_post.call_args_list[0]
-        payload = create_call[0][1]
-        assert payload["username"] == "svc_nodered"
-        assert payload["name"] == "Node-RED Service Account"
-
-    def test_does_not_assign_tak_role_admin(self, mock_api):
-        """svc_nodered has no groups at bootstrap — admin assigns them later."""
-        from bootstrap import ensure_svc_nodered_user
-
-        api_get, api_post = mock_api
-        api_get.side_effect = [
-            {"results": []},
-        ]
-        api_post.side_effect = [
-            {"pk": 43, "username": "svc_nodered"},
-        ]
-
-        ensure_svc_nodered_user()
-
-        for call in api_post.call_args_list:
-            assert "tak_ROLE_ADMIN" not in str(call), "Should not assign tak_ROLE_ADMIN group"
-
-
-class TestHiddenPrefixes:
-    """Verify USERS_HIDDEN_PREFIXES includes svc_ convention."""
-
-    def test_settings_hide_service_accounts(self, mock_api, tmp_path, monkeypatch):
-        import json
-
+    def test_main_does_not_set_password_for_service_accounts(self, mock_graphql, monkeypatch):
         import bootstrap
 
-        monkeypatch.setattr(bootstrap, "TAK_DIR", str(tmp_path / "tak"))
+        monkeypatch.setattr(bootstrap, "lldap_login", MagicMock(return_value="fake-token"))
+        monkeypatch.setattr(bootstrap, "set_password", MagicMock())
+        monkeypatch.setenv("TAK_WEBADMIN_PASSWORD", "")  # No webadmin
 
-        # Create the cert files that configure_tak_portal expects
-        cert_dir = tmp_path / "tak" / "certs" / "files"
-        cert_dir.mkdir(parents=True)
-        (cert_dir / "ca.pem").write_text("fake")
-        (cert_dir / "svc_fasttakapi.p12").write_bytes(b"fake")
+        # ensure_custom_attributes (3 attrs) + ensure_group + ensure_user x2
+        mock_graphql.side_effect = [
+            {"addUserAttribute": {"ok": True}},  # fastak_expires schema
+            {"addUserAttribute": {"ok": True}},  # fastak_certs_revoked schema
+            {"addUserAttribute": {"ok": True}},  # is_active schema
+            {"groups": [{"id": 1, "displayName": "tak_ROLE_ADMIN"}]},  # ensure_group
+            {
+                "user": {"id": "svc_nodered", "displayName": "svc_nodered"}
+            },  # ensure_user svc_nodered
+            {
+                "user": {"id": "svc_fasttakapi", "displayName": "svc_fasttakapi"}
+            },  # ensure_user svc_fasttakapi
+        ]
 
-        bootstrap.configure_tak_portal("test-token")
+        bootstrap.main()
 
-        settings = json.loads((tmp_path / "tak" / "portal" / "settings.json").read_text())
-        prefixes = settings["USERS_HIDDEN_PREFIXES"]
-        assert "svc_" in prefixes, "USERS_HIDDEN_PREFIXES should include svc_"
-        assert "nodered-" not in prefixes, "Old nodered- prefix should be removed"
+        bootstrap.set_password.assert_not_called()

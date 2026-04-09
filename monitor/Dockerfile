@@ -1,6 +1,13 @@
+ARG LLDAP_VERSION=v0.6.1
+FROM lldap/lldap:${LLDAP_VERSION} AS lldap
+
 FROM python:3.12-alpine
 
 WORKDIR /app
+
+# LLDAP uses the OPAQUE protocol for passwords — this binary is the only way
+# to set passwords programmatically (no REST/GraphQL endpoint exists).
+COPY --from=lldap /app/lldap_set_password /usr/local/bin/lldap_set_password
 
 COPY requirements.txt .
 RUN apk add --no-cache openssl curl && pip install --no-cache-dir -r requirements.txt

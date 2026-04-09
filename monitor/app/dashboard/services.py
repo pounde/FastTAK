@@ -7,7 +7,6 @@ from app.config import settings
 _SERVICES = [
     ("TAK Portal", "takportal_subdomain", None),
     ("TAK Server", "takserver_subdomain", "takserver_admin_port"),
-    ("Authentik", "authentik_subdomain", "authentik_port"),
     ("Node-RED", "nodered_subdomain", "nodered_port"),
     ("Monitor", "monitor_subdomain", "monitor_port"),
     ("MediaMTX", "mediamtx_subdomain", "mediamtx_port"),

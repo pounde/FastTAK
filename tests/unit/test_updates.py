@@ -25,7 +25,7 @@ class TestExtractVersion:
 class TestCheckUpdates:
     def test_returns_items_with_mocked_httpx(self, mock_settings, monkeypatch):
         monkeypatch.setattr("app.api.health.updates.settings", mock_settings)
-        mock_settings.authentik_version = "2026.2.1"
+        mock_settings.lldap_version = "0.6.1"
         mock_settings.mediamtx_version = "1.15.5"
         mock_settings.nodered_version = "4.1"
         mock_settings.tak_portal_version = "1.2.53"
@@ -36,7 +36,7 @@ class TestCheckUpdates:
             updates,
             "COMPONENTS",
             {
-                "authentik": ("goauthentik/authentik", "2026.2.1"),
+                "lldap": ("lldap/lldap", "0.6.1"),
             },
         )
 
@@ -68,7 +68,7 @@ class TestCheckUpdates:
             updates,
             "COMPONENTS",
             {
-                "authentik": ("goauthentik/authentik", "2026.2.1"),
+                "lldap": ("lldap/lldap", "0.6.1"),
             },
         )
 

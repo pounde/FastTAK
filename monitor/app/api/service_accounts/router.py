@@ -14,7 +14,7 @@ from app.api.service_accounts.cert_gen import (
     get_revoked_serials,
     register_admin_cert,
 )
-from app.api.users.authentik import AuthentikClient
+from app.api.users.identity import IdentityClient
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
 
@@ -28,21 +28,22 @@ _VALID_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 # ── Client singletons ────────────────────────────────────────────
 
-_authentik: AuthentikClient | None = None
+_identity: IdentityClient | None = None
 _tak_server: TakServerClient | None = None
 
 
-def _get_authentik() -> AuthentikClient:
-    global _authentik
-    if _authentik is None:
-        if not settings.authentik_api_token:
-            raise HTTPException(503, "Authentik not configured")
-        _authentik = AuthentikClient(
-            base_url=settings.authentik_url,
-            token=settings.authentik_api_token,
+def _get_identity() -> IdentityClient:
+    global _identity
+    if _identity is None:
+        if not settings.ldap_admin_password:
+            raise HTTPException(503, "Identity provider not configured")
+        _identity = IdentityClient(
+            lldap_url=settings.lldap_url,
+            proxy_url=settings.ldap_proxy_url,
+            admin_password=settings.ldap_admin_password,
             hidden_prefixes=[],
         )
-    return _authentik
+    return _identity
 
 
 def _get_tak_server() -> TakServerClient | None:
@@ -105,13 +106,13 @@ class UpdateServiceAccountRequest(BaseModel):
 def list_service_accounts():
     """List all service accounts (svc_ prefix users).
 
-    Only returns Authentik users whose username starts with ``svc_``.
+    Only returns LLDAP users whose username starts with ``svc_``.
     Regular users and other hidden-prefix accounts are excluded.
 
     Returns:
         Dict with ``results`` list of service account objects.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     accounts = ak.list_users(search="svc_")
     return {"results": accounts}
 
@@ -130,7 +131,7 @@ def create_service_account(body: CreateServiceAccountRequest):
     Certificate validity is 1-3650 days (defaults to 365 for data, 730 for
     admin).
 
-    If certificate generation fails after the Authentik user is created, the
+    If certificate generation fails after the LLDAP user is created, the
     user is automatically rolled back (deactivated) to avoid orphaned accounts.
 
     Args:
@@ -143,10 +144,10 @@ def create_service_account(body: CreateServiceAccountRequest):
         HTTPException(400): If required groups don't exist, or groups are
             provided for admin mode.
         HTTPException(500): If certificate generation or admin registration
-            fails (Authentik user is rolled back).
-        HTTPException(503): If Authentik is not configured.
+            fails (LLDAP user is rolled back).
+        HTTPException(503): If identity provider is not configured.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
 
     # Auto-prepend svc_ if not already present
     username = body.name if body.name.startswith("svc_") else f"svc_{body.name}"
@@ -166,7 +167,7 @@ def create_service_account(body: CreateServiceAccountRequest):
             msg = f"Groups do not exist: {', '.join(missing)}. Create them first."
             raise HTTPException(400, msg)
 
-    # Create Authentik user
+    # Create LLDAP user
     user = ak.create_user(
         username=username,
         name=body.display_name,
@@ -177,9 +178,9 @@ def create_service_account(body: CreateServiceAccountRequest):
     # Generate certificate
     cert_result = generate_client_cert(username, validity_days)
     if not cert_result.get("success"):
-        # Rollback: deactivate the orphaned Authentik user
+        # Rollback: deactivate the orphaned LLDAP user
         log.warning(
-            "Cert generation failed for %s, rolling back Authentik user %s: %s",
+            "Cert generation failed for %s, rolling back LLDAP user %s: %s",
             username,
             user["id"],
             cert_result.get("error"),
@@ -187,7 +188,7 @@ def create_service_account(body: CreateServiceAccountRequest):
         try:
             ak.deactivate_user(user["id"])
         except Exception:
-            log.exception("Failed to rollback Authentik user %s", user["id"])
+            log.exception("Failed to rollback LLDAP user %s", user["id"])
         raise HTTPException(
             500,
             f"Certificate generation failed: {cert_result.get('error', 'unknown error')}",
@@ -205,7 +206,7 @@ def create_service_account(body: CreateServiceAccountRequest):
             try:
                 ak.deactivate_user(user["id"])
             except Exception:
-                log.exception("Failed to rollback Authentik user %s", user["id"])
+                log.exception("Failed to rollback LLDAP user %s", user["id"])
             detail = admin_result.get("error") or admin_result.get("output", "unknown error")
             raise HTTPException(500, f"Admin cert registration failed: {detail}")
 
@@ -226,7 +227,7 @@ def update_service_account(account_id: int, body: UpdateServiceAccountRequest):
     rejected without side effects.
 
     Args:
-        account_id: Authentik user ID.
+        account_id: LLDAP user ID.
         body: Fields to update (display_name, groups).
 
     Returns:
@@ -236,7 +237,7 @@ def update_service_account(account_id: int, body: UpdateServiceAccountRequest):
         HTTPException(400): If any specified groups don't exist.
         HTTPException(404): If account_id doesn't exist or isn't a svc_ account.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(account_id)
     if not user:
         raise HTTPException(404, "Service account not found")
@@ -268,7 +269,7 @@ def get_service_account(account_id: int):
     Includes TAK Server certificate info when the TAK API is configured.
 
     Args:
-        account_id: Authentik user ID.
+        account_id: LLDAP user ID.
 
     Returns:
         Service account object, optionally with ``certs`` list.
@@ -276,7 +277,7 @@ def get_service_account(account_id: int):
     Raises:
         HTTPException(404): If account_id doesn't exist or isn't a svc_ account.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(account_id)
     if not user:
         raise HTTPException(404, "Service account not found")
@@ -292,11 +293,11 @@ def get_service_account(account_id: int):
 def delete_service_account(account_id: int):
     """Deactivate a service account and revoke all its certificates.
 
-    This does **not** hard-delete the Authentik user — it deactivates it to
-    preserve the audit trail. All associated TAK Server certs are revoked.
+    This does **not** hard-delete the LLDAP user — it deactivates it to
+    preserve the audit trail. All associated TAK Server certificates are revoked.
 
     Args:
-        account_id: Authentik user ID.
+        account_id: LLDAP user ID.
 
     Returns:
         ``{"success": true, "username": "..."}`` on success.
@@ -304,7 +305,7 @@ def delete_service_account(account_id: int):
     Raises:
         HTTPException(404): If account_id doesn't exist or isn't a svc_ account.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(account_id)
     if not user:
         raise HTTPException(404, "Service account not found")
@@ -322,7 +323,9 @@ def delete_service_account(account_id: int):
     return {"success": True, "username": user["username"]}
 
 
-@router.get("/api/service-accounts/{account_id}/certs/download", summary="Download service account cert")
+@router.get(
+    "/api/service-accounts/{account_id}/certs/download", summary="Download service account cert"
+)
 def download_cert(account_id: int):
     """Download the .p12 certificate for a service account.
 
@@ -331,7 +334,7 @@ def download_cert(account_id: int):
     CRL before serving.
 
     Args:
-        account_id: Authentik user ID.
+        account_id: LLDAP user ID.
 
     Returns:
         .p12 file as ``application/x-pkcs12`` download.
@@ -341,7 +344,7 @@ def download_cert(account_id: int):
         HTTPException(404): If account not found, not a svc_ account, or
             cert file missing.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(account_id)
     if not user:
         raise HTTPException(404, "Service account not found")
@@ -361,7 +364,9 @@ def download_cert(account_id: int):
         try:
             result = subprocess.run(
                 ["openssl", "x509", "-in", str(pem_path), "-noout", "-serial"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0:
                 serial = result.stdout.strip().split("=", 1)[1].lower()

@@ -139,14 +139,14 @@ def ui_config_status(request: Request):
 async def ui_user_list(request: Request):
     from fastapi import HTTPException as _HTTPException
 
-    from app.api.users.router import _get_authentik
+    from app.api.users.router import _get_identity
 
     search = request.query_params.get("search", "")
     page = int(request.query_params.get("page", "1"))
     page_size = 25
 
     try:
-        ak = _get_authentik()
+        ak = _get_identity()
     except _HTTPException:
         return templates.TemplateResponse(
             request,
@@ -157,7 +157,7 @@ async def ui_user_list(request: Request):
                 "page": 1,
                 "page_size": page_size,
                 "search": search,
-                "error": "Authentik not configured",
+                "error": "Identity provider not configured",
             },
         )
 
@@ -183,15 +183,15 @@ async def ui_user_list(request: Request):
 async def ui_service_account_list(request: Request):
     from fastapi import HTTPException as _HTTPException
 
-    from app.api.service_accounts.router import _get_authentik
+    from app.api.service_accounts.router import _get_identity
 
     try:
-        ak = _get_authentik()
+        ak = _get_identity()
     except _HTTPException:
         return templates.TemplateResponse(
             request,
             "partials/service_account_list.html",
-            {"accounts": [], "error": "Authentik not configured"},
+            {"accounts": [], "error": "Identity provider not configured"},
         )
 
     accounts = ak.list_users(search="svc_")
