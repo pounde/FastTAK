@@ -102,13 +102,17 @@ else
           "$TARGET_DIR/tak/certs/files"/*.txt \
           "$TARGET_DIR/tak/certs/files"/*.attr 2>/dev/null
   fi
-  # Copy healthcheck script into tak/ so the bind mount has a real file
-  # before tak-server starts. Without this, Docker creates an empty
-  # placeholder that shadows the file bind mount.
-  cp "$SCRIPT_DIR/tak-server/healthcheck.sh" "$TARGET_DIR/tak/healthcheck.sh"
-  chmod +x "$TARGET_DIR/tak/healthcheck.sh"
   echo "  Done."
 fi
+
+# Copy scripts into tak/ so file bind mounts overlay correctly on Docker Desktop.
+# Without this, Docker creates empty mountpoints that virtiofs can't resolve.
+# Must run after both fresh-install and upgrade paths since both replace tak/.
+# Uses cat+redirect to avoid cp -i alias prompting in interactive shells.
+for script in healthcheck.sh register-api-cert.sh; do
+  cat "$SCRIPT_DIR/tak-server/$script" > "$TARGET_DIR/tak/$script"
+  chmod +x "$TARGET_DIR/tak/$script"
+done
 
 # ── Handle .env ──────────────────────────────────────────────────────────────
 if [ ! -f "$TARGET_DIR/.env" ]; then
@@ -126,9 +130,7 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   }
 
   fill_secret TAK_DB_PASSWORD "$(openssl rand -hex 16)"
-  fill_secret AUTHENTIK_SECRET_KEY "$(openssl rand -hex 32)"
   fill_secret APP_DB_PASSWORD "$(openssl rand -hex 16)"
-  fill_secret AUTHENTIK_API_TOKEN "$(openssl rand -hex 32)"
   fill_secret LDAP_BIND_PASSWORD "$(openssl rand -hex 16)"
 
   echo "  All secrets generated on this device."

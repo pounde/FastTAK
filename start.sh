@@ -183,11 +183,11 @@ assert "$INIT_EXIT" "0" "init-config exited 0"
 ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(docker compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
 assert "$ID_EXIT" "0" "init-identity exited 0"
 
-AK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q authentik-server 2>/dev/null)" 2>/dev/null)
-assert "$AK_STATUS" "healthy" "Authentik healthy"
+LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q lldap 2>/dev/null)" 2>/dev/null)
+assert "$LLDAP_STATUS" "healthy" "LLDAP healthy"
 
-LDAP_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q authentik-ldap 2>/dev/null)" 2>/dev/null)
-assert "$LDAP_STATE" "running" "LDAP outpost running"
+PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
+assert "$PROXY_STATE" "running" "ldap-proxy running"
 
 PORTAL_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q tak-portal 2>/dev/null)" 2>/dev/null)
 assert "$PORTAL_STATE" "running" "TAK Portal running"

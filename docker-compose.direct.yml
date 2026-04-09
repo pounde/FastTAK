@@ -10,7 +10,6 @@
 services:
   caddy:
     ports:
-      - "${AUTHENTIK_PORT:-9443}:${AUTHENTIK_PORT:-9443}"
       - "${NODERED_PORT:-1880}:${NODERED_PORT:-1880}"
       - "${MONITOR_PORT:-8180}:${MONITOR_PORT:-8180}"
       - "${TAKSERVER_ADMIN_PORT:-8446}:${TAKSERVER_ADMIN_PORT:-8446}"
