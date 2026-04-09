@@ -4,42 +4,38 @@
 
 FastTAK supports two authentication modes:
 
-1. **Certificate-only** — users authenticate with client certificates (.p12). No passwords, no SSO. Simple but no centralized user management.
+1. **Certificate-only** — users authenticate with client certificates (.p12). No passwords, no LDAP. Simple but no centralized user management.
 
-2. **LDAP via Authentik** — users authenticate with username/password against Authentik's LDAP outpost. Certificates still required for TAK client connections, but web admin and portal access use password-based login.
+2. **LDAP via LLDAP** — users authenticate with username/password against LLDAP, a lightweight LDAP server. Certificates still required for TAK client connections, but web admin and portal access use password-based login.
 
 ## How LDAP Authentication Works
 
 The `init-identity` container configures this chain on startup:
 
 ```
-TAK Server ←→ Authentik LDAP Outpost ←→ Authentik Server ←→ Authentik Database
+TAK Server ←→ ldap-proxy ←→ LLDAP ←→ PostgreSQL (app-db)
 ```
 
 ### The bootstrap sequence
 
-1. **Authentik starts** — server, worker, PostgreSQL, Redis all come up
-2. **`init-identity` runs** — creates the LDAP infrastructure via Authentik's API:
+1. **LLDAP starts** — lightweight LDAP server backed by PostgreSQL (app-db)
+2. **`init-identity` runs** — creates the LDAP infrastructure via LLDAP's GraphQL API:
    - Creates `adm_ldapservice` service account (LDAP bind user)
    - Creates `webadmin` user with password from `TAK_WEBADMIN_PASSWORD` (default: `FastTAK-Admin-1!`)
    - Creates `tak_ROLE_ADMIN` group
-   - Creates LDAP authentication flow with 3 stages:
-     - **Identification stage** — accepts username
-     - **Password stage** — validates password
-     - **Login stage** — creates session
-   - Creates LDAP provider (base DN: `DC=takldap`)
-   - Creates LDAP application and outpost
+   - Configures custom attribute schemas
    - Generates TAK Portal `settings.json`
-3. **LDAP outpost starts** — listens on ports 3389/6636 (internal)
-4. **TAK Server reads CoreConfig.xml** — connects to LDAP outpost for auth
+   - Exits
+3. **ldap-proxy starts** — listens on port 3389 (internal), proxies LDAP binds to LLDAP and provides `/auth/verify` for Caddy forward auth
+4. **TAK Server reads CoreConfig.xml** — connects to ldap-proxy for auth
 
 ### How a user logs in (web admin on 8446)
 
 1. User opens `https://takserver.example.com` (or `https://host:8446`)
 2. TAK Server shows login form
 3. User enters username + password
-4. TAK Server queries Authentik LDAP: `cn=<username>,ou=users,dc=takldap`
-5. LDAP outpost validates credentials against Authentik's user database
+4. TAK Server queries ldap-proxy: `cn=<username>,ou=people,dc=takldap`
+5. ldap-proxy forwards the bind to LLDAP, which validates credentials
 6. If valid, TAK Server checks group membership for `tak_ROLE_ADMIN`
 7. User gets admin or read-only access based on groups
 
@@ -60,24 +56,20 @@ When a new user is created or group membership changes, TAK Server's LDAP cache 
 
 ### Groups and TAK channels
 
-| Authentik Group | TAK Channel | Who sees it |
+| LLDAP Group | TAK Channel | Who sees it |
 |----------------|-------------|-------------|
 | `tak_ROLE_ADMIN` | (admin access) | Admin users |
 | `tak_team1` | `team1` | Users in group |
 | `tak_fires` | `fires` | Users in group |
 
-Only groups with the `tak_` prefix appear as TAK channels. Create groups in Authentik (or TAK Portal), then assign users.
+Only groups with the `tak_` prefix appear as TAK channels. Create groups in LLDAP (or TAK Portal), then assign users.
 
 ### Key components
 
 | Component | What it does | Runs on |
 |-----------|-------------|---------|
-| `authentik-server` | SSO provider, user database, admin UI | Port 9000 (internal) |
-| `authentik-ldap` | LDAP protocol frontend for Authentik | Ports 3389, 6636 (internal) |
-| `init-identity` | One-shot bootstrap of LDAP config | Exits after setup |
-| `adm_ldapservice` | Service account TAK Server uses to query LDAP | Authentik user |
+| `lldap` | Lightweight LDAP server (Rust), user directory, GraphQL management API | Port 3890 (internal) |
+| `ldap-proxy` | LDAP proxy with enrollment token interception, forward auth endpoint | Port 3389 (internal) |
+| `init-identity` | One-shot bootstrap of LDAP users, groups, and schemas via GraphQL | Exits after setup |
+| `adm_ldapservice` | Service account TAK Server uses to query LDAP | LLDAP user |
 | `CoreConfig.xml` | TAK Server config with LDAP connection details | `/opt/tak/` |
-
-### Authentik admin access
-
-Authentik's admin UI is at `https://auth.example.com` (or whatever `AUTHENTIK_SUBDOMAIN` is set to). Login with `akadmin` and the `AUTHENTIK_ADMIN_PASSWORD` from `.env`.
