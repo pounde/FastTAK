@@ -1,1 +1,1 @@
-requests>=2.31,<3
+# No external dependencies — bootstrap uses only Python stdlib + lldap_set_password binary
