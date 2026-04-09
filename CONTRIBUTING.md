@@ -28,7 +28,7 @@ just dev-down    # Stop
 ```
 
 The dev stack exposes TAK Portal, Node-RED, and Monitor directly on the host
-for convenience. These ports bypass Caddy + Authentik authentication.
+for convenience. These ports bypass Caddy + LDAP authentication.
 
 ## Testing
 
@@ -50,7 +50,7 @@ just down   # Stop
 
 Production exposes only protocol endpoints: TAK Server (8089, 8446),
 Caddy (80, 443), and MediaMTX (8554, 1935, 8888). TAK Portal, Node-RED,
-and Monitor are only reachable through Caddy + Authentik.
+and Monitor are only reachable through Caddy + LDAP authentication.
 
 ## All Commands
 

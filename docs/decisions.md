@@ -30,6 +30,8 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ### DD-030: PgBouncer for Authentik connection pooling
 
+**Status:** Superseded — Authentik removed in favor of LLDAP (see DD-031).
+
 **Decision:** Add PgBouncer between Authentik's server and `app-db` in transaction-pool mode. The worker bypasses PgBouncer and connects directly to `app-db`.
 
 **Context:** Authentik's Dramatiq worker creates hundreds of psycopg3 connection pools, exhausting PostgreSQL's `max_connections`. The Postgres tuning (`idle_session_timeout`, `max_connections=300`) mitigates but doesn't prevent the issue under load or with accumulated state.

@@ -26,7 +26,7 @@ Set at minimum:
 
 - `FQDN` — your domain name (used for SSL, QR enrollment, server cert)
 
-All other values (secrets, API tokens, database passwords) are generated automatically by `setup.sh`. Review `TAK_WEBADMIN_PASSWORD` and `AUTHENTIK_ADMIN_PASSWORD` if you want to change the default admin passwords.
+All other values (secrets, database passwords) are generated automatically by `setup.sh`. Review `TAK_WEBADMIN_PASSWORD` if you want to change the default admin password.
 
 ## Step 3: Start the stack
 
@@ -48,14 +48,14 @@ Or manually: `docker compose up -d --build`
    - Adds the `<certificateSigning>` block
    - Upgrades all `.p12` certs to modern AES-256-CBC ciphers
    - Exits
-3. **Authentik** services start (server, worker, Redis)
-4. **init-identity** runs after Authentik is healthy:
-   - Configures LDAP (service account, flow, provider, outpost)
+3. **LLDAP** starts (lightweight LDAP server backed by app-db)
+4. **init-identity** runs after LLDAP is healthy:
+   - Bootstraps LDAP users, groups, and custom attribute schemas via GraphQL
    - Creates `webadmin` user and `tak_ROLE_ADMIN` group
    - Generates TAK Portal settings.json
    - Exits
 5. **tak-server** starts (~4 minutes to become healthy) — all config is already applied, no restart needed
-6. **authentik-ldap**, **tak-portal**, **caddy**, **mediamtx**, and **nodered** start
+6. **ldap-proxy**, **tak-portal**, **caddy**, **mediamtx**, and **nodered** start
 
 ## Step 4: Verify
 
@@ -110,13 +110,13 @@ Transfer `alice.p12` to the device (email, shared drive — not AirDrop, which i
 
 Only groups prefixed with `tak_` are visible to TAK Server. The prefix is stripped to form the channel name:
 
-| Authentik Group  | TAK Channel      | Purpose                                    |
+| LLDAP Group      | TAK Channel      | Purpose                                    |
 | ---------------- | ---------------- | ------------------------------------------ |
 | `tak_ROLE_ADMIN` | _(admin access)_ | Grants admin privileges on TAK Server      |
 | `tak_team1`      | `team1`          | Users see this channel in their TAK client |
 | `tak_fires`      | `fires`          | Users see this channel in their TAK client |
 
-Groups without the `tak_` prefix are used by Authentik internally and invisible to TAK Server.
+Groups without the `tak_` prefix are invisible to TAK Server.
 
 Create groups in TAK Portal under the **Groups** page.
 
@@ -140,19 +140,6 @@ Create groups in TAK Portal under the **Groups** page.
 - **HLS:** `http://<server-ip>:8888/live/<stream-name>`
 - **Via Caddy:** `https://stream.<FQDN>/live/<stream-name>`
 - **In TAK:** share the RTSP URL as a CoT video feed
-
-## Authentik admin (advanced)
-
-TAK Portal handles day-to-day user management. For advanced Authentik configuration (custom flows, branding, SMTP), access the admin UI at `https://auth.<FQDN>` in production, or port-forward for local development:
-
-```bash
-docker run --rm -d --name ak-forward \
-  --network fasttak_default \
-  -p 9000:9000 \
-  alpine/socat tcp-listen:9000,fork,reuseaddr tcp-connect:authentik-server:9000
-# http://localhost:9000 — login: akadmin / AUTHENTIK_ADMIN_PASSWORD
-# Clean up: docker rm -f ak-forward
-```
 
 ## Clean teardown
 

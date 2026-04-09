@@ -82,14 +82,14 @@ The QR flow is the standard path for users with ATAK, iTAK, or WinTAK.
 sequenceDiagram
     participant Admin as Admin (Dashboard)
     participant API as FastTAK API
-    participant Auth as Authentik
+    participant Auth as LLDAP
     participant TAK as TAK Server
     participant Device as ATAK Device
 
     Admin->>API: Create user
-    API->>Auth: Create Authentik account
+    API->>Auth: Create LLDAP account
     Admin->>API: Generate enrollment QR
-    API->>Auth: Create app password token
+    API->>Auth: Create enrollment token
     API-->>Admin: tak:// enrollment URL + QR
     Admin-->>Device: Scan QR code
     Device->>TAK: Connect with token (port 8446)
@@ -113,12 +113,12 @@ Data-mode service accounts send and receive CoT on assigned channels. They need 
 sequenceDiagram
     participant Admin as Admin (Dashboard)
     participant API as FastTAK API
-    participant Auth as Authentik
+    participant Auth as LLDAP
     participant TAK as TAK Server
     participant Sensor as Sensor Feed
 
     Admin->>API: Create service account (data mode)
-    API->>Auth: Create svc_ user + assign groups
+    API->>Auth: Create svc_ user + assign groups via GraphQL
     API->>TAK: Generate client cert (openssl)
     API-->>Admin: Download .p12
     Admin-->>Sensor: Load cert onto device
