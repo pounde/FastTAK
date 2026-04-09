@@ -13,8 +13,8 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app.api.users.authentik import AuthentikClient
 from app.api.users.enrollment import build_enrollment_url
+from app.api.users.identity import IdentityClient
 from app.api.users.tak_server import TakServerClient
 from app.config import settings
 
@@ -26,21 +26,22 @@ CERT_FILES_PATH = Path("/opt/tak/certs/files")
 
 # ── Client singletons ────────────────────────────────────────────
 
-_authentik: AuthentikClient | None = None
+_identity: IdentityClient | None = None
 _tak_server: TakServerClient | None = None
 
 
-def _get_authentik() -> AuthentikClient:
-    global _authentik
-    if _authentik is None:
-        if not settings.authentik_api_token:
-            raise HTTPException(503, "Authentik not configured")
-        _authentik = AuthentikClient(
-            base_url=settings.authentik_url,
-            token=settings.authentik_api_token,
+def _get_identity() -> IdentityClient:
+    global _identity
+    if _identity is None:
+        if not settings.ldap_admin_password:
+            raise HTTPException(503, "Identity provider not configured")
+        _identity = IdentityClient(
+            lldap_url=settings.lldap_url,
+            proxy_url=settings.ldap_proxy_url,
+            admin_password=settings.ldap_admin_password,
             hidden_prefixes=settings.users_hidden_prefixes.split(","),
         )
-    return _authentik
+    return _identity
 
 
 def _get_tak_server() -> TakServerClient | None:
@@ -121,8 +122,8 @@ def list_users(
 ):
     """List human users with optional search and pagination.
 
-    Users with hidden prefixes (``svc_``, ``adm_``, ``ak-``, ``ma-``) are
-    automatically filtered out by the Authentik client. Pagination is
+    Users with hidden prefixes (``svc_``, ``adm_``, ``ma-``) are
+    automatically filtered out by the identity client. Pagination is
     client-side: the full filtered list is fetched, then sliced.
 
     Use ``include=certs`` to embed each user's certificate list (adds latency
@@ -138,7 +139,7 @@ def list_users(
     Returns:
         Paginated dict with ``results``, ``count``, ``page``, ``page_size``.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     users = ak.list_users(search=search)
 
     total = len(users)
@@ -156,7 +157,7 @@ def list_users(
 
 @router.post("/api/users", status_code=201, summary="Create user")
 def create_user(body: CreateUserRequest):
-    """Create a new TAK user in Authentik.
+    """Create a new TAK user in LLDAP.
 
     Users are passwordless by default — they enroll via the ``/enroll``
     endpoint and connect with client certificates. An optional ``ttl_hours``
@@ -168,7 +169,7 @@ def create_user(body: CreateUserRequest):
     Returns:
         Created user object.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     return ak.create_user(
         username=body.username,
         name=body.name,
@@ -182,7 +183,7 @@ def get_user(user_id: int):
     """Get a single user by ID, including their TAK certificates.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
 
     Returns:
         User object with ``certs`` list when TAK Server is configured.
@@ -190,7 +191,7 @@ def get_user(user_id: int):
     Raises:
         HTTPException(404): If user_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -211,7 +212,7 @@ def update_user(user_id: int, body: UpdateUserRequest):
     A deactivated user can be reactivated by setting ``is_active: true``.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
         body: Fields to update (all optional).
 
     Returns:
@@ -220,7 +221,7 @@ def update_user(user_id: int, body: UpdateUserRequest):
     Raises:
         HTTPException(404): If user_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -242,12 +243,12 @@ def update_user(user_id: int, body: UpdateUserRequest):
 def delete_user(user_id: int):
     """Deactivate a user and revoke all their certificates.
 
-    This does **not** hard-delete the Authentik user — it deactivates it to
+    This does **not** hard-delete the LLDAP user — it deactivates it to
     preserve the audit trail. The user can be reactivated later via PATCH
     with ``is_active: true``.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
 
     Returns:
         ``{"success": true, "username": "..."}`` on success.
@@ -255,7 +256,7 @@ def delete_user(user_id: int):
     Raises:
         HTTPException(404): If user_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -280,7 +281,7 @@ def set_password(user_id: int, body: SetPasswordRequest):
     port 8446.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
         body: Password to set (min 1 character).
 
     Returns:
@@ -290,7 +291,7 @@ def set_password(user_id: int, body: SetPasswordRequest):
         HTTPException(400): If the user is deactivated.
         HTTPException(404): If user_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -309,7 +310,7 @@ def enroll_user(user_id: int):
     (idempotent re-enrollment).
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
 
     Returns:
         Dict with ``enrollment_url`` (tak:// format) and ``expires_at``
@@ -319,13 +320,17 @@ def enroll_user(user_id: int):
         HTTPException(400): If the user is deactivated.
         HTTPException(404): If user_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
     if not user["is_active"]:
         raise HTTPException(400, "Cannot enroll deactivated user")
-    token, expires_at = ak.get_or_create_enrollment_token(user_id, settings.enrollment_ttl_minutes)
+    token, expires_at = ak.get_or_create_enrollment_token(
+        user_id,
+        settings.enrollment_token_ttl_minutes,
+        settings.enrollment_token_one_time,
+    )
     url = build_enrollment_url(
         token=token, server_address=settings.server_address, username=user["username"]
     )
@@ -437,7 +442,7 @@ def list_user_certs(user_id: int):
     against certadmin's ``revocation_date`` for server-side certs.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
 
     Returns:
         List of cert entries with ``name``, ``downloadable``, ``revoked``,
@@ -446,7 +451,7 @@ def list_user_certs(user_id: int):
     Raises:
         HTTPException(404): If user_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -536,7 +541,7 @@ def generate_user_cert(user_id: int, body: GenerateCertRequest):
     the user's ``fastak_expires`` if set — the cert will never outlive the user.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
         body: Certificate name (alphanumeric, dots, hyphens, underscores).
 
     Returns:
@@ -551,7 +556,7 @@ def generate_user_cert(user_id: int, body: GenerateCertRequest):
     """
     from app.api.service_accounts.cert_gen import generate_client_cert
 
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -604,7 +609,7 @@ def revoke_user_cert(user_id: int, body: RevokeCertRequest):
     credentials.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
         body: Exactly one of ``cert_id`` (int) or ``cert_name`` (str).
 
     Returns:
@@ -616,7 +621,7 @@ def revoke_user_cert(user_id: int, body: RevokeCertRequest):
         HTTPException(500): If CRL revocation fails.
         HTTPException(503): If TAK Server not configured (cert_id path).
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -676,7 +681,7 @@ def download_user_cert(user_id: int, cert_name: str):
     The .p12 password is always ``atakatak`` (DD-025).
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
         cert_name: Certificate name (the ``{name}`` part of
             ``{username}-{name}.p12``).
 
@@ -690,7 +695,7 @@ def download_user_cert(user_id: int, cert_name: str):
     """
     if not re.match(r"^[a-zA-Z0-9._-]+$", cert_name):
         raise HTTPException(400, "Invalid certificate name")
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -728,7 +733,7 @@ def download_data_package(user_id: int, cert_name: str):
     Validation and revocation checks are identical to ``download_user_cert``.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
         cert_name: Certificate name (the ``{name}`` part of
             ``{username}-{name}.p12``).
 
@@ -743,7 +748,7 @@ def download_data_package(user_id: int, cert_name: str):
     """
     if not re.match(r"^[a-zA-Z0-9._-]+$", cert_name):
         raise HTTPException(400, "Invalid certificate name")
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -822,7 +827,7 @@ def download_data_package(user_id: int, cert_name: str):
 
 @router.get("/api/groups", summary="List groups")
 def list_groups():
-    """List all Authentik groups.
+    """List all LLDAP groups.
 
     Groups with the ``tak_`` prefix are auto-managed by TAK Server
     integration. ``ROLE_ADMIN`` is filtered out (DD-026).
@@ -830,12 +835,12 @@ def list_groups():
     Returns:
         List of group objects.
     """
-    return _get_authentik().list_groups()
+    return _get_identity().list_groups()
 
 
 @router.post("/api/groups", status_code=201, summary="Create group")
 def create_group(body: CreateGroupRequest):
-    """Create a new Authentik group.
+    """Create a new LLDAP group.
 
     Args:
         body: Group name.
@@ -843,7 +848,7 @@ def create_group(body: CreateGroupRequest):
     Returns:
         Created group object.
     """
-    return _get_authentik().create_group(body.name)
+    return _get_identity().create_group(body.name)
 
 
 @router.get("/api/groups/{group_id}", summary="Get group")
@@ -851,7 +856,7 @@ def get_group(group_id: str):
     """Get a single group by ID.
 
     Args:
-        group_id: Authentik group UUID.
+        group_id: LLDAP group ID.
 
     Returns:
         Group object.
@@ -859,7 +864,7 @@ def get_group(group_id: str):
     Raises:
         HTTPException(404): If group_id doesn't exist.
     """
-    group = _get_authentik().get_group(group_id)
+    group = _get_identity().get_group(group_id)
     if not group:
         raise HTTPException(404, "Group not found")
     return group
@@ -867,10 +872,10 @@ def get_group(group_id: str):
 
 @router.delete("/api/groups/{group_id}", summary="Delete group")
 def delete_group(group_id: str):
-    """Delete an Authentik group.
+    """Delete an LLDAP group.
 
     Args:
-        group_id: Authentik group UUID.
+        group_id: LLDAP group ID.
 
     Returns:
         ``{"success": true}`` on success.
@@ -878,7 +883,7 @@ def delete_group(group_id: str):
     Raises:
         HTTPException(404): If group_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     group = ak.get_group(group_id)
     if not group:
         raise HTTPException(404, "Group not found")
@@ -895,7 +900,7 @@ def set_user_groups(user_id: int, body: SetGroupsRequest):
     integration.
 
     Args:
-        user_id: Authentik user ID.
+        user_id: LLDAP user ID.
         body: List of group names to assign.
 
     Returns:
@@ -904,7 +909,7 @@ def set_user_groups(user_id: int, body: SetGroupsRequest):
     Raises:
         HTTPException(404): If user_id doesn't exist.
     """
-    ak = _get_authentik()
+    ak = _get_identity()
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")

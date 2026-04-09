@@ -55,7 +55,6 @@ def get_tls_status() -> dict:
         endpoints = [
             (server_address, 443),
             (server_address, settings.takserver_admin_port),
-            (server_address, settings.authentik_port),
             (server_address, settings.nodered_port),
             (server_address, settings.monitor_port),
             (server_address, settings.mediamtx_port),
@@ -63,7 +62,6 @@ def get_tls_status() -> dict:
     else:
         endpoints = [
             (f"{settings.takserver_subdomain}.{server_address}", 443),
-            (f"{settings.authentik_subdomain}.{server_address}", 443),
             (f"{settings.takportal_subdomain}.{server_address}", 443),
             (f"{settings.nodered_subdomain}.{server_address}", 443),
             (f"{settings.mediamtx_subdomain}.{server_address}", 443),

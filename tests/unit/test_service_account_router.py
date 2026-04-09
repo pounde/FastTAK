@@ -11,7 +11,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def mock_clients(monkeypatch):
-    """Mock the Authentik and TAK Server clients used by the service accounts router."""
+    """Mock the identity and TAK Server clients used by the service accounts router."""
     mock_ak = MagicMock()
     mock_tak = MagicMock()
     # Default: common test groups exist
@@ -22,7 +22,7 @@ def mock_clients(monkeypatch):
         {"id": "g4", "name": "INTEG_TEST"},
         {"id": "g5", "name": "g"},
     ]
-    monkeypatch.setattr("app.api.service_accounts.router._authentik", mock_ak)
+    monkeypatch.setattr("app.api.service_accounts.router._identity", mock_ak)
     monkeypatch.setattr("app.api.service_accounts.router._tak_server", mock_tak)
     return mock_ak, mock_tak
 

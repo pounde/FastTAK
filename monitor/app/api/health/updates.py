@@ -6,7 +6,7 @@ from app.config import settings
 
 # Map of component -> (GitHub owner/repo, current version from .env)
 COMPONENTS = {
-    "authentik": ("goauthentik/authentik", settings.authentik_version),
+    "lldap": ("lldap/lldap", settings.lldap_version),
     "mediamtx": ("bluenviron/mediamtx", settings.mediamtx_version),
     "nodered": ("node-red/node-red", settings.nodered_version),
     "tak-portal": ("AdventureSeeker423/TAK-Portal", settings.tak_portal_version),

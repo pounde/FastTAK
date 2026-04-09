@@ -35,10 +35,10 @@ def _make_test_ca_pem() -> bytes:
 
 @pytest.fixture(autouse=True)
 def mock_clients(monkeypatch):
-    """Mock the Authentik and TAK Server clients used by the router."""
+    """Mock the identity and TAK Server clients used by the router."""
     mock_ak = MagicMock()
     mock_tak = MagicMock()
-    monkeypatch.setattr("app.api.users.router._authentik", mock_ak)
+    monkeypatch.setattr("app.api.users.router._identity", mock_ak)
     monkeypatch.setattr("app.api.users.router._tak_server", mock_tak)
     return mock_ak, mock_tak
 
@@ -95,10 +95,10 @@ class TestListUsers:
         mock_tak.list_user_certs.assert_not_called()
 
     def test_503_when_no_token(self, monkeypatch):
-        monkeypatch.setattr("app.api.users.router._authentik", None)
+        monkeypatch.setattr("app.api.users.router._identity", None)
         from app.config import Settings
 
-        monkeypatch.setattr("app.config.settings", Settings(authentik_api_token=""))
+        monkeypatch.setattr("app.config.settings", Settings(ldap_admin_password=""))
         resp = client.get("/api/users")
         assert resp.status_code == 503
 

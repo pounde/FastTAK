@@ -126,7 +126,7 @@ class TestStartScheduler:
             patch("app.scheduler._poll"),
             patch("app.scheduler.settings") as mock_settings,
         ):
-            mock_settings.authentik_api_token = None
+            mock_settings.ldap_admin_password = None
             from app.scheduler import _HEALTH_FUNCTIONS, start_scheduler
 
             start_scheduler()
@@ -136,7 +136,7 @@ class TestStartScheduler:
         for name in _HEALTH_FUNCTIONS:
             assert name in add_job_ids
 
-    def test_adds_user_expiry_when_authentik_configured(self):
+    def test_adds_user_expiry_when_identity_configured(self):
         mock_scheduler = MagicMock()
 
         with (
@@ -145,7 +145,7 @@ class TestStartScheduler:
             patch("app.scheduler._poll"),
             patch("app.scheduler.settings") as mock_settings,
         ):
-            mock_settings.authentik_api_token = "some-token"
+            mock_settings.ldap_admin_password = "some-token"
             mock_settings.user_expiry_check_interval = 300
             from app.scheduler import start_scheduler
 
@@ -154,7 +154,7 @@ class TestStartScheduler:
         add_job_ids = [call.kwargs["id"] for call in mock_scheduler.add_job.call_args_list]
         assert "user_expiry" in add_job_ids
 
-    def test_skips_user_expiry_without_authentik(self):
+    def test_skips_user_expiry_without_identity(self):
         mock_scheduler = MagicMock()
 
         with (
@@ -163,7 +163,7 @@ class TestStartScheduler:
             patch("app.scheduler._poll"),
             patch("app.scheduler.settings") as mock_settings,
         ):
-            mock_settings.authentik_api_token = None
+            mock_settings.ldap_admin_password = None
             from app.scheduler import start_scheduler
 
             start_scheduler()
@@ -181,7 +181,7 @@ class TestStartScheduler:
             patch("app.scheduler._poll"),
             patch("app.scheduler.settings") as mock_settings,
         ):
-            mock_settings.authentik_api_token = None
+            mock_settings.ldap_admin_password = None
             from app.scheduler import start_scheduler
 
             start_scheduler()  # Should not raise

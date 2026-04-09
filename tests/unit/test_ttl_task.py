@@ -12,7 +12,7 @@ class TestTtlEnforcement:
         mock_tak = MagicMock()
         mock_ak.get_users_pending_expiry.return_value = [
             {
-                "pk": 1,
+                "id": 1,
                 "username": "tempuser",
                 "is_active": True,
                 "attributes": {
@@ -37,7 +37,7 @@ class TestTtlEnforcement:
         mock_tak = MagicMock()
         mock_ak.get_users_pending_expiry.return_value = [
             {
-                "pk": 2,
+                "id": 2,
                 "username": "olduser",
                 "is_active": False,
                 "attributes": {
@@ -61,7 +61,7 @@ class TestTtlEnforcement:
         mock_tak = MagicMock()
         mock_ak.get_users_pending_expiry.return_value = [
             {
-                "pk": 3,
+                "id": 3,
                 "username": "failuser",
                 "is_active": True,
                 "attributes": {
@@ -84,7 +84,7 @@ class TestTtlEnforcement:
         mock_tak = MagicMock()
         mock_ak.get_users_pending_expiry.return_value = [
             {
-                "pk": 4,
+                "id": 4,
                 "username": "error_user",
                 "is_active": True,
                 "attributes": {
@@ -93,7 +93,7 @@ class TestTtlEnforcement:
                 },
             },
             {
-                "pk": 5,
+                "id": 5,
                 "username": "ok_user",
                 "is_active": True,
                 "attributes": {
