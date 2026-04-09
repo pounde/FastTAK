@@ -184,7 +184,7 @@ fi
 # ── 8. Patch LDAP auth (if LDAP vars are set) ────────────────────────────────
 
 if [ -n "${LDAP_BIND_PASSWORD}" ]; then
-  LDAP_HOST="${LDAP_HOST:-authentik-ldap}"
+  LDAP_HOST="${LDAP_HOST:-ldap-proxy}"
   LDAP_BASE_DN="${LDAP_BASE_DN:-DC=takldap}"
   BASE_DN_LOWER=$(echo "${LDAP_BASE_DN}" | tr '[:upper:]' '[:lower:]')
 
@@ -192,7 +192,7 @@ if [ -n "${LDAP_BIND_PASSWORD}" ]; then
     echo "[init] Adding LDAP auth block..."
 
     AUTH_BLOCK='    <auth default="ldap" x509groups="true" x509addAnonymous="false" x509useGroupCache="true" x509useGroupCacheDefaultActive="true" x509checkRevocation="true">\
-        <ldap url="ldap://'"${LDAP_HOST}"':3389" userstring="cn={username},ou=users,'"${BASE_DN_LOWER}"'" updateinterval="30" groupprefix="cn=tak_" groupNameExtractorRegex="cn=tak_(.*?)(?:,|$)" serviceAccountDN="cn=adm_ldapservice,ou=users,'"${BASE_DN_LOWER}"'" serviceAccountCredential="'"${LDAP_BIND_PASSWORD}"'" groupBaseRDN="ou=groups,'"${BASE_DN_LOWER}"'" userBaseRDN="ou=users,'"${BASE_DN_LOWER}"'" dnAttributeName="DN" nameAttr="CN" adminGroup="ROLE_ADMIN"/>\
+        <ldap url="ldap://'"${LDAP_HOST}"':3389" userstring="uid={username},ou=people,'"${BASE_DN_LOWER}"'" updateinterval="30" groupprefix="cn=tak_" groupNameExtractorRegex="cn=tak_(.*?)(?:,|$)" serviceAccountDN="uid=adm_ldapservice,ou=people,'"${BASE_DN_LOWER}"'" serviceAccountCredential="'"${LDAP_BIND_PASSWORD}"'" groupBaseRDN="ou=groups,'"${BASE_DN_LOWER}"'" userBaseRDN="ou=people,'"${BASE_DN_LOWER}"'" dnAttributeName="DN" nameAttr="CN" adminGroup="ROLE_ADMIN"/>\
     </auth>'
 
     # shellcheck disable=SC1003  # intentional sed quoting for XML block replacement
@@ -296,10 +296,9 @@ CADDY_DIR="${TAK_DIR}/caddy"
 mkdir -p "${CADDY_DIR}"
 
 # Full copy_headers list matching current Caddyfile
-COPY_HEADERS="X-Authentik-Username X-Authentik-Groups X-Authentik-Entitlements X-Authentik-Email X-Authentik-Name X-Authentik-Uid X-Authentik-Jwt X-Authentik-Meta-Jwks X-Authentik-Meta-Outpost X-Authentik-Meta-Provider X-Authentik-Meta-App X-Authentik-Meta-Version"
+COPY_HEADERS="Remote-User Remote-Groups"
 
 if [ "${DEPLOY_MODE}" = "direct" ]; then
-  AUTHENTIK_PORT="${AUTHENTIK_PORT:-9443}"
   NODERED_PORT="${NODERED_PORT:-1880}"
   MONITOR_PORT="${MONITOR_PORT:-8180}"
   TAKSERVER_ADMIN_PORT="${TAKSERVER_ADMIN_PORT:-8446}"
@@ -331,18 +330,10 @@ https://${SERVER_ADDRESS}:${MEDIAMTX_PORT} {
     reverse_proxy mediamtx:8888
 }
 
-# Authentik SSO
-https://${SERVER_ADDRESS}:${AUTHENTIK_PORT} {
-    tls internal
-    reverse_proxy authentik-server:9000
-}
-
-# TAK Portal with Authentik forward auth
+# TAK Portal with forward auth
 https://${SERVER_ADDRESS} {
     tls internal
     route {
-        reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
-
         @public {
             path /request-access* /lookup* /styles.css /favicon.ico /branding/* /public/*
         }
@@ -350,8 +341,8 @@ https://${SERVER_ADDRESS} {
             reverse_proxy tak-portal:3000
         }
 
-        forward_auth authentik-server:9000 {
-            uri /outpost.goauthentik.io/auth/caddy
+        forward_auth ldap-proxy:8080 {
+            uri /auth/verify
             copy_headers ${COPY_HEADERS}
             trusted_proxies private_ranges
         }
@@ -360,26 +351,24 @@ https://${SERVER_ADDRESS} {
     }
 }
 
-# Node-RED with Authentik forward auth
+# Node-RED with forward auth
 https://${SERVER_ADDRESS}:${NODERED_PORT} {
     tls internal
     route {
-        reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
-        forward_auth authentik-server:9000 {
-            uri /outpost.goauthentik.io/auth/caddy
+        forward_auth ldap-proxy:8080 {
+            uri /auth/verify
             trusted_proxies private_ranges
         }
         reverse_proxy nodered:1880
     }
 }
 
-# FastTAK Monitor with Authentik forward auth
+# FastTAK Monitor with forward auth
 https://${SERVER_ADDRESS}:${MONITOR_PORT} {
     tls internal
     route {
-        reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
-        forward_auth authentik-server:9000 {
-            uri /outpost.goauthentik.io/auth/caddy
+        forward_auth ldap-proxy:8080 {
+            uri /auth/verify
             trusted_proxies private_ranges
         }
         reverse_proxy monitor:8080
@@ -391,7 +380,6 @@ else
   # subdomain mode — reproduces the original static Caddyfile structure
   TAKSERVER_SUBDOMAIN="${TAKSERVER_SUBDOMAIN:-takserver}"
   MEDIAMTX_SUBDOMAIN="${MEDIAMTX_SUBDOMAIN:-stream}"
-  AUTHENTIK_SUBDOMAIN="${AUTHENTIK_SUBDOMAIN:-auth}"
   TAKPORTAL_SUBDOMAIN="${TAKPORTAL_SUBDOMAIN:-portal}"
   NODERED_SUBDOMAIN="${NODERED_SUBDOMAIN:-nodered}"
   MONITOR_SUBDOMAIN="${MONITOR_SUBDOMAIN:-monitor}"
@@ -417,16 +405,9 @@ ${MEDIAMTX_SUBDOMAIN}.${SERVER_ADDRESS} {
     reverse_proxy mediamtx:8888
 }
 
-# Authentik SSO
-${AUTHENTIK_SUBDOMAIN}.${SERVER_ADDRESS} {
-    reverse_proxy authentik-server:9000
-}
-
-# TAK Portal with Authentik forward auth
+# TAK Portal with forward auth
 ${TAKPORTAL_SUBDOMAIN}.${SERVER_ADDRESS} {
     route {
-        reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
-
         @public {
             path /request-access* /lookup* /styles.css /favicon.ico /branding/* /public/*
         }
@@ -434,8 +415,8 @@ ${TAKPORTAL_SUBDOMAIN}.${SERVER_ADDRESS} {
             reverse_proxy tak-portal:3000
         }
 
-        forward_auth authentik-server:9000 {
-            uri /outpost.goauthentik.io/auth/caddy
+        forward_auth ldap-proxy:8080 {
+            uri /auth/verify
             copy_headers ${COPY_HEADERS}
             trusted_proxies private_ranges
         }
@@ -444,24 +425,22 @@ ${TAKPORTAL_SUBDOMAIN}.${SERVER_ADDRESS} {
     }
 }
 
-# Node-RED with Authentik forward auth
+# Node-RED with forward auth
 ${NODERED_SUBDOMAIN}.${SERVER_ADDRESS} {
     route {
-        reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
-        forward_auth authentik-server:9000 {
-            uri /outpost.goauthentik.io/auth/caddy
+        forward_auth ldap-proxy:8080 {
+            uri /auth/verify
             trusted_proxies private_ranges
         }
         reverse_proxy nodered:1880
     }
 }
 
-# FastTAK Monitor with Authentik forward auth
+# FastTAK Monitor with forward auth
 ${MONITOR_SUBDOMAIN}.${SERVER_ADDRESS} {
     route {
-        reverse_proxy /outpost.goauthentik.io/* authentik-server:9000
-        forward_auth authentik-server:9000 {
-            uri /outpost.goauthentik.io/auth/caddy
+        forward_auth ldap-proxy:8080 {
+            uri /auth/verify
             trusted_proxies private_ranges
         }
         reverse_proxy monitor:8080

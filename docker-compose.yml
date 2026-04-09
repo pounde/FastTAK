@@ -25,18 +25,6 @@ x-logging: &default-logging
 # base path, not ./tak directly, so the override works consistently.
 x-tak-mount: &tak-mount ${TAK_HOST_PATH:-./tak}:/opt/tak
 
-x-authentik-env: &authentik-env
-  AUTHENTIK_POSTGRESQL__HOST: pgbouncer
-  AUTHENTIK_POSTGRESQL__USER: fastak
-  AUTHENTIK_POSTGRESQL__NAME: authentik
-  AUTHENTIK_POSTGRESQL__PASSWORD: ${APP_DB_PASSWORD}
-  AUTHENTIK_POSTGRESQL__DISABLE_SERVER_SIDE_CURSORS: "true"
-  AUTHENTIK_REDIS__HOST: redis
-  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
-  AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_ADMIN_PASSWORD}
-  AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_API_TOKEN}
-  AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_ADMIN_EMAIL:-admin@example.com}
-
 # =============================================================================
 # Volumes
 # =============================================================================
@@ -90,13 +78,12 @@ services:
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
       SERVER_ADDRESS: ${SERVER_ADDRESS}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
-      LDAP_HOST: ${LDAP_HOST:-authentik-ldap}
+      LDAP_HOST: ${LDAP_HOST:-ldap-proxy}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       COT_RETENTION_DAYS: ${COT_RETENTION_DAYS:-}
       GEOCHAT_RETENTION_DAYS: ${GEOCHAT_RETENTION_DAYS:-}
       RETENTION_CRON: ${RETENTION_CRON:-}
       DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
-      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-9443}
       NODERED_PORT: ${NODERED_PORT:-1880}
       MONITOR_PORT: ${MONITOR_PORT:-8180}
       TAKSERVER_ADMIN_PORT: ${TAKSERVER_ADMIN_PORT:-8446}
@@ -133,164 +120,111 @@ services:
       retries: 3
       start_period: 240s
 
-  # ── App Database (PostgreSQL — shared by Authentik + Node-RED) ─────────
+  # ── App Database (PostgreSQL — shared by LLDAP + Node-RED) ─────────────
   app-db:
     image: postgis/postgis:15-3.4-alpine
     restart: unless-stopped
     logging: *default-logging
     entrypoint: ["/start.sh"]
     environment:
-      POSTGRES_DB: authentik
+      POSTGRES_DB: lldap
       POSTGRES_USER: fastak
       POSTGRES_PASSWORD: ${APP_DB_PASSWORD}
     volumes:
       - app-db-data:/var/lib/postgresql/data
       - ./app-db/start.sh:/start.sh:ro
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "fastak", "-d", "authentik"]
+      test: ["CMD", "pg_isready", "-U", "fastak"]
       interval: 10s
       retries: 5
       start_period: 10s
 
-  # ── Connection Pooler (PgBouncer) ──────────────────────────────────────
-  # Authentik's worker opens hundreds of DB connections during startup,
-  # easily exceeding PostgreSQL's max_connections. PgBouncer multiplexes
-  # the server's connections down to a fixed pool. The worker bypasses
-  # PgBouncer because migrations use advisory locks that don't work in
-  # transaction-pool mode. See issue #31 for details.
-  pgbouncer:
-    image: edoburu/pgbouncer@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
+  # ── Identity (LLDAP, LDAP Proxy, TAK Portal) ──────────────────────────
+  # Start order: app-db → lldap → ldap-proxy → init-identity → tak-portal
+
+  lldap:
+    image: lldap/lldap:${LLDAP_VERSION}
     restart: unless-stopped
     logging: *default-logging
     depends_on:
       app-db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://fastak:${APP_DB_PASSWORD}@app-db:5432/authentik
-      AUTH_TYPE: scram-sha-256
-      POOL_MODE: transaction
-      DEFAULT_POOL_SIZE: "20"
-      MAX_CLIENT_CONN: "500"
-      MIN_POOL_SIZE: "5"
-      LISTEN_PORT: "5432"
-      SERVER_TLS_SSLMODE: disable
+      LLDAP_LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
+      LLDAP_LDAP_USER_DN: adm_ldapservice
+      LLDAP_LDAP_USER_PASS: ${LDAP_BIND_PASSWORD}
+      LLDAP_DATABASE_URL: postgres://fastak:${APP_DB_PASSWORD}@app-db:5432/lldap
+      LLDAP_LDAP_PORT: 3890
+      LLDAP_HTTP_PORT: 17170
     healthcheck:
-      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
-      interval: 10s
+      test: ["CMD", "/app/lldap", "healthcheck"]
+      interval: 5s
+      timeout: 3s
       retries: 5
       start_period: 5s
 
-  # ── Identity (Authentik SSO, LDAP, TAK Portal) ────────────────────────
-  # Start order: redis → authentik-server/worker → init-identity → authentik-ldap → tak-portal
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    logging: *default-logging
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      retries: 5
-
-  authentik-server:
-    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION}
-    command: server
+  ldap-proxy:
+    build: ./ldap-proxy
     restart: unless-stopped
     logging: *default-logging
     depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redis:
+      lldap:
         condition: service_healthy
     environment:
-      <<: *authentik-env
+      LLDAP_ADDR: lldap:3890
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
+      TOKEN_DB_PATH: /tmp/tokens.db
+      ENROLLMENT_TOKEN_TTL_MINUTES: ${ENROLLMENT_TOKEN_TTL_MINUTES:-15}
+      ENROLLMENT_TOKEN_ONE_TIME: ${ENROLLMENT_TOKEN_ONE_TIME:-false}
+    tmpfs:
+      - /tmp
     healthcheck:
-      test: ["CMD", "ak", "healthcheck"]
-      interval: 15s
-      start_period: 120s
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
       retries: 5
-
-  authentik-worker:
-    image: ghcr.io/goauthentik/server:${AUTHENTIK_VERSION}
-    command: worker
-    restart: unless-stopped
-    logging: *default-logging
-    depends_on:
-      app-db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    # Worker connects directly to app-db — advisory locks used during
-    # migrations don't work through PgBouncer's transaction pooling.
-    environment:
-      <<: *authentik-env
-      AUTHENTIK_POSTGRESQL__HOST: app-db
-      AUTHENTIK_POSTGRESQL__DISABLE_SERVER_SIDE_CURSORS: "false"
+      start_period: 3s
 
   init-identity:
-    build: ./init-identity
+    build:
+      context: ./init-identity
+      args:
+        LLDAP_VERSION: ${LLDAP_VERSION}
     restart: "no"
     logging: *default-logging
     depends_on:
       init-config:
         condition: service_completed_successfully
-      authentik-server:
+      lldap:
         condition: service_healthy
     environment:
-      AUTHENTIK_URL: http://authentik-server:9000
-      AUTHENTIK_API_TOKEN: ${AUTHENTIK_API_TOKEN}
+      LLDAP_URL: http://lldap:17170
+      LLDAP_ADMIN_USER: adm_ldapservice
+      LDAP_ADMIN_PASSWORD: ${LDAP_BIND_PASSWORD}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
       TAK_WEBADMIN_PASSWORD: ${TAK_WEBADMIN_PASSWORD}
-      LDAP_HOST: authentik-ldap
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       SERVER_ADDRESS: ${SERVER_ADDRESS}
-      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN:-portal}
-      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN:-auth}
-      DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
-      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-9443}
-      MONITOR_PORT: ${MONITOR_PORT:-8180}
-      NODERED_PORT: ${NODERED_PORT:-1880}
-      MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
-      NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN:-nodered}
     volumes:
       - *tak-mount
-
-  authentik-ldap:
-    image: ghcr.io/goauthentik/ldap:${AUTHENTIK_VERSION}
-    restart: unless-stopped
-    logging: *default-logging
-    depends_on:
-      init-identity:
-        condition: service_completed_successfully
-    environment:
-      AUTHENTIK_HOST: http://authentik-server:9000
-      AUTHENTIK_TOKEN: ${AUTHENTIK_API_TOKEN}
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q",
-             "http://localhost:9300/outpost.goauthentik.io/ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    # ports:
-    #   - "389:3389"  # Uncomment for external LDAP clients (TAK Server uses Docker DNS internally)
 
   # This is some hacky shit to fix TAK Server's inability to respect LDAP-only
   # authentication. TAK Server always enables its FileAuthenticator on start even
   # if removed from CoreConfig prior to start.
   # If a client connects before LDAP is serving queries, the FileAuthenticator registers the
   # user with __ANON__ groups, creating authentication and group issues.
-  # The authentik-ldap healthcheck (HTTP ping on :9300) passes before LDAP on :3389 is actually ready,
+  # The LDAP healthcheck may pass before queries are actually ready,
   # so we need this init container to perform a real LDAP bind before TAK Server starts.
   init-ldap-ready:
     build: ./init-ldap-ready
     restart: "no"
     logging: *default-logging
     depends_on:
-      authentik-ldap:
+      ldap-proxy:
         condition: service_healthy
     environment:
-      LDAP_HOST: ${LDAP_HOST:-authentik-ldap}
+      LDAP_HOST: ${LDAP_HOST:-ldap-proxy}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
 
@@ -376,7 +310,10 @@ services:
 
   # ── Monitor (health API + operations dashboard) ────────────────────────
   monitor:
-    build: ./monitor
+    build:
+      context: ./monitor
+      args:
+        LLDAP_VERSION: ${LLDAP_VERSION}
     restart: unless-stopped
     logging: *default-logging
     depends_on:
@@ -386,19 +323,17 @@ services:
       TAK_VERSION: ${TAK_VERSION}
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
       TAK_DB_URL: ${TAK_DB_URL:-}
-      AUTHENTIK_VERSION: ${AUTHENTIK_VERSION}
+      LLDAP_VERSION: ${LLDAP_VERSION}
       MEDIAMTX_VERSION: ${MEDIAMTX_VERSION}
       NODERED_VERSION: ${NODERED_VERSION}
       TAK_PORTAL_VERSION: ${TAK_PORTAL_VERSION}
       SERVER_ADDRESS: ${SERVER_ADDRESS}
       TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
       MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
-      AUTHENTIK_SUBDOMAIN: ${AUTHENTIK_SUBDOMAIN}
       TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
       NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
       MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
       DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
-      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-9443}
       NODERED_PORT: ${NODERED_PORT:-1880}
       MONITOR_PORT: ${MONITOR_PORT:-8180}
       TAKSERVER_ADMIN_PORT: ${TAKSERVER_ADMIN_PORT:-8446}
@@ -414,14 +349,16 @@ services:
       SMS_FROM: ${SMS_FROM:-}
       SMS_TO: ${SMS_TO:-}
       # User management API (DD-025)
-      AUTHENTIK_URL: http://authentik-server:9000
-      AUTHENTIK_API_TOKEN: ${AUTHENTIK_API_TOKEN}
+      LLDAP_URL: http://lldap:17170
+      LDAP_PROXY_URL: http://ldap-proxy:8080
+      LDAP_ADMIN_PASSWORD: ${LDAP_BIND_PASSWORD}
       TAK_SERVER_URL: https://tak-server:8443
       TAK_API_CERT_PATH: /opt/tak/certs/files/svc_fasttakapi.p12
       TAK_API_CERT_PASSWORD: atakatak
-      USERS_HIDDEN_PREFIXES: ${USERS_HIDDEN_PREFIXES:-ak-,adm_,svc_,ma-}
+      USERS_HIDDEN_PREFIXES: ${USERS_HIDDEN_PREFIXES:-adm_,svc_,ma-}
       USER_EXPIRY_CHECK_INTERVAL: ${USER_EXPIRY_CHECK_INTERVAL:-60}
-      ENROLLMENT_TTL_MINUTES: ${ENROLLMENT_TTL_MINUTES:-15}
+      ENROLLMENT_TOKEN_TTL_MINUTES: ${ENROLLMENT_TOKEN_TTL_MINUTES:-15}
+      ENROLLMENT_TOKEN_ONE_TIME: ${ENROLLMENT_TOKEN_ONE_TIME:-false}
       TAK_ENROLLMENT_PORT: ${TAK_ENROLLMENT_PORT:-8446}
       AUTOVACUUM_MIN_DEAD_TUPLES: ${AUTOVACUUM_MIN_DEAD_TUPLES:-1000}
     volumes:
