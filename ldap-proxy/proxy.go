@@ -9,16 +9,20 @@ import (
 )
 
 type LDAPProxy struct {
-	tokens    *TokenStore
-	lldapAddr string // e.g., "lldap:3890"
-	baseDN    string // e.g., "dc=takldap"
+	tokens        *TokenStore
+	lldapAddr     string // e.g., "lldap:3890"
+	baseDN        string // e.g., "dc=takldap"
+	adminBindDN   string // DN for admin searches, e.g., "uid=adm_ldapservice,ou=people,dc=takldap"
+	adminBindPass string
 }
 
-func NewLDAPProxy(tokens *TokenStore, lldapAddr, baseDN string) *LDAPProxy {
+func NewLDAPProxy(tokens *TokenStore, lldapAddr, baseDN, adminBindDN, adminBindPass string) *LDAPProxy {
 	return &LDAPProxy{
-		tokens:    tokens,
-		lldapAddr: lldapAddr,
-		baseDN:    baseDN,
+		tokens:        tokens,
+		lldapAddr:     lldapAddr,
+		baseDN:        baseDN,
+		adminBindDN:   adminBindDN,
+		adminBindPass: adminBindPass,
 	}
 }
 
@@ -58,6 +62,7 @@ func (p *LDAPProxy) HandleBind(bindDN, password string) (bool, error) {
 	}
 
 	// Forward to LLDAP
+	// TODO: connection pooling if TAK Server concurrency increases
 	conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s", p.lldapAddr))
 	if err != nil {
 		return false, fmt.Errorf("connect to lldap: %w", err)

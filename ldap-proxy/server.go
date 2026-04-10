@@ -134,7 +134,7 @@ func makeSearchHandler(proxy *LDAPProxy) gldap.HandlerFunc {
 		defer conn.Close()
 
 		// Bind as admin for the search
-		if err := conn.Bind(adminBindDN, adminBindPass); err != nil {
+		if err := conn.Bind(proxy.adminBindDN, proxy.adminBindPass); err != nil {
 			log.Printf("[conn=%d] search: admin bind to lldap: %v", r.ConnectionID(), err)
 			resp.SetResultCode(gldap.ResultOperationsError)
 			resp.SetDiagnosticMessage("upstream bind failed")

@@ -42,10 +42,10 @@ func main() {
 	defaultTTL := envIntOrDefault("ENROLLMENT_TOKEN_TTL_MINUTES", 15)
 	defaultOneTime := envBoolOrDefault("ENROLLMENT_TOKEN_ONE_TIME", true)
 
-	// Admin credentials for group lookups in /auth/verify
-	adminBindDN = envOrDefault("LDAP_ADMIN_DN", "uid=adm_ldapservice,ou=people,"+baseDN)
-	adminBindPass = os.Getenv("LDAP_BIND_PASSWORD")
-	if adminBindPass == "" {
+	// Admin credentials for search forwarding and group lookups in /auth/verify
+	adminDN := envOrDefault("LDAP_ADMIN_DN", "uid=adm_ldapservice,ou=people,"+baseDN)
+	adminPass := os.Getenv("LDAP_BIND_PASSWORD")
+	if adminPass == "" {
 		log.Fatal("LDAP_BIND_PASSWORD is required but not set")
 	}
 
@@ -56,14 +56,16 @@ func main() {
 	}
 
 	// Initialize proxy
-	proxy := NewLDAPProxy(tokens, lldapAddr, baseDN)
+	proxy := NewLDAPProxy(tokens, lldapAddr, baseDN, adminDN, adminPass)
 
 	// REST API
 	tokensAPI := NewTokensAPI(tokens, defaultTTL, defaultOneTime)
 	authHandler := NewAuthHandler(proxy)
 	healthHandler := NewHealthHandler(tokens, proxy)
 
-	// HTTP mux
+	// HTTP mux — no auth on these endpoints. The REST API is internal-only
+	// (not exposed via Caddy), reachable only from the Docker network by
+	// the monitor service. If the proxy is ever exposed externally, add auth.
 	mux := http.NewServeMux()
 	mux.Handle("POST /tokens", tokensAPI)
 	mux.Handle("GET /tokens/{username}", tokensAPI)

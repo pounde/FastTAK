@@ -76,7 +76,7 @@ func (a *AuthHandler) fetchUserGroups(username string) ([]string, error) {
 	defer conn.Close()
 
 	// Bind as admin to search
-	if err := conn.Bind(adminBindDN, adminBindPass); err != nil {
+	if err := conn.Bind(a.proxy.adminBindDN, a.proxy.adminBindPass); err != nil {
 		return nil, fmt.Errorf("admin bind: %w", err)
 	}
 
@@ -99,7 +99,3 @@ func (a *AuthHandler) fetchUserGroups(username string) ([]string, error) {
 	}
 	return groups, nil
 }
-
-// Package-level admin credentials, set at startup from env vars.
-var adminBindDN string
-var adminBindPass string
