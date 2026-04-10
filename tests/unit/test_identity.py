@@ -4,7 +4,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from app.api.users.identity import IdentityClient
+from app.api.users.identity import IdentityClient, _username_to_numeric_id
 
 
 @pytest.fixture
@@ -420,3 +420,362 @@ class TestEnrollmentTokens:
         mock_http["proxy"].return_value = MagicMock(status_code=200, json=lambda: {"deleted": 3})
         count = client.delete_enrollment_tokens(1)
         assert count == 3
+
+
+class TestSetPassword:
+    def test_calls_lldap_set_password_binary(self, client, mock_http):
+        client._user_id_map = {1: "jsmith"}
+        client._jwt = "fake-jwt"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            client.set_password(1, "new-pass-123")
+            mock_run.assert_called_once()
+            cmd = mock_run.call_args[0][0]
+            assert cmd[0] == "/usr/local/bin/lldap_set_password"
+            assert "--username" in cmd
+            assert cmd[cmd.index("--username") + 1] == "jsmith"
+            assert "--password" in cmd
+            assert cmd[cmd.index("--password") + 1] == "new-pass-123"
+
+    def test_raises_on_binary_failure(self, client, mock_http):
+        client._user_id_map = {1: "jsmith"}
+        client._jwt = "fake-jwt"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="connection refused")
+            with pytest.raises(RuntimeError, match="lldap_set_password failed"):
+                client.set_password(1, "pass")
+
+    def test_raises_for_unknown_user(self, client, mock_http):
+        client._user_id_map = {}
+        mock_http["graphql"].return_value = {"users": []}
+        with pytest.raises(ValueError, match="not found"):
+            client.set_password(999, "pass")
+
+
+class TestMarkCertsRevoked:
+    def test_sets_revoked_true_preserving_other_attrs(self, client, mock_http):
+        client._user_id_map = {1: "jsmith"}
+        mock_http["graphql"].side_effect = [
+            # get_user for existing attributes
+            {
+                "user": {
+                    "id": "jsmith",
+                    "creationDate": "2024-01-01T00:00:00Z",
+                    "displayName": "John",
+                    "attributes": [
+                        {"name": "fastak_expires", "value": ["1000"]},
+                        {"name": "fastak_certs_revoked", "value": ["false"]},
+                    ],
+                    "groups": [],
+                },
+            },
+            # updateUser mutation
+            {"updateUser": {"ok": True}},
+        ]
+        client.mark_certs_revoked(1)
+        update_call = mock_http["graphql"].call_args_list[1]
+        variables = update_call[0][1] if len(update_call[0]) > 1 else {}
+        attrs = variables.get("input", {}).get("insertAttributes", [])
+        revoked = next(a for a in attrs if a["name"] == "fastak_certs_revoked")
+        assert revoked["value"] == ["true"]
+        # fastak_expires should still be present
+        expires = next(a for a in attrs if a["name"] == "fastak_expires")
+        assert expires["value"] == ["1000"]
+
+    def test_raises_for_unknown_user(self, client, mock_http):
+        client._user_id_map = {}
+        mock_http["graphql"].return_value = {"users": []}
+        with pytest.raises(ValueError, match="not found"):
+            client.mark_certs_revoked(999)
+
+
+class TestListGroups:
+    def test_returns_tak_groups_without_prefix(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "groups": [
+                {"id": 1, "displayName": "tak_FDNY Robotics"},
+                {"id": 2, "displayName": "tak_Team Alpha"},
+                {"id": 3, "displayName": "lldap_admin"},  # non-tak, excluded
+            ],
+        }
+        groups = client.list_groups()
+        assert len(groups) == 2
+        names = [g["name"] for g in groups]
+        assert "FDNY Robotics" in names
+        assert "Team Alpha" in names
+
+    def test_excludes_tak_role_admin(self, client, mock_http):
+        """tak_ROLE_ADMIN is a system group, not shown in user-facing group list."""
+        mock_http["graphql"].return_value = {
+            "groups": [
+                {"id": 1, "displayName": "tak_ROLE_ADMIN"},
+                {"id": 2, "displayName": "tak_FDNY Robotics"},
+            ],
+        }
+        groups = client.list_groups()
+        assert len(groups) == 1
+        assert groups[0]["name"] == "FDNY Robotics"
+
+    def test_empty_when_no_tak_groups(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "groups": [
+                {"id": 1, "displayName": "lldap_admin"},
+                {"id": 2, "displayName": "lldap_password_manager"},
+            ],
+        }
+        assert client.list_groups() == []
+
+
+class TestGetGroup:
+    def test_returns_group_with_members(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "group": {
+                "id": 5,
+                "displayName": "tak_FDNY Robotics",
+                "users": [
+                    {"id": "jsmith", "displayName": "John"},
+                    {"id": "bjones", "displayName": "Bob"},
+                ],
+            },
+        }
+        group = client.get_group("5")
+        assert group["name"] == "FDNY Robotics"
+        assert len(group["members"]) == 2
+        usernames = [m["username"] for m in group["members"]]
+        assert "jsmith" in usernames
+        assert "bjones" in usernames
+
+    def test_filters_hidden_members(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "group": {
+                "id": 5,
+                "displayName": "tak_FDNY Robotics",
+                "users": [
+                    {"id": "jsmith", "displayName": "John"},
+                    {"id": "svc_fasttakapi", "displayName": "Service"},
+                ],
+            },
+        }
+        group = client.get_group("5")
+        assert len(group["members"]) == 1
+        assert group["members"][0]["username"] == "jsmith"
+
+    def test_returns_none_for_non_tak_group(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "group": {
+                "id": 1,
+                "displayName": "lldap_admin",
+                "users": [],
+            },
+        }
+        assert client.get_group("1") is None
+
+    def test_returns_none_for_invalid_id(self, client, mock_http):
+        assert client.get_group("not-a-number") is None
+
+    def test_returns_none_for_missing_group(self, client, mock_http):
+        mock_http["graphql"].return_value = {"group": None}
+        assert client.get_group("999") is None
+
+
+class TestCreateGroup:
+    def test_prepends_tak_prefix(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "createGroup": {"id": 10, "displayName": "tak_FDNY Robotics"},
+        }
+        group = client.create_group("FDNY Robotics")
+        assert group["name"] == "FDNY Robotics"
+        assert group["id"] == 10
+        # Verify the mutation sent tak_-prefixed name
+        call_args = mock_http["graphql"].call_args
+        variables = call_args[0][1] if len(call_args[0]) > 1 else {}
+        assert variables["name"] == "tak_FDNY Robotics"
+
+    def test_does_not_double_prefix(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "createGroup": {"id": 10, "displayName": "tak_Team Alpha"},
+        }
+        client.create_group("tak_Team Alpha")
+        call_args = mock_http["graphql"].call_args
+        variables = call_args[0][1] if len(call_args[0]) > 1 else {}
+        assert variables["name"] == "tak_Team Alpha"
+
+
+class TestDeleteGroup:
+    def test_deletes_by_int_id(self, client, mock_http):
+        mock_http["graphql"].return_value = {"deleteGroup": {"ok": True}}
+        client.delete_group("5")
+        call_args = mock_http["graphql"].call_args
+        variables = call_args[0][1] if len(call_args[0]) > 1 else {}
+        assert variables["id"] == 5
+
+    def test_noop_for_invalid_id(self, client, mock_http):
+        client.delete_group("not-a-number")
+        mock_http["graphql"].assert_not_called()
+
+
+class TestSetUserGroups:
+    def test_adds_missing_and_removes_extra_tak_groups(self, client, mock_http):
+        client._user_id_map = {1: "jsmith"}
+        mock_http["graphql"].side_effect = [
+            # list all groups
+            {
+                "groups": [
+                    {"id": 10, "displayName": "tak_FDNY Robotics"},
+                    {"id": 11, "displayName": "tak_Team Alpha"},
+                    {"id": 12, "displayName": "tak_Team Bravo"},
+                ],
+            },
+            # get user's current groups
+            {
+                "user": {
+                    "id": "jsmith",
+                    "creationDate": "2024-01-01T00:00:00Z",
+                    "displayName": "John",
+                    "attributes": [],
+                    "groups": [
+                        {"id": 10, "displayName": "tak_FDNY Robotics"},
+                        {"id": 11, "displayName": "tak_Team Alpha"},
+                        {"id": 99, "displayName": "lldap_admin"},  # non-tak, untouched
+                    ],
+                },
+            },
+            # removeUserFromGroup (tak_Team Alpha)
+            {"removeUserFromGroup": {"ok": True}},
+            # addUserToGroup (tak_Team Bravo)
+            {"addUserToGroup": {"ok": True}},
+        ]
+        # Keep FDNY Robotics, drop Team Alpha, add Team Bravo
+        client.set_user_groups(1, ["FDNY Robotics", "Team Bravo"])
+
+        calls = mock_http["graphql"].call_args_list
+        # Should have 4 calls: list groups, get user, remove, add
+        assert len(calls) == 4
+        # The remove call should be for Team Alpha (id=11)
+        remove_vars = calls[2][0][1] if len(calls[2][0]) > 1 else {}
+        assert remove_vars["groupId"] == 11
+        # The add call should be for Team Bravo (id=12)
+        add_vars = calls[3][0][1] if len(calls[3][0]) > 1 else {}
+        assert add_vars["groupId"] == 12
+
+    def test_preserves_non_tak_groups(self, client, mock_http):
+        """Non-tak groups (like lldap_admin) should not be removed."""
+        client._user_id_map = {1: "jsmith"}
+        mock_http["graphql"].side_effect = [
+            {"groups": [{"id": 10, "displayName": "tak_FDNY Robotics"}]},
+            {
+                "user": {
+                    "id": "jsmith",
+                    "creationDate": "2024-01-01T00:00:00Z",
+                    "displayName": "John",
+                    "attributes": [],
+                    "groups": [
+                        {"id": 99, "displayName": "lldap_admin"},
+                    ],
+                },
+            },
+            # addUserToGroup for FDNY Robotics
+            {"addUserToGroup": {"ok": True}},
+        ]
+        client.set_user_groups(1, ["FDNY Robotics"])
+        calls = mock_http["graphql"].call_args_list
+        # No removeUserFromGroup call — lldap_admin is not tak_
+        for call in calls:
+            query = call[0][0]
+            assert "removeUserFromGroup" not in query
+
+    def test_raises_for_unknown_user(self, client, mock_http):
+        client._user_id_map = {}
+        mock_http["graphql"].return_value = {"users": []}
+        with pytest.raises(ValueError, match="not found"):
+            client.set_user_groups(999, ["FDNY Robotics"])
+
+
+class TestGetUsersPendingExpiry:
+    def test_returns_expired_non_revoked_users(self, client, mock_http):
+        past = int(time.time()) - 3600
+        mock_http["graphql"].return_value = {
+            "users": [
+                {
+                    "id": "expired_user",
+                    "creationDate": "2024-01-01T00:00:00Z",
+                    "displayName": "Expired",
+                    "attributes": [
+                        {"name": "fastak_expires", "value": [str(past)]},
+                        {"name": "fastak_certs_revoked", "value": ["false"]},
+                    ],
+                    "groups": [],
+                },
+            ],
+        }
+        pending = client.get_users_pending_expiry()
+        assert len(pending) == 1
+        assert pending[0]["username"] == "expired_user"
+
+    def test_excludes_already_revoked(self, client, mock_http):
+        past = int(time.time()) - 3600
+        mock_http["graphql"].return_value = {
+            "users": [
+                {
+                    "id": "revoked_user",
+                    "creationDate": "2024-01-01T00:00:00Z",
+                    "displayName": "Revoked",
+                    "attributes": [
+                        {"name": "fastak_expires", "value": [str(past)]},
+                        {"name": "fastak_certs_revoked", "value": ["true"]},
+                    ],
+                    "groups": [],
+                },
+            ],
+        }
+        assert client.get_users_pending_expiry() == []
+
+    def test_excludes_not_yet_expired(self, client, mock_http):
+        future = int(time.time()) + 86400
+        mock_http["graphql"].return_value = {
+            "users": [
+                {
+                    "id": "future_user",
+                    "creationDate": "2024-01-01T00:00:00Z",
+                    "displayName": "Future",
+                    "attributes": [
+                        {"name": "fastak_expires", "value": [str(future)]},
+                        {"name": "fastak_certs_revoked", "value": ["false"]},
+                    ],
+                    "groups": [],
+                },
+            ],
+        }
+        assert client.get_users_pending_expiry() == []
+
+    def test_excludes_users_without_ttl(self, client, mock_http):
+        mock_http["graphql"].return_value = {
+            "users": [
+                {
+                    "id": "permanent_user",
+                    "creationDate": "2024-01-01T00:00:00Z",
+                    "displayName": "Permanent",
+                    "attributes": [],
+                    "groups": [],
+                },
+            ],
+        }
+        assert client.get_users_pending_expiry() == []
+
+
+class TestUsernameToNumericId:
+    def test_deterministic(self):
+        assert _username_to_numeric_id("jsmith") == _username_to_numeric_id("jsmith")
+
+    def test_different_usernames_differ(self):
+        assert _username_to_numeric_id("jsmith") != _username_to_numeric_id("bjones")
+
+    def test_returns_positive_int(self):
+        nid = _username_to_numeric_id("jsmith")
+        assert isinstance(nid, int)
+        assert nid > 0
+
+    def test_fits_in_53_bits(self):
+        """Must stay within JS Number.MAX_SAFE_INTEGER (2^53 - 1)."""
+        nid = _username_to_numeric_id("jsmith")
+        assert nid <= 0x1FFFFFFFFFFFFF
