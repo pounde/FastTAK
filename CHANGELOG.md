@@ -2,6 +2,51 @@
 
 <!-- version list -->
 
+## v0.16.0 (2026-04-10)
+
+### Bug Fixes
+
+- **identity**: Widen numeric ID hash to 53 bits, raise on collision
+  ([`2b277f4`](https://github.com/pounde/FastTAK/commit/2b277f411414173067c7d0d560787c05abe1c315))
+
+### Chores
+
+- Add comment to .env.example indicating TAK_WEBADMIN_PASSWORD is optional
+  ([`fb5ca51`](https://github.com/pounde/FastTAK/commit/fb5ca51e3edfd28647d1479ba63f0ccff1796c03))
+
+### Documentation
+
+- Update documentation for LLDAP replacement
+  ([`6b44701`](https://github.com/pounde/FastTAK/commit/6b44701ff59ef8d4d507227ba01041a06a976609))
+
+### Features
+
+- Replace Authentik with LLDAP + ldap-proxy in Docker Compose stack
+  ([`86ceadb`](https://github.com/pounde/FastTAK/commit/86ceadb42480ad10b579af51eafc5e91285dbfde))
+
+- **init-identity**: Rewrite bootstrap from Authentik REST to LLDAP GraphQL
+  ([`4640e3a`](https://github.com/pounde/FastTAK/commit/4640e3a14c6e198f8be548b05998251a16df846e))
+
+- **ldap-proxy**: Add LDAP bind proxy with token store, REST API, and forward auth
+  ([`db95f2b`](https://github.com/pounde/FastTAK/commit/db95f2b5fadf15f1a2bed910d874307db5f4dab5))
+
+- **monitor**: Replace AuthentikClient with IdentityClient, migrate all modules
+  ([`7ecdc3b`](https://github.com/pounde/FastTAK/commit/7ecdc3b79084c47045a91e6444f8a3db7f17d873))
+
+### Refactoring
+
+- **ldap-proxy**: Move admin creds into LDAPProxy struct, document internal API
+  ([`c15ae2e`](https://github.com/pounde/FastTAK/commit/c15ae2e7b854d1a20b7eed64bf50ab4208cdb8a1))
+
+### Testing
+
+- Add unit tests for untested IdentityClient methods
+  ([`77308cd`](https://github.com/pounde/FastTAK/commit/77308cd22bf26c99a3c181f5db0dddf0d05d55ef))
+
+- Update integration tests for LLDAP/proxy backend, document decisions
+  ([`3b632a1`](https://github.com/pounde/FastTAK/commit/3b632a1e4632f53a0c06f99230ec254928659895))
+
+
 ## v0.15.0 (2026-04-07)
 
 ### Bug Fixes
