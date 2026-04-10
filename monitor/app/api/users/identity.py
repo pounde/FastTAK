@@ -25,12 +25,13 @@ _TIMEOUT = 30
 def _username_to_numeric_id(username: str) -> int:
     """Produce a stable positive integer from a username string.
 
-    Uses SHA-256 truncated to 31 bits for determinism across process restarts
-    (Python's built-in hash() is randomized). Collisions are astronomically
-    unlikely for realistic username sets.
+    Uses SHA-256 truncated to 53 bits for determinism across process restarts
+    (Python's built-in hash() is randomized). 53 bits stays within JavaScript's
+    Number.MAX_SAFE_INTEGER (2^53 - 1) so JSON-consuming frontends won't
+    silently truncate the value.
     """
     digest = hashlib.sha256(username.encode()).digest()
-    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+    return int.from_bytes(digest[:7], "big") & 0x1FFFFFFFFFFFFF
 
 
 class IdentityClient:
@@ -166,11 +167,9 @@ class IdentityClient:
             nid = _username_to_numeric_id(u["id"])
             existing = self._user_id_map.get(nid)
             if existing is not None and existing != u["id"]:
-                log.warning(
-                    "Numeric ID collision: %s and %s both map to %d",
-                    existing,
-                    u["id"],
-                    nid,
+                raise RuntimeError(
+                    f"Numeric ID collision: {existing!r} and {u['id']!r} both map to {nid}. "
+                    "This should be practically impossible with 53-bit hashes — please report."
                 )
             self._user_id_map[nid] = u["id"]
 
