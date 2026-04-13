@@ -20,6 +20,8 @@ All protected by an import password (`atakatak`) that prevents accidental instal
 
 These are three separate concepts. Getting them confused leads to operational mistakes.
 
+See [User Types](user-types.md) for detailed rules on group requirements and account behavior.
+
 ### Users
 
 **Users are people.** They generally authenticate via QR enrollment, and use ATAK, iTAK, or WinTAK. A user's identity follows the person — if they hand their device to someone else, the cert should be revoked and the new person should get their own.
@@ -56,7 +58,6 @@ FastTAK uses a **single self-signed certificate authority** called `FastTAK-CA`.
 graph TD
     CA["FastTAK-CA (10yr)"] --> Server["takserver.pem (2yr)"]
     CA --> SvcAdmin["svc_fasttakapi.p12 (2yr)"]
-    CA --> SvcData["svc_nodered.p12 (1yr)"]
     CA --> UserQR["User cert via QR (1yr)"]
     CA --> UserManual["User cert via API (1yr)"]
 ```
@@ -174,7 +175,6 @@ All cert files live at `./tak/certs/files/` on the host (bind-mounted into conta
 | `takserver.pem` / `takserver.p12` / `takserver.jks` | Server cert (various formats)                      |
 | `truststore-root.jks`                               | Trusted CA store for verification                  |
 | `svc_fasttakapi.p12`                                | API service cert (admin mode)                      |
-| `svc_nodered.p12`                                   | Node-RED service cert (data mode)                  |
 | `<name>.p12`                                        | Per-user/device client cert                        |
 
 ## The .p12 Password
