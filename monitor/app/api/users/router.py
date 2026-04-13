@@ -62,7 +62,7 @@ class CreateUserRequest(BaseModel):
     username: str
     name: str
     ttl_hours: int | None = None
-    groups: list[str] | None = None
+    groups: list[str] = Field(min_length=1)
 
     @field_validator("username")
     @classmethod
@@ -170,11 +170,20 @@ def create_user(body: CreateUserRequest):
         Created user object.
     """
     ak = _get_identity()
+
+    existing_groups = ak.list_groups()
+    existing_names = {g["name"] for g in existing_groups}
+    missing = [g for g in body.groups if g not in existing_names]
+    if missing:
+        msg = f"Groups do not exist: {', '.join(missing)}. Create them first."
+        raise HTTPException(400, msg)
+
     return ak.create_user(
         username=body.username,
         name=body.name,
         ttl_hours=body.ttl_hours,
         groups=body.groups,
+        user_type="user",
     )
 
 
@@ -913,5 +922,22 @@ def set_user_groups(user_id: int, body: SetGroupsRequest):
     user = ak.get_user(user_id)
     if not user:
         raise HTTPException(404, "User not found")
+
+    # Enforce user type group rules — default to "user" for accounts
+    # created outside the API (e.g. directly in LLDAP) that lack the attribute
+    user_type = user.get("fastak_user_type", "user")
+    if user_type == "svc_admin":
+        raise HTTPException(400, "Admin mode service accounts cannot have groups")
+    if user_type in ("user", "svc_data") and not body.groups:
+        raise HTTPException(400, "Users require at least one group")
+
+    if body.groups:
+        existing_groups = ak.list_groups()
+        existing_names = {g["name"] for g in existing_groups}
+        missing = [g for g in body.groups if g not in existing_names]
+        if missing:
+            msg = f"Groups do not exist: {', '.join(missing)}. Create them first."
+            raise HTTPException(400, msg)
+
     ak.set_user_groups(user_id, body.groups)
     return {"success": True}
