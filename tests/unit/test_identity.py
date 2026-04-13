@@ -763,6 +763,41 @@ class TestGetUsersPendingExpiry:
         assert client.get_users_pending_expiry() == []
 
 
+class TestFormatUser:
+    def test_includes_fastak_user_type(self, client):
+        result = client._format_user(
+            {
+                "id": "jsmith",
+                "displayName": "John",
+                "attributes": [{"name": "fastak_user_type", "value": ["user"]}],
+                "groups": [{"id": 1, "displayName": "tak_ops"}],
+            }
+        )
+        assert result["fastak_user_type"] == "user"
+
+    def test_omits_fastak_user_type_when_absent(self, client):
+        result = client._format_user(
+            {
+                "id": "jsmith",
+                "displayName": "John",
+                "attributes": [],
+                "groups": [],
+            }
+        )
+        assert "fastak_user_type" not in result
+
+    def test_parses_svc_admin_type(self, client):
+        result = client._format_user(
+            {
+                "id": "svc_fasttakapi",
+                "displayName": "FastTAK API",
+                "attributes": [{"name": "fastak_user_type", "value": ["svc_admin"]}],
+                "groups": [],
+            }
+        )
+        assert result["fastak_user_type"] == "svc_admin"
+
+
 class TestUsernameToNumericId:
     def test_deterministic(self):
         assert _username_to_numeric_id("jsmith") == _username_to_numeric_id("jsmith")
