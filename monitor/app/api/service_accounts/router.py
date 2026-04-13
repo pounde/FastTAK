@@ -168,11 +168,12 @@ def create_service_account(body: CreateServiceAccountRequest):
             raise HTTPException(400, msg)
 
     # Create LLDAP user
+    user_type = "svc_data" if body.mode == ServiceAccountMode.data else "svc_admin"
     user = ak.create_user(
         username=username,
         name=body.display_name,
         groups=body.groups if body.mode == ServiceAccountMode.data else None,
-        user_type="service_account",
+        user_type=user_type,
     )
 
     # Generate certificate
@@ -246,6 +247,12 @@ def update_service_account(account_id: int, body: UpdateServiceAccountRequest):
 
     # Validate groups before making any changes (atomic validation)
     if body.groups is not None:
+        user_type = user.get("fastak_user_type")
+        if user_type == "svc_admin":
+            raise HTTPException(400, "Admin mode service accounts cannot have groups")
+        if user_type == "svc_data" and body.groups == []:
+            raise HTTPException(400, "Data mode service accounts require at least one group")
+
         existing_groups = ak.list_groups()
         existing_names = {g["name"] for g in existing_groups}
         missing = [g for g in body.groups if g not in existing_names]
