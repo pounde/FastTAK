@@ -128,34 +128,87 @@ class TestGetUser:
 class TestCreateUser:
     def test_creates_user(self, mock_clients):
         mock_ak, _ = mock_clients
+        mock_ak.list_groups.return_value = [{"id": "g1", "name": "ops"}]
         mock_ak.create_user.return_value = {
             "id": 10,
             "username": "newuser",
             "name": "New",
             "is_active": True,
-            "groups": [],
+            "groups": ["ops"],
+            "fastak_user_type": "user",
         }
-        resp = client.post("/api/users", json={"username": "newuser", "name": "New"})
+        resp = client.post(
+            "/api/users",
+            json={"username": "newuser", "name": "New", "groups": ["ops"]},
+        )
         assert resp.status_code == 201
 
     def test_creates_user_with_ttl(self, mock_clients):
         mock_ak, _ = mock_clients
+        mock_ak.list_groups.return_value = [{"id": "g1", "name": "ops"}]
         mock_ak.create_user.return_value = {
             "id": 10,
             "username": "temp",
             "name": "Temp",
             "is_active": True,
-            "groups": [],
+            "groups": ["ops"],
+            "fastak_user_type": "user",
             "fastak_expires": 9999999999,
         }
         resp = client.post(
-            "/api/users", json={"username": "temp", "name": "Temp", "ttl_hours": 168}
+            "/api/users",
+            json={"username": "temp", "name": "Temp", "ttl_hours": 168, "groups": ["ops"]},
         )
         assert resp.status_code == 201
 
     def test_rejects_invalid_username(self, mock_clients):
         resp = client.post("/api/users", json={"username": "bad user!", "name": "Bad"})
         assert resp.status_code == 422
+
+    def test_requires_groups_on_create(self, mock_clients):
+        resp = client.post("/api/users", json={"username": "newuser", "name": "New"})
+        assert resp.status_code == 422
+
+    def test_requires_nonempty_groups_on_create(self, mock_clients):
+        resp = client.post("/api/users", json={"username": "newuser", "name": "New", "groups": []})
+        assert resp.status_code == 422
+
+    def test_creates_user_with_groups(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.list_groups.return_value = [
+            {"id": "g1", "name": "field_ops"},
+        ]
+        mock_ak.create_user.return_value = {
+            "id": 10,
+            "username": "newuser",
+            "name": "New",
+            "is_active": True,
+            "groups": ["field_ops"],
+            "fastak_user_type": "user",
+        }
+        resp = client.post(
+            "/api/users",
+            json={"username": "newuser", "name": "New", "groups": ["field_ops"]},
+        )
+        assert resp.status_code == 201
+        mock_ak.create_user.assert_called_once_with(
+            username="newuser",
+            name="New",
+            ttl_hours=None,
+            groups=["field_ops"],
+            user_type="user",
+        )
+
+    def test_rejects_nonexistent_groups_on_create(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.list_groups.return_value = [{"id": "g1", "name": "field_ops"}]
+        resp = client.post(
+            "/api/users",
+            json={"username": "newuser", "name": "New", "groups": ["NOPE"]},
+        )
+        assert resp.status_code == 400
+        assert "do not exist" in resp.json()["detail"].lower()
+        mock_ak.create_user.assert_not_called()
 
 
 class TestDeleteUser:
@@ -663,7 +716,107 @@ class TestGroups:
             "name": "John",
             "is_active": True,
             "groups": [],
+            "fastak_user_type": "user",
         }
-        resp = client.put("/api/users/1/groups", json={"groups": ["ROLE_ADMIN", "FDNY Robotics"]})
+        mock_ak.list_groups.return_value = [
+            {"id": "g1", "name": "ROLE_ADMIN"},
+            {"id": "g2", "name": "FDNY Robotics"},
+        ]
+        resp = client.put(
+            "/api/users/1/groups",
+            json={"groups": ["ROLE_ADMIN", "FDNY Robotics"]},
+        )
         assert resp.status_code == 200
         mock_ak.set_user_groups.assert_called_once_with(1, ["ROLE_ADMIN", "FDNY Robotics"])
+
+    def test_rejects_nonexistent_groups_on_set(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": ["ops"],
+            "fastak_user_type": "user",
+        }
+        mock_ak.list_groups.return_value = [{"id": "g1", "name": "field_ops"}]
+        resp = client.put("/api/users/1/groups", json={"groups": ["NOPE"]})
+        assert resp.status_code == 400
+        assert "do not exist" in resp.json()["detail"].lower()
+        mock_ak.set_user_groups.assert_not_called()
+
+    def test_rejects_empty_groups_for_user(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": ["field_ops"],
+            "fastak_user_type": "user",
+        }
+        resp = client.put("/api/users/1/groups", json={"groups": []})
+        assert resp.status_code == 400
+        assert "at least one group" in resp.json()["detail"].lower()
+        mock_ak.set_user_groups.assert_not_called()
+
+    def test_rejects_groups_for_admin_service_account(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_admin_bot",
+            "name": "Admin Bot",
+            "is_active": True,
+            "groups": [],
+            "fastak_user_type": "svc_admin",
+        }
+        resp = client.put("/api/users/1/groups", json={"groups": ["field_ops"]})
+        assert resp.status_code == 400
+        assert "admin" in resp.json()["detail"].lower()
+        mock_ak.set_user_groups.assert_not_called()
+
+    def test_rejects_empty_groups_for_data_service_account(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_sensor1",
+            "name": "Sensor 1",
+            "is_active": True,
+            "groups": ["field_ops"],
+            "fastak_user_type": "svc_data",
+        }
+        resp = client.put("/api/users/1/groups", json={"groups": []})
+        assert resp.status_code == 400
+        assert "at least one group" in resp.json()["detail"].lower()
+        mock_ak.set_user_groups.assert_not_called()
+
+    def test_allows_groups_for_data_service_account(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_sensor1",
+            "name": "Sensor 1",
+            "is_active": True,
+            "groups": ["field_ops"],
+            "fastak_user_type": "svc_data",
+        }
+        mock_ak.list_groups.return_value = [{"id": "g1", "name": "ops"}]
+        resp = client.put("/api/users/1/groups", json={"groups": ["ops"]})
+        assert resp.status_code == 200
+        mock_ak.set_user_groups.assert_called_once_with(1, ["ops"])
+
+    def test_untyped_user_defaults_to_user_rules(self, mock_clients):
+        """Accounts created outside the API (no fastak_user_type) get 'user' enforcement."""
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": ["ops"],
+            # No fastak_user_type key
+        }
+        resp = client.put("/api/users/1/groups", json={"groups": []})
+        assert resp.status_code == 400
+        assert "at least one group" in resp.json()["detail"].lower()
+        mock_ak.set_user_groups.assert_not_called()
