@@ -177,7 +177,12 @@ class IdentityClient:
     # LLDAP built-in attributes (creation_date, display_name, mail, etc.) are
     # read-only or managed through dedicated fields and must NOT be included
     # in insertAttributes mutations.
-    _FASTAK_ATTRIBUTES = {"fastak_expires", "fastak_certs_revoked", "is_active"}
+    _FASTAK_ATTRIBUTES = {
+        "fastak_expires",
+        "fastak_certs_revoked",
+        "is_active",
+        "fastak_user_type",
+    }
 
     def _parse_attributes(self, attrs_list: list[dict]) -> dict:
         """Convert LLDAP attribute list to a flat dict.
@@ -202,6 +207,8 @@ class IdentityClient:
                 result[name] = values[0].lower() == "true"
             elif name == "is_active":
                 result[name] = values[0].lower() != "false"
+            elif name == "fastak_user_type":
+                result[name] = values[0]  # "user", "svc_data", or "svc_admin"
         return result
 
     def _format_user(self, u: dict) -> dict:
@@ -230,6 +237,8 @@ class IdentityClient:
             result["fastak_expires"] = attrs["fastak_expires"]
         if "fastak_certs_revoked" in attrs:
             result["fastak_certs_revoked"] = attrs["fastak_certs_revoked"]
+        if "fastak_user_type" in attrs:
+            result["fastak_user_type"] = attrs["fastak_user_type"]
         return result
 
     def _build_custom_attributes(self, attrs: dict) -> list[dict]:
@@ -327,7 +336,7 @@ class IdentityClient:
         name: str,
         ttl_hours: int | None = None,
         groups: list[str] | None = None,
-        user_type: str | None = None,  # ignored — Authentik-specific
+        user_type: str | None = None,
     ) -> dict:
         """Create a passwordless user."""
         self._graphql(
@@ -349,6 +358,8 @@ class IdentityClient:
         attrs = {"fastak_certs_revoked": False}
         if ttl_hours is not None:
             attrs["fastak_expires"] = int(time.time() + ttl_hours * 3600)
+        if user_type is not None:
+            attrs["fastak_user_type"] = user_type
 
         custom_attrs = self._build_custom_attributes(attrs)
         self._graphql(
