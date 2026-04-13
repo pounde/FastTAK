@@ -4,6 +4,23 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-032: User Type Attribute (`fastak_user_type`)
+
+**Date:** 2026-04-13
+**Status:** Decided
+
+**Decision:** Every account has a `fastak_user_type` custom attribute in LLDAP, set at creation time. Three values: `user` (people), `svc_data` (data-mode service accounts), `svc_admin` (admin-mode service accounts). The API enforces group assignment rules based on type: `user` and `svc_data` require at least one group, `svc_admin` forbids groups.
+
+**Why:** The Pydantic model validator on the service account creation endpoint enforced mode/group rules at creation time, but the PATCH endpoint and the general-purpose `PUT /api/users/{id}/groups` endpoint had no way to determine account type after creation. Without a persisted type, the rules could be circumvented by updating groups post-creation — which is how the bug was discovered (assigning groups to an admin-mode service account via the Monitor UI). Regular users also had no group requirement, allowing creation of users with no channel assignments (useless for TAK operations).
+
+**Alternatives considered:**
+- `fastak_svc_mode` (admin/data) on service accounts only — doesn't cover regular users, requires combining prefix checks with mode checks.
+- Infer type from current state (no groups = admin) — circular; using the rule's expected outcome to enforce the rule.
+
+**Bootstrap:** `svc_nodered` removed from default service accounts. Users create data-mode service accounts via the API when needed, which enforces the groups requirement at creation time. `svc_fasttakapi` is tagged `svc_admin` during bootstrap.
+
+---
+
 ## DD-031: Replace Authentik with LLDAP + ldap-proxy
 
 **Date:** 2026-04-09
