@@ -32,7 +32,7 @@ BASE_DN = os.environ.get("LDAP_BASE_DN", "DC=takldap").strip() or "DC=takldap"
 
 WEBADMIN_PASS = os.environ.get("TAK_WEBADMIN_PASSWORD", "").strip()
 
-SERVICE_ACCOUNTS = ["svc_nodered", "svc_fasttakapi"]
+SERVICE_ACCOUNTS = ["svc_fasttakapi"]
 DEFAULT_GROUPS = ["tak_ROLE_ADMIN"]
 
 
@@ -194,6 +194,26 @@ def add_to_group(base_url, token, user_id, group_id):
     log.info("User '%s' added to group %s", user_id, group_id)
 
 
+def set_user_attribute(base_url, token, username, attr_name, attr_value):
+    """Set a custom attribute on a user (idempotent)."""
+    graphql(
+        base_url,
+        token,
+        """
+        mutation($input: UpdateUserInput!) {
+            updateUser(user: $input) { ok }
+        }
+        """,
+        {
+            "input": {
+                "id": username,
+                "insertAttributes": [{"name": attr_name, "value": [str(attr_value)]}],
+            }
+        },
+    )
+    log.info("Set %s=%s on '%s'", attr_name, attr_value, username)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -205,6 +225,7 @@ def ensure_custom_attributes(base_url, token):
         ("fastak_expires", "INTEGER"),
         ("fastak_certs_revoked", "STRING"),
         ("is_active", "STRING"),
+        ("fastak_user_type", "STRING"),
     ]
     for attr_name, attr_type in attrs:
         try:
@@ -259,12 +280,16 @@ def main():
         webadmin_id = ensure_user(LLDAP_URL, token, "webadmin", "Web Admin")
         set_password(LLDAP_URL, token, "webadmin", WEBADMIN_PASS)
         add_to_group(LLDAP_URL, token, webadmin_id, group_ids["tak_ROLE_ADMIN"])
+        set_user_attribute(LLDAP_URL, token, "webadmin", "fastak_user_type", "user")
     else:
         log.info("No TAK_WEBADMIN_PASSWORD set, skipping webadmin user")
 
     # Service accounts (passwordless — they auth via client certs)
     for svc_name in SERVICE_ACCOUNTS:
         ensure_user(LLDAP_URL, token, svc_name, svc_name)
+
+    # Set user types
+    set_user_attribute(LLDAP_URL, token, "svc_fasttakapi", "fastak_user_type", "svc_admin")
 
     log.info("Bootstrap complete")
 

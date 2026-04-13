@@ -123,7 +123,7 @@ class TestAddToGroup:
 
 
 class TestServiceAccountsHaveNoPassword:
-    """Service accounts (svc_nodered, svc_fasttakapi) are passwordless.
+    """Service accounts (svc_fasttakapi) are passwordless.
 
     They authenticate via client certs, not passwords. LDAP user exists
     only for x509groups group membership lookup.
@@ -136,18 +136,17 @@ class TestServiceAccountsHaveNoPassword:
         monkeypatch.setattr(bootstrap, "set_password", MagicMock())
         monkeypatch.setenv("TAK_WEBADMIN_PASSWORD", "")  # No webadmin
 
-        # ensure_custom_attributes (3 attrs) + ensure_group + ensure_user x2
+        # graphql call sequence: 4 attr schemas + ensure_group + ensure_user + set_user_attribute
         mock_graphql.side_effect = [
             {"addUserAttribute": {"ok": True}},  # fastak_expires schema
             {"addUserAttribute": {"ok": True}},  # fastak_certs_revoked schema
             {"addUserAttribute": {"ok": True}},  # is_active schema
+            {"addUserAttribute": {"ok": True}},  # fastak_user_type schema
             {"groups": [{"id": 1, "displayName": "tak_ROLE_ADMIN"}]},  # ensure_group
-            {
-                "user": {"id": "svc_nodered", "displayName": "svc_nodered"}
-            },  # ensure_user svc_nodered
             {
                 "user": {"id": "svc_fasttakapi", "displayName": "svc_fasttakapi"}
             },  # ensure_user svc_fasttakapi
+            {"updateUser": {"ok": True}},  # set_user_attribute svc_fasttakapi
         ]
 
         bootstrap.main()
