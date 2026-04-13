@@ -63,7 +63,7 @@ class TestCreateServiceAccount:
             username="svc_sensor1",
             name="Sensor 1",
             groups=["field_ops"],
-            user_type="service_account",
+            user_type="svc_data",
         )
 
     def test_create_admin_account(self, mock_clients):
@@ -103,7 +103,7 @@ class TestCreateServiceAccount:
             username="svc_admin_bot",
             name="Admin Bot",
             groups=None,
-            user_type="service_account",
+            user_type="svc_admin",
         )
 
     def test_data_mode_requires_groups(self, mock_clients):
@@ -442,6 +442,50 @@ class TestUpdateServiceAccount:
         }
         resp = client.patch("/api/service-accounts/1", json={"display_name": "X"})
         assert resp.status_code == 404
+
+    def test_admin_mode_rejects_groups(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_admin_bot",
+            "name": "Admin Bot",
+            "is_active": True,
+            "groups": [],
+            "fastak_user_type": "svc_admin",
+        }
+        resp = client.patch("/api/service-accounts/1", json={"groups": ["field_ops"]})
+        assert resp.status_code == 400
+        assert "admin" in resp.json()["detail"].lower()
+        mock_ak.set_user_groups.assert_not_called()
+
+    def test_data_mode_rejects_empty_groups(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_sensor1",
+            "name": "Sensor 1",
+            "is_active": True,
+            "groups": ["field_ops"],
+            "fastak_user_type": "svc_data",
+        }
+        resp = client.patch("/api/service-accounts/1", json={"groups": []})
+        assert resp.status_code == 400
+        assert "at least one group" in resp.json()["detail"].lower()
+        mock_ak.set_user_groups.assert_not_called()
+
+    def test_data_mode_allows_group_update(self, mock_clients):
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "svc_sensor1",
+            "name": "Sensor 1",
+            "is_active": True,
+            "groups": ["field_ops"],
+            "fastak_user_type": "svc_data",
+        }
+        resp = client.patch("/api/service-accounts/1", json={"groups": ["ops"]})
+        assert resp.status_code == 200
+        mock_ak.set_user_groups.assert_called_once_with(1, ["ops"])
 
 
 # ── Download ─────────────────────────────────────────────────────
