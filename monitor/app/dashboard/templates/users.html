@@ -13,6 +13,8 @@
     newUsername: '',
     newName: '',
     newTtl: '',
+    newGroups: [],
+    createGroupDropdownOpen: false,
     createLoading: false,
     createError: '',
     actionLoading: false,
@@ -81,6 +83,12 @@
         else this.editGroups.splice(idx, 1);
     },
 
+    toggleNewGroup(name) {
+        const idx = this.newGroups.indexOf(name);
+        if (idx === -1) this.newGroups.push(name);
+        else this.newGroups.splice(idx, 1);
+    },
+
     refreshList() {
         const search = document.getElementById('user-search').value;
         htmx.ajax('GET', '/ui/partials/user-list?search=' + encodeURIComponent(search), '#user-list-container');
@@ -91,7 +99,7 @@
         this.createLoading = true;
         this.createError = '';
         try {
-            const body = { username: this.newUsername, name: this.newName };
+            const body = { username: this.newUsername, name: this.newName, groups: [...this.newGroups] };
             if (this.newTtl) body.ttl_hours = parseInt(this.newTtl);
             const r = await fetch('/api/users', {
                 method: 'POST',
@@ -103,7 +111,7 @@
                 this.createError = d.detail || 'Failed to create user';
                 return;
             }
-            this.newUsername = ''; this.newName = ''; this.newTtl = '';
+            this.newUsername = ''; this.newName = ''; this.newTtl = ''; this.newGroups = [];
             this.showCreate = false;
             this.refreshList();
         } catch(e) { this.createError = e.message; }
@@ -335,8 +343,33 @@
                 <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">TTL (hours, optional)</label>
                 <input type="text" x-model="newTtl" placeholder="e.g. 168" style="width: 100px;">
             </div>
+            <div style="position: relative;">
+                <label style="color: #888; font-size: 12px; display: block; margin-bottom: 4px;">Groups</label>
+                <button type="button" @click="createGroupDropdownOpen = !createGroupDropdownOpen"
+                        style="min-width: 180px; text-align: left; position: relative; padding-right: 24px;">
+                    <span x-text="newGroups.length ? newGroups.join(', ') : 'Select groups...'"
+                          :style="newGroups.length ? '' : 'color: #555'"></span>
+                    <span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: #555;">&#9662;</span>
+                </button>
+                <div x-show="createGroupDropdownOpen" x-cloak @click.outside="createGroupDropdownOpen = false"
+                     style="position: absolute; top: 100%; left: 0; z-index: 20; background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; max-height: 200px; overflow-y: auto; min-width: 180px; margin-top: 4px;">
+                    <template x-if="groups.length === 0">
+                        <p style="padding: 8px 12px; color: #555; font-size: 12px; margin: 0;">No groups — create one first</p>
+                    </template>
+                    <template x-for="g in groups" :key="g.name">
+                        <label style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;"
+                               @click.stop>
+                            <input type="checkbox"
+                                   :checked="newGroups.includes(g.name)"
+                                   @change="toggleNewGroup(g.name)"
+                                   style="accent-color: #4fc3f7;">
+                            <span x-text="g.name"></span>
+                        </label>
+                    </template>
+                </div>
+            </div>
             <div style="align-self: flex-end;">
-                <button :disabled="!newUsername || !newName || createLoading" @click="createUser()">
+                <button :disabled="!newUsername || !newName || newGroups.length === 0 || createLoading" @click="createUser()">
                     <span x-text="createLoading ? 'Creating...' : 'Create'"></span>
                 </button>
             </div>
