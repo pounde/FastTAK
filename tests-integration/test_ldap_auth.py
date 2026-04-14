@@ -50,10 +50,12 @@ def attempt_ldap_bind(compose_exec, username: str, password: str = "") -> int:
 
 class TestLDAPAuth:
     @pytest.fixture(autouse=True)
-    def _create_test_user(self, api):
+    def _create_test_user(self, api, user_group):
         """Create a passwordless user for the LDAP bind test, clean up after."""
         status, data = api(
-            "POST", "/api/users", {"username": "test_nopassword", "name": "Test No Password"}
+            "POST",
+            "/api/users",
+            {"username": "test_nopassword", "name": "Test No Password", "groups": [user_group]},
         )
         assert status == 200 or status == 201, f"Failed to create test user: {data}"
         self.user_id = data["id"]
