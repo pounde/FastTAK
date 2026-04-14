@@ -4,7 +4,6 @@ The stack must be running before tests start (via `just test-up`).
 These fixtures discover the stack and provide transport for API calls.
 """
 
-import json
 import os
 import subprocess
 import time
@@ -12,7 +11,11 @@ from dataclasses import dataclass
 from glob import glob
 from pathlib import Path
 
+import httpx
 import pytest
+
+# Port exposed by docker-compose.test.yml ("18180:8080")
+MONITOR_HOST_PORT = 18180
 
 # ---------------------------------------------------------------------------
 # Stack discovery
@@ -108,51 +111,22 @@ def compose_exec(compose_cmd):
 
 
 @pytest.fixture(scope="session")
-def api(compose_exec):
+def api():
     """Call the Monitor API. Returns (status_code, parsed_json_or_None).
 
     Usage: status, data = api("GET", "/api/ping")
     """
+    with httpx.Client(base_url=f"http://localhost:{MONITOR_HOST_PORT}", timeout=30) as client:
 
-    def _call(method: str, path: str, json_data: dict | None = None):
-        cmd = [
-            "curl",
-            "-s",
-            "-w",
-            "\n%{http_code}",
-            "-X",
-            method,
-            f"http://localhost:8080{path}",
-        ]
-        if json_data is not None:
-            cmd += [
-                "-H",
-                "Content-Type: application/json",
-                "-d",
-                json.dumps(json_data),
-            ]
-        result = compose_exec("monitor", cmd)
-        lines = result.stdout.strip().rsplit("\n", 1)
-        if len(lines) == 2:
-            body_str, code_str = lines
-        elif len(lines) == 1:
-            body_str, code_str = "", lines[0]
-        else:
-            return 0, None
+        def _call(method: str, path: str, json_data: dict | None = None):
+            response = client.request(method, path, json=json_data)
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            return response.status_code, body
 
-        try:
-            status = int(code_str.strip())
-        except ValueError:
-            status = 0
-
-        try:
-            body = json.loads(body_str) if body_str else None
-        except json.JSONDecodeError:
-            body = None
-
-        return status, body
-
-    return _call
+        yield _call
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,11 @@ services:
       - "18089:8089"
       - "18443:8443"
       - "18446:8446"
+    healthcheck:
+      test: ["CMD", "/opt/tak/healthcheck.sh"]
+      interval: 10s
+      retries: 5
+      start_period: 60s
     # Reset volumes to drop per-file bind mounts that overlay onto the TAK
     # volume. test-setup.sh copies healthcheck.sh and register-api-cert.sh
     # into TAK_HOST_PATH instead, avoiding Docker Desktop virtiofs conflicts
