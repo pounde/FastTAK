@@ -2,6 +2,50 @@
 
 <!-- version list -->
 
+## v0.17.0 (2026-04-14)
+
+### Bug Fixes
+
+- **bootstrap**: Register fastak_user_type attr, remove svc_nodered, tag accounts
+  ([`c6b7f78`](https://github.com/pounde/FastTAK/commit/c6b7f782fd20c0dee0fe298cfbefb322b898a904))
+
+- **dashboard**: Add groups dropdown to user creation form
+  ([`f9d211a`](https://github.com/pounde/FastTAK/commit/f9d211a43ae5c39742a64cfdd0637d8ca0425e17))
+
+- **service-accounts**: Enforce group rules on PATCH based on fastak_user_type
+  ([`8e89e60`](https://github.com/pounde/FastTAK/commit/8e89e609b9127b157291efae409cac7ee7860b54))
+
+- **test**: Include groups in LDAP auth test user creation
+  ([`38df739`](https://github.com/pounde/FastTAK/commit/38df739d38a8297423165e453bf4aa18c8a1aaf3))
+
+- **test**: Remove groups bootstrap check (tak_ROLE_ADMIN hidden from API)
+  ([`a77a5cc`](https://github.com/pounde/FastTAK/commit/a77a5cc61c8d4842040967611362a0f33737204b))
+
+- **test**: Remove unreachable admin group enforcement test
+  ([`b683a7b`](https://github.com/pounde/FastTAK/commit/b683a7b672673853fae2fbc9c98dc8476684f814))
+
+- **users**: Require groups on user creation, validate existence, enforce type rules
+  ([`fc841bd`](https://github.com/pounde/FastTAK/commit/fc841bdfdcdc1648f49b69fb19995a6ca1c98074))
+
+### Documentation
+
+- Add DD-032 for fastak_user_type, create user-types reference, update cert guide
+  ([`977bfe3`](https://github.com/pounde/FastTAK/commit/977bfe3c209f4c6898cf86ec0ce042042acc7bd9))
+
+### Features
+
+- **identity**: Add fastak_user_type attribute support to IdentityClient
+  ([`1e5ee11`](https://github.com/pounde/FastTAK/commit/1e5ee111b74d656654ed427f03ef92477d334231))
+
+### Testing
+
+- **integration**: Add group enforcement tests, fix user creation tests
+  ([`32427e4`](https://github.com/pounde/FastTAK/commit/32427e4673d95c2761c089012325366a482137ee))
+
+- **integration**: Verify bootstrap state — expected accounts and groups
+  ([`c664103`](https://github.com/pounde/FastTAK/commit/c66410384e1bb8efebb9afe77a4e59f0e2d58224))
+
+
 ## v0.16.0 (2026-04-10)
 
 ### Bug Fixes
