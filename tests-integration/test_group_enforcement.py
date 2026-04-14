@@ -30,6 +30,32 @@ def enforce_user_name(run_id):
     return f"tste_{run_id}"
 
 
+class TestBootstrapState:
+    """Verify bootstrap created exactly the expected accounts and groups."""
+
+    EXPECTED_SERVICE_ACCOUNTS = {"svc_fasttakapi"}
+    EXPECTED_USERS = {"webadmin"}
+    EXPECTED_GROUPS = {"ROLE_ADMIN"}
+
+    def test_service_accounts(self, api):
+        status, data = api("GET", "/api/service-accounts")
+        assert status == 200
+        usernames = {a["username"] for a in data.get("results", [])}
+        assert usernames == self.EXPECTED_SERVICE_ACCOUNTS
+
+    def test_users(self, api):
+        status, data = api("GET", "/api/users")
+        assert status == 200
+        usernames = {u["username"] for u in data.get("results", [])}
+        assert usernames == self.EXPECTED_USERS
+
+    def test_groups(self, api):
+        status, data = api("GET", "/api/groups")
+        assert status == 200
+        names = {g["name"] for g in data}
+        assert names >= self.EXPECTED_GROUPS
+
+
 class TestUserCreationGroupRequirement:
     """Users require at least one group at creation time."""
 
