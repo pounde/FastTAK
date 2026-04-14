@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.17.1 (2026-04-14)
+
+### Performance Improvements
+
+- **test**: Replace Docker exec transport with direct httpx, tighten healthcheck
+  ([`e450658`](https://github.com/pounde/FastTAK/commit/e450658cb83bb959a6860ca95f8274e3999c7bf0))
+
+
 ## v0.17.0 (2026-04-14)
 
 ### Bug Fixes
