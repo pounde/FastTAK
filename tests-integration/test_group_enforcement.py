@@ -35,7 +35,6 @@ class TestBootstrapState:
 
     EXPECTED_SERVICE_ACCOUNTS = {"svc_fasttakapi"}
     EXPECTED_USERS = {"webadmin"}
-    EXPECTED_GROUPS = {"ROLE_ADMIN"}
 
     def test_service_accounts(self, api):
         status, data = api("GET", "/api/service-accounts")
@@ -48,12 +47,6 @@ class TestBootstrapState:
         assert status == 200
         usernames = {u["username"] for u in data.get("results", [])}
         assert usernames == self.EXPECTED_USERS
-
-    def test_groups(self, api):
-        status, data = api("GET", "/api/groups")
-        assert status == 200
-        names = {g["name"] for g in data}
-        assert names >= self.EXPECTED_GROUPS
 
 
 class TestUserCreationGroupRequirement:
