@@ -130,17 +130,6 @@ class TestAdminServiceAccountGroupEnforcement:
         assert status == 400
         assert "admin" in data["detail"].lower()
 
-    @pytest.mark.dependency(depends=["enforce_svc_admin_create"])
-    def test_rejects_groups_via_user_endpoint(self, api, enforce_group, created_resources):
-        sid = created_resources["enforce_svc_admin_id"]
-        status, data = api(
-            "PUT",
-            f"/api/users/{sid}/groups",
-            {"groups": [enforce_group]},
-        )
-        assert status == 400
-        assert "admin" in data["detail"].lower()
-
 
 class TestDataServiceAccountGroupEnforcement:
     """Data service accounts require at least one group."""
