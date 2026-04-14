@@ -10,13 +10,16 @@ pytestmark = pytest.mark.integration
 
 class TestUserLifecycle:
     @pytest.mark.dependency(name="lifecycle_create")
-    def test_create_user(self, api, test_lifecycle_user_name, run_id, created_resources):
+    def test_create_user(
+        self, api, test_lifecycle_user_name, run_id, user_group, created_resources
+    ):
         status, data = api(
             "POST",
             "/api/users",
             {
                 "username": test_lifecycle_user_name,
                 "name": f"Lifecycle {run_id}",
+                "groups": [user_group],
             },
         )
         assert status == 201

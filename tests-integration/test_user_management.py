@@ -29,11 +29,11 @@ class TestUserManagement:
         assert data.get("count", -1) == 0
 
     @pytest.mark.dependency(name="user_create")
-    def test_create_user(self, api, test_user_name, created_resources):
+    def test_create_user(self, api, test_user_name, user_group, created_resources):
         status, data = api(
             "POST",
             "/api/users",
-            {"username": test_user_name, "name": "Test User"},
+            {"username": test_user_name, "name": "Test User", "groups": [user_group]},
         )
         assert status == 201
         assert data["username"] == test_user_name

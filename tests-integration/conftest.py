@@ -167,6 +167,25 @@ def run_id():
 
 
 @pytest.fixture(scope="session")
+def user_group_name(run_id):
+    """Group name used for user creation tests (groups are now required)."""
+    return f"USR_TST_{run_id}"
+
+
+@pytest.fixture(scope="session")
+def user_group(api, user_group_name, created_resources):
+    """Create a shared group for user-creation tests.
+
+    Users now require at least one group, so any test that creates a user
+    needs this group to exist first.
+    """
+    status, data = api("POST", "/api/groups", {"name": user_group_name})
+    assert status == 201, f"Failed to create user test group: {data}"
+    created_resources["user_group_id"] = data["id"]
+    return user_group_name
+
+
+@pytest.fixture(scope="session")
 def test_user_name(run_id):
     return f"tstu_{run_id}"
 
@@ -256,17 +275,17 @@ def cleanup_test_resources(api, created_resources):
     """
     yield
     # Teardown
-    for key in ("svc_data_id", "svc_admin_id"):
+    for key in ("svc_data_id", "svc_admin_id", "enforce_svc_admin_id", "enforce_svc_data_id"):
         rid = created_resources.get(key)
         if rid:
             api("DELETE", f"/api/service-accounts/{rid}")
 
-    for key in ("svc_group_id", "test_group_id"):
+    for key in ("svc_group_id", "test_group_id", "user_group_id", "enforce_group_id"):
         rid = created_resources.get(key)
         if rid:
             api("DELETE", f"/api/groups/{rid}")
 
-    for key in ("lifecycle_user_id",):
+    for key in ("lifecycle_user_id", "enforce_user_id"):
         rid = created_resources.get(key)
         if rid:
             api("DELETE", f"/api/users/{rid}")
