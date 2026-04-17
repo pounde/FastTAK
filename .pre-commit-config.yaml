@@ -5,7 +5,7 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
-        exclude: ^docker-compose\.test\.yml$  # uses Compose !reset tag unsupported by pyyaml
+        exclude: ^(docker-compose\.test\.yml|mkdocs\.yml)$  # pyyaml can't handle custom YAML tags
       - id: check-merge-conflict
       - id: check-added-large-files
       - id: no-commit-to-branch
