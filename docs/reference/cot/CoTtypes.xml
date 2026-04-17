@@ -5830,6 +5830,220 @@
        source="S3"
        notes="N3" />
 
+  <!-- ATAK-CIV 5.7 source code types (S4) -->
+
+  <!-- Map objects — drawing extensions -->
+  <cot cot="u-d-v"
+       full="Map/Drawing/Vehicle"
+       desc="Vehicle Shape"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-d-v-m"
+       full="Map/Drawing/Vehicle/3D Model"
+       desc="Vehicle 3D Model"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-d-k"
+       full="Map/Drawing/Keyhole"
+       desc="Keyhole"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-d-f-m"
+       full="Map/Drawing/Polyline/MultiPolyline"
+       desc="MultiPolyline (Telestration)"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-d-z-c-c"
+       full="Map/Drawing/Drop Zone/Circle Center"
+       desc="Drop Zone Circle Center"
+       source="S4"
+       notes="N3" />
+
+  <!-- Map objects — range and bearing -->
+  <cot cot="u-r-b-c-c"
+       full="Map/Range and Bearing/Circle"
+       desc="Range and Bearing Circle"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-r-b-bullseye"
+       full="Map/Range and Bearing/Bullseye"
+       desc="Bullseye"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-r-b-endpoint"
+       full="Map/Range and Bearing/Endpoint"
+       desc="Range and Bearing Endpoint"
+       source="S4"
+       notes="N3" />
+
+  <!-- Map objects — obstacles -->
+  <cot cot="u-o-p"
+       full="Map/Obstacle/Point"
+       desc="Point Obstacle"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-o-r"
+       full="Map/Obstacle/Route"
+       desc="Route Obstacle"
+       source="S4"
+       notes="N3" />
+  <cot cot="u-o-a"
+       full="Map/Obstacle/Area"
+       desc="Area Obstacle"
+       source="S4"
+       notes="N3" />
+
+  <!-- Bits — mapping/sensor extensions -->
+  <cot cot="b-m-p-w-GOTO"
+       full="Bits/Mapping/map point/waypoint/GOTO"
+       desc="GOTO Waypoint (Bloodhound)"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-c-cp"
+       full="Bits/Mapping/map point/Control Point/Contact Point"
+       desc="Contact Point"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-c-ip"
+       full="Bits/Mapping/map point/Control Point/Initial Point"
+       desc="Initial Point"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-c-z"
+       full="Bits/Mapping/map point/Control Point/Enterprise Sync"
+       desc="Enterprise Sync Resource Marker"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-s-m"
+       full="Bits/Mapping/Sensor Point/Spot Map"
+       desc="Spot Map Point"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-s-p-i"
+       full="Bits/Mapping/Sensor Point/Sensor Point of Interest/SPI"
+       desc="Sensor Point of Interest (SPI)"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-s-p-loc"
+       full="Bits/Mapping/Sensor Point/Sensor Point of Interest/Sensor Location"
+       desc="Sensor Location"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-s-p-op"
+       full="Bits/Mapping/Sensor Point/Sensor Point of Interest/Observation Point"
+       desc="Observation Point"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-a"
+       full="Bits/Mapping/map point/Aimpoint"
+       desc="Aimpoint"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-m-p-i"
+       full="Bits/Mapping/map point/Point of Interest"
+       desc="Point of Interest"
+       source="S4"
+       notes="N3" />
+
+  <!-- Bits — imagery -->
+  <cot cot="b-i-x-i"
+       full="Bits/Imagery/Quick Pic"
+       desc="Quick Pic Image"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-i-r-r"
+       full="Bits/Imagery/Remote Resource"
+       desc="Remote Resource (Imagery)"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-i-v"
+       full="Bits/Imagery/Video"
+       desc="Video Alias"
+       source="S4"
+       notes="N3" />
+
+  <!-- Bits — file transfer -->
+  <cot cot="b-f-t-r"
+       full="Bits/File Transfer/Request"
+       desc="File Transfer Request"
+       source="S4"
+       notes="N3" />
+
+  <!-- Bits — alerts and emergency -->
+  <cot cot="b-a"
+       full="Bits/Alert"
+       desc="Emergency"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-a-g"
+       full="Bits/Alert/Geophysical"
+       desc="Geophysical Alarm"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-a-o-opn"
+       full="Bits/Alert/Other/Open"
+       desc="Open Alarm"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-a-o-pan"
+       full="Bits/Alert/Other/Panic"
+       desc="Panic Alarm"
+       source="S4"
+       notes="N3" />
+  <cot cot="b-a-o-tbl"
+       full="Bits/Alert/Other/Trouble"
+       desc="Trouble Alarm"
+       source="S4"
+       notes="N3" />
+
+  <!-- Bits — chat -->
+  <cot cot="b-t-f"
+       full="Bits/Text/Freetext"
+       desc="GeoChat Message"
+       source="S4"
+       notes="N3" />
+
+  <!-- Bits — CASEVAC -->
+  <cot cot="b-r-f-h-c"
+       full="Bits/Report/CASEVAC"
+       desc="CASEVAC Marker"
+       source="S4"
+       notes="N3" />
+
+  <!-- Bits — zone protection -->
+  <cot cot="b-e-r"
+       full="Bits/Zone Protection/Point"
+       desc="Zone Protected Point"
+       source="S4"
+       notes="N3" />
+
+  <!-- Tasking extensions -->
+  <cot cot="t-k-d"
+       full="Tasking/Strike/Destroy"
+       desc="Nine Line (CAS) Marker"
+       source="S4"
+       notes="N3" />
+  <cot cot="t-x-d-d"
+       full="Tasking/Experimental/Delete"
+       desc="Delete Task"
+       source="S4"
+       notes="N3" />
+  <cot cot="t-x-c"
+       full="Tasking/Experimental/Chat Client"
+       desc="Client Chat Message"
+       source="S4"
+       notes="N3" />
+  <cot cot="t-x-c-t"
+       full="Tasking/Experimental/Chat Client/Text"
+       desc="Plain-text Chat"
+       source="S4"
+       notes="N3" />
+  <cot cot="t-s-v-e"
+       full="Tasking/ISR/ISR Video/ISR Video EO"
+       desc="Sensor Video (Electro-optical)"
+       source="S4"
+       notes="N3" />
+
   <!-- Tactical Graphics (DEPRECATED!!!) -->
   <!-- Weather (Experimental!) -->
   <cot cot="b-w"
