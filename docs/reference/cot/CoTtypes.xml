@@ -5803,6 +5803,33 @@
        desc="Status: Reviewing"
        source="S1" />
 
+  <!-- Map objects (user-drawn) — dfpc-coe/node-CoT custom types -->
+  <cot cot="u-d-p"
+       full="Map/Drawing/Point"
+       desc="User Drawn Point"
+       source="S3"
+       notes="N3" />
+  <cot cot="u-d-r"
+       full="Map/Drawing/Rectangle"
+       desc="User Drawn Rectangle"
+       source="S3"
+       notes="N3" />
+  <cot cot="u-d-f"
+       full="Map/Drawing/Polyline"
+       desc="User Drawn Polyline"
+       source="S3"
+       notes="N3" />
+  <cot cot="u-d-c-c"
+       full="Map/Drawing/Circle"
+       desc="User Drawn Circle"
+       source="S3"
+       notes="N3" />
+  <cot cot="u-rb-a"
+       full="Map/Range and Bearing/Line"
+       desc="User Drawn Range and Bearing"
+       source="S3"
+       notes="N3" />
+
   <!-- Tactical Graphics (DEPRECATED!!!) -->
   <!-- Weather (Experimental!) -->
   <cot cot="b-w"
