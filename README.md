@@ -12,15 +12,21 @@ A Docker Compose stack for deploying and managing the TAK ecosystem:
 - **LLDAP + ldap-proxy** — Lightweight LDAP authentication and user management
 - **TAK Portal** — User management, certificate enrollment via QR
 - **Node-RED** — Flow-based automation engine with pre-configured PostGIS and TAK Server connections
-- **Monitor** — Health monitoring API and operations dashboard
-
-For browser-based TAK access, see [CloudTAK](https://github.com/dfpc-coe/CloudTAK) (separate stack, connects to FastTAK's TAK Server).
+- **Monitor** — Health monitoring and operations API and minimal console
 
 ## Prerequisites
 
 1. **Docker Engine** and **Docker Compose v2** (v2.20+) installed
 2. **Official TAK Server release** ZIP from [tak.gov](https://tak.gov)
-3. **DNS** (recommended) — your FQDN and subdomains should resolve to the host's public IP. Required for Caddy TLS, subdomain routing, and QR enrollment. Without DNS, TAK clients can still connect directly via IP address on ports 8089/8443/8446, but Caddy and QR enrollment won't work. Set `FQDN=localhost` in `.env` for local development.
+3. **DNS** (subdomain mode only) — required for Let's Encrypt TLS and subdomain routing. Your FQDN and subdomains must resolve to the host's public IP. Not needed for direct mode.
+
+## Deployment Modes
+
+FastTAK supports two deployment modes, controlled by `DEPLOY_MODE` in `.env`:
+
+**`direct`** — Port-based routing through Caddy with self-signed TLS. No DNS needed. Each service gets its own port (e.g., `https://192.168.1.50:8446`). Good for field deployments, air-gapped networks, and getting started quickly.
+
+**`subdomain`** — Subdomain-based routing through Caddy with automatic Let's Encrypt TLS. Requires public DNS. Each service gets a subdomain (e.g., `https://portal.tak.example.com`).
 
 ## Quick Start
 
@@ -29,7 +35,9 @@ git clone https://github.com/pounde/FastTAK.git FastTAK && cd FastTAK
 
 # One-time setup (builds images, extracts tak/, generates secrets)
 ./setup.sh takserver-docker-5.6-RELEASE-6.zip
-vim .env                # set FQDN to your domain
+
+# Set SERVER_ADDRESS to your IP or hostname, pick a DEPLOY_MODE
+vim .env
 
 # Start
 ./start.sh
@@ -38,6 +46,8 @@ vim .env                # set FQDN to your domain
 `setup.sh` extracts the TAK Server release, builds Docker images, creates `.env` with generated secrets. You only run it once (or again to upgrade).
 
 `start.sh` brings up the stack, waits for healthy, and shows connection info.
+
+The fastest path to a working stack is `DEPLOY_MODE=direct` with `SERVER_ADDRESS` set to your machine's IP address — no DNS required.
 
 For the full end-to-end walkthrough (user enrollment, video streaming), see [docs/quickstart-walkthrough.md](docs/quickstart-walkthrough.md).
 
@@ -58,8 +68,8 @@ docker build -t takserver:5.6-RELEASE-6 -f takserver-docker-5.6-RELEASE-6/docker
 
 # 3. Create .env and generate secrets
 cp .env.example .env
-# Edit .env: set FQDN, then generate each empty secret with the command
-# shown in the comment above it (e.g., openssl rand -hex 16).
+# Edit .env: set SERVER_ADDRESS and DEPLOY_MODE, then generate each empty
+# secret with the command shown in the comment above it (e.g., openssl rand -hex 16).
 # All empty fields must be filled — the stack will not start without them.
 
 # 4. Start
@@ -114,7 +124,7 @@ FastTAK includes a monitoring service with two components:
 
 **Dashboard** — A web UI built on top of the API. Auto-refreshing health grid, certificate status, update notifications, disk usage, activity log, and an operations page for cert management and database maintenance.
 
-Access the dashboard at `http://localhost:8180` or `https://monitor.<FQDN>` (via Caddy with LDAP authentication).
+Access the dashboard at `https://<SERVER_ADDRESS>:8180` (direct mode) or `https://monitor.<SERVER_ADDRESS>` (subdomain mode). Both use LDAP authentication via Caddy.
 
 ## Configuration
 
@@ -122,26 +132,40 @@ All configuration lives in a single `.env` file. See `.env.example` for the full
 
 ### Required variables
 
-| Variable                   | Description                                                             |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `FQDN`                     | Domain name for SSL certs, subdomain routing, and QR enrollment         |
-| `TAK_WEBADMIN_PASSWORD`    | Password for the `webadmin` account (default: `FastTAK-Admin-1!`)       |
+| Variable                | Description                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `SERVER_ADDRESS`        | IP, hostname, or FQDN that clients use to reach this server (e.g. `192.168.1.50`)    |
+| `DEPLOY_MODE`           | `direct` (port-based, self-signed TLS) or `subdomain` (DNS-based, Let's Encrypt TLS) |
+| `TAK_WEBADMIN_PASSWORD` | Password for the `webadmin` account (default: `FastTAK-Admin-1!`)                    |
 
 Change the default password for production. Additional optional variables (SMTP relay, LDAP base DN, admin email) are documented in `.env.example`.
 
 ### Version pins
 
-| Variable             | Default    | Description                                |
-| -------------------- | ---------- | ------------------------------------------ |
-| `TAK_VERSION`        | `5.6`      | TAK Server Docker image tag                |
-| `LLDAP_VERSION`      | `v0.6.1`   | LLDAP lightweight LDAP server              |
-| `MEDIAMTX_VERSION`   | `1.15.5`   | MediaMTX video streaming                   |
-| `NODERED_VERSION`    | `4.1`      | Node-RED                                   |
-| `TAK_PORTAL_VERSION` | `1.2.53`   | TAK Portal (git tag)                       |
+| Variable             | Default  | Description                   |
+| -------------------- | -------- | ----------------------------- |
+| `TAK_VERSION`        | `5.6`    | TAK Server Docker image tag   |
+| `LLDAP_VERSION`      | `v0.6.1` | LLDAP lightweight LDAP server |
+| `MEDIAMTX_VERSION`   | `1.15.5` | MediaMTX video streaming      |
+| `NODERED_VERSION`    | `4.1`    | Node-RED                      |
+| `TAK_PORTAL_VERSION` | `1.2.53` | TAK Portal (git tag)          |
 
-### Subdomains
+### Port assignments (direct mode)
 
-Each service gets a configurable subdomain (defaults shown):
+In direct mode, each service gets its own port on Caddy with self-signed TLS:
+
+| Variable               | Default | Service              |
+| ---------------------- | ------- | -------------------- |
+| `TAKSERVER_ADMIN_PORT` | `8446`  | TAK Server web admin |
+| `MEDIAMTX_PORT`        | `8888`  | MediaMTX streaming   |
+| `NODERED_PORT`         | `1880`  | Node-RED             |
+| `MONITOR_PORT`         | `8180`  | Monitor dashboard    |
+
+TAK Portal is on port 443 (Caddy's default HTTPS port). Ignored in subdomain mode.
+
+### Subdomains (subdomain mode)
+
+In subdomain mode, each service gets a configurable subdomain:
 
 | Variable              | Default     | Routes to            |
 | --------------------- | ----------- | -------------------- |
@@ -151,46 +175,56 @@ Each service gets a configurable subdomain (defaults shown):
 | `NODERED_SUBDOMAIN`   | `nodered`   | Node-RED             |
 | `MONITOR_SUBDOMAIN`   | `monitor`   | Monitor dashboard    |
 
-Subdomain routing is configured in `caddy/Caddyfile`. Subdomain names and FQDN are read from `.env` at runtime — changing a subdomain variable only requires a Caddy restart. The Caddyfile itself is a static file; adding a new service requires manually adding a site block.
+Ignored in direct mode. The Caddyfile is generated by `init-config` based on the deploy mode — changing variables requires re-running the init containers.
 
 ### Internal secrets
 
 Generated by `setup.sh` — users don't interact with these directly. If not using `setup.sh`, generate with the noted commands.
 
-| Variable               | Description                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------ |
-| `TAK_DB_PASSWORD`      | TAK database password (`openssl rand -hex 16`)                                 |
-| `APP_DB_PASSWORD`      | App database password — shared by LLDAP and Node-RED (`openssl rand -hex 16`)  |
-| `LDAP_BIND_PASSWORD`   | LDAP service account password (`openssl rand -hex 16`)                         |
+| Variable             | Description                                                                   |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `TAK_DB_PASSWORD`    | TAK database password (`openssl rand -hex 16`)                                |
+| `APP_DB_PASSWORD`    | App database password — shared by LLDAP and Node-RED (`openssl rand -hex 16`) |
+| `LDAP_BIND_PASSWORD` | LDAP service account password (`openssl rand -hex 16`)                        |
 
 ## Ports
 
-### Exposed ports (bound to host)
+### Always exposed (both modes)
 
-| Host Port | Container Port | Service    | Protocol                                       | Auth        |
-| --------- | -------------- | ---------- | ---------------------------------------------- | ----------- |
-| 80        | 80             | Caddy      | HTTP (redirect to HTTPS)                       | —           |
-| 443       | 443            | Caddy      | HTTPS (Let's Encrypt)                          | Varies      |
-| 8089      | 8089           | TAK Server | CoT over TLS                                   | Client cert |
-| 8443      | 8443           | TAK Server | Client-cert HTTPS (mutual TLS)                 | Client cert |
-| 8446      | 8446           | TAK Server | Password-auth HTTPS (web admin, QR enrollment) | Password    |
-| 8554      | 8554           | MediaMTX   | RTSP — video ingress from cameras, drones      | None        |
-| 1935      | 1935           | MediaMTX   | RTMP — video ingress from OBS, encoders        | None        |
-| 8888      | 8888           | MediaMTX   | HLS — browser video playback                   | None        |
-| 8180      | 8080           | Monitor    | Health dashboard + API                         | None        |
-| 3000      | 3000           | TAK Portal | Web UI — user management, enrollment           | None        |
-| 1880      | 1880           | Node-RED   | Flow editor                                    | None        |
+| Port | Service    | Protocol                                  | Auth        |
+| ---- | ---------- | ----------------------------------------- | ----------- |
+| 80   | Caddy      | HTTP (redirect to HTTPS)                  | —           |
+| 443  | Caddy      | HTTPS — TAK Portal (direct) or subdomains | LDAP        |
+| 8089 | TAK Server | CoT over TLS                              | Client cert |
+| 8443 | TAK Server | Client-cert HTTPS (mutual TLS)            | Client cert |
+| 8554 | MediaMTX   | RTSP — video ingress from cameras, drones | None        |
+| 1935 | MediaMTX   | RTMP — video ingress from OBS, encoders   | None        |
+
+### Direct mode additional ports
+
+In direct mode, Caddy also listens on per-service ports (configurable in `.env`):
+
+| Port (default) | Service              | Auth |
+| -------------- | -------------------- | ---- |
+| 8446           | TAK Server web admin | LDAP |
+| 8888           | MediaMTX HLS         | LDAP |
+| 1880           | Node-RED             | LDAP |
+| 8180           | Monitor dashboard    | LDAP |
+
+### Subdomain mode routing
+
+In subdomain mode, all services route through Caddy on port 443 via subdomains.
 
 ### Internal only (not bound to host)
 
-| Service          | Container Port | Purpose                     |
-| ---------------- | -------------- | --------------------------- |
-| tak-database     | 5432           | TAK PostgreSQL (CoT data)   |
-| app-db           | 5432           | App PostgreSQL (LLDAP + Node-RED) |
-| lldap            | 3890           | LDAP server + GraphQL API (internal) |
-| ldap-proxy       | 3389           | LDAP proxy (TAK Server → LLDAP) + forward auth |
+| Service      | Container Port | Purpose                                        |
+| ------------ | -------------- | ---------------------------------------------- |
+| tak-database | 5432           | TAK PostgreSQL (CoT data)                      |
+| app-db       | 5432           | App PostgreSQL (LLDAP + Node-RED)              |
+| lldap        | 3890           | LDAP server + GraphQL API (internal)           |
+| ldap-proxy   | 3389           | LDAP proxy (TAK Server → LLDAP) + forward auth |
 
-Ports 8089, 8443, and 8446 are direct TAK client connections — they bypass Caddy because TAK clients use mutual TLS with client certificates.
+Ports 8089 and 8443 are direct TAK client connections — they bypass Caddy because TAK clients use mutual TLS with client certificates.
 
 ## Certificate Management
 
@@ -200,7 +234,7 @@ Use `certs.sh` for certificate operations:
 ./certs.sh list                          # List all certs
 ./certs.sh create-client alice           # Create client cert
 ./certs.sh download alice.p12            # Download .p12 to host
-./certs.sh create-server my.domain.com   # Create server cert for FQDN
+./certs.sh create-server my.domain.com   # Create server cert for hostname
 ./certs.sh ca-info                       # Show CA details + expiry
 ./certs.sh create-user webadmin 'Pass!'  # Create TAK admin user
 ./certs.sh revoke alice                  # Revoke a certificate
@@ -214,7 +248,9 @@ For detailed information about how TAK certificates work, see [docs/certificates
 
 ## User Management
 
-TAK Portal (`http://localhost:3000`) is the primary interface for managing users, groups, and certificate enrollment.
+TAK Portal is the primary interface for managing users, groups, and certificate enrollment. Access it at `https://<SERVER_ADDRESS>` (direct mode) or `https://portal.<SERVER_ADDRESS>` (subdomain mode).
+
+A minimal console that interacts with the experimental API is available at the 'monitor' port of
 
 ### Enrollment flow
 
@@ -226,10 +262,9 @@ TAK Portal (`http://localhost:3000`) is the primary interface for managing users
 
 For details on authentication flows and LDAP, see [docs/authentication.md](docs/authentication.md).
 
-
 ## Node-RED
 
-Node-RED is available at `http://localhost:1880` (or `https://nodered.<FQDN>` via Caddy in production).
+Node-RED is available at `https://<SERVER_ADDRESS>:1880` (direct mode) or `https://nodered.<SERVER_ADDRESS>` (subdomain mode).
 
 On first boot, FastTAK pre-installs `node-red-contrib-postgresql` and `node-red-contrib-tak`, and configures a PostGIS database connection. A `nodered` LDAP user is automatically created in the `tak_ROLE_ADMIN` group so CoT messages from Node-RED flows reach all TAK clients.
 
@@ -289,16 +324,16 @@ docker compose down -v && rm -rf tak/ .env
 
 FastTAK does not enforce resource limits — your hardware varies. Recommended starting points:
 
-| Service            | Recommended Memory | Notes                                          |
-| ------------------ | ------------------ | ---------------------------------------------- |
-| `tak-server`       | 4-8 GB             | JVM heap; scales with connected clients        |
-| `tak-database`     | 1-2 GB             | PostgreSQL shared_buffers                      |
-| `app-db`           | 1 GB               | PostGIS — shared by LLDAP and Node-RED         |
-| `lldap`            | 128 MB             | Lightweight Rust LDAP server                   |
-| `ldap-proxy`       | 128 MB             | Go binary — LDAP proxy + forward auth          |
-| `nodered`          | 512 MB             | Depends on installed nodes and flow complexity |
-| `mediamtx`         | 512 MB             | Scales with concurrent streams                 |
-| `caddy`            | 256 MB             | Reverse proxy                                  |
+| Service        | Recommended Memory | Notes                                          |
+| -------------- | ------------------ | ---------------------------------------------- |
+| `tak-server`   | 4-8 GB             | JVM heap; scales with connected clients        |
+| `tak-database` | 1-2 GB             | PostgreSQL shared_buffers                      |
+| `app-db`       | 1 GB               | PostGIS — shared by LLDAP and Node-RED         |
+| `lldap`        | 128 MB             | Lightweight Rust LDAP server                   |
+| `ldap-proxy`   | 128 MB             | Go binary — LDAP proxy + forward auth          |
+| `nodered`      | 512 MB             | Depends on installed nodes and flow complexity |
+| `mediamtx`     | 512 MB             | Scales with concurrent streams                 |
+| `caddy`        | 256 MB             | Reverse proxy                                  |
 
 To set limits, add `deploy.resources.limits` to a service in `docker-compose.yml`:
 
@@ -337,7 +372,7 @@ docker compose logs init-identity
 
 - Ensure TAK Server is healthy: `docker compose ps tak-server`
 - Check TAK Portal logs: `docker compose logs tak-portal`
-- Verify the FQDN resolves to the host from the client device
+- Verify `SERVER_ADDRESS` is reachable from the client device
 - Enrollment tokens expire after 15 minutes — generate a fresh QR
 
 **Certificate issues?**
