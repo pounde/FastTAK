@@ -21,9 +21,12 @@ nav:
     - Node-RED: nodered.md
     - Configuration: configuration.md
     - Database Management: database-management.md
+  - Reference:
+    - CoT Type Codes: reference/cot-types.md
 
 markdown_extensions:
   - admonition
+  - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences
   - pymdownx.tabbed:
@@ -35,6 +38,9 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+
+hooks:
+  - scripts/mkdocs-hooks/generate_cot_reference.py
 
 exclude_docs: |
   plans/
