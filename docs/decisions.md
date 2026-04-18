@@ -25,6 +25,44 @@ The tradeoff is the loss of PostGIS on `app-db`. Stock FastTAK does not depend o
 
 ---
 
+## DD-034: Memory Caps on Every Container
+
+**Date:** 2026-04-18
+**Status:** Decided
+
+**Decision:** Every service in `docker-compose.yml` has `deploy.resources.limits.memory` set to a value that bounds its normal footprint with safety margin. Rule applies unconditionally — no `DEPLOY_MODE` branching.
+
+**Why:** Bounding memory caps the blast radius of any container failure: an OOM loop, a runaway process, or a DoS attack that tries to exhaust RAM on the host. Without caps, a single compromised or misbehaving container can starve the rest of the stack. The cost is low (a missized limit just causes OOM-kill of the offending container, which Docker's restart policy then handles) and the benefit is constant.
+
+**Starting values:**
+
+| Service         | Limit |
+|-----------------|-------|
+| tak-server      | 4G    |
+| tak-database    | 2G    |
+| app-db          | 1G    |
+| tak-portal      | 512M  |
+| nodered         | 512M  |
+| monitor         | 512M  |
+| mediamtx        | 512M  |
+| lldap           | 256M  |
+| caddy           | 256M  |
+| ldap-proxy      | 128M  |
+| init-config     | 128M  |
+| init-identity   | 256M  |
+| init-ldap-ready | 64M   |
+
+These were chosen based on observed idle/startup footprint plus safety margin, and validated via the integration test suite (81/81 tests pass under these caps). Operators with larger workloads (more concurrent clients, higher CoT volume) should override via `docker-compose.override.yml` rather than edit the base file.
+
+**Alternatives considered:**
+- CPU limits — deliberately deferred. Memory limits give most of the safety benefit without introducing latency surprises. CPU throttling under load can manifest as mysterious timeouts; better to add them only after observing CPU-starvation issues.
+- Swarm-only `deploy.*` syntax — not relevant; Compose v2 honors `deploy.resources.limits.memory` in non-Swarm mode since 2020.
+- No limits (status quo) — rejected, leaves the stack exposed to single-container memory exhaustion.
+
+**Related:** DD-033 (universal security defaults, same framing).
+
+---
+
 ## DD-033: Admin Password Generated Per-Install; Default Value Always Rejected
 
 **Date:** 2026-04-18

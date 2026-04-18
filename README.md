@@ -322,29 +322,30 @@ docker compose down -v && rm -rf tak/ .env
 
 ## Resource Limits
 
-FastTAK does not enforce resource limits — your hardware varies. Recommended starting points:
+### Memory
 
-| Service        | Recommended Memory | Notes                                          |
-| -------------- | ------------------ | ---------------------------------------------- |
-| `tak-server`   | 4-8 GB             | JVM heap; scales with connected clients        |
-| `tak-database` | 1-2 GB             | PostgreSQL shared_buffers                      |
-| `app-db`       | 1 GB               | PostgreSQL — shared by LLDAP and Node-RED      |
-| `lldap`        | 128 MB             | Lightweight Rust LDAP server                   |
-| `ldap-proxy`   | 128 MB             | Go binary — LDAP proxy + forward auth          |
-| `nodered`      | 512 MB             | Depends on installed nodes and flow complexity |
-| `mediamtx`     | 512 MB             | Scales with concurrent streams                 |
-| `caddy`        | 256 MB             | Reverse proxy                                  |
+Each service has a memory cap enforced in `docker-compose.yml` (via
+`deploy.resources.limits.memory`). Starting points below — if your
+deployment has larger needs, override per-service via a
+`docker-compose.override.yml`.
 
-To set limits, add `deploy.resources.limits` to a service in `docker-compose.yml`:
+| Service           | Cap    | Notes                                   |
+| ----------------- | ------ | --------------------------------------- |
+| `tak-server`      | 4 GB   | JVM heap; scales with connected clients |
+| `tak-database`    | 2 GB   | PostgreSQL on write-heavy CoT workload  |
+| `app-db`          | 1 GB   | PostgreSQL shared by LLDAP + Node-RED   |
+| `tak-portal`      | 512 MB | Node.js web UI                          |
+| `nodered`         | 512 MB | Node-RED runtime                        |
+| `monitor`         | 512 MB | FastAPI management API                  |
+| `mediamtx`        | 512 MB | Scales with concurrent streams          |
+| `lldap`           | 256 MB | Rust LDAP server                        |
+| `caddy`           | 256 MB | Reverse proxy                           |
+| `ldap-proxy`      | 128 MB | Go LDAP bind proxy                      |
+| `init-config`     | 128 MB | One-shot bash (exits after bootstrap)   |
+| `init-identity`   | 256 MB | One-shot Python                         |
+| `init-ldap-ready` | 64 MB  | One-shot LDAP bind probe                |
 
-```yaml
-tak-server:
-  # ... existing config ...
-  deploy:
-    resources:
-      limits:
-        memory: 4G
-```
+See DD-034 for rationale.
 
 ## Troubleshooting
 
