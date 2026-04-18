@@ -2,6 +2,63 @@
 
 <!-- version list -->
 
+## v0.18.0 (2026-04-18)
+
+### Bug Fixes
+
+- Deterministic-length password generator + banner alignment
+  ([`298fc7e`](https://github.com/pounde/FastTAK/commit/298fc7efa6f16393c233e13d5279e1c71374df84))
+
+- Harden .env parser against export prefix, whitespace, inline comments
+  ([`bef1a53`](https://github.com/pounde/FastTAK/commit/bef1a539d7be1b1ef9e08474f17694a301a53d7f))
+
+- Make .env parsing robust against quotes, duplicates, and = in values
+  ([`fb20196`](https://github.com/pounde/FastTAK/commit/fb201963f8da1a9b44e0e0257b6a95c53782f282))
+
+### Documentation
+
+- Add ATAK-CIV 5.7 source code types to CoT registry (source S4)
+  ([`f5ec711`](https://github.com/pounde/FastTAK/commit/f5ec7118c651043523d031c4ef7b1e5a0faf5e39))
+
+- Add dfpc-coe custom drawing types to CoT registry (source S3)
+  ([`052f71c`](https://github.com/pounde/FastTAK/commit/052f71c98baaf5240f6c4a46bb1f08ebce33c8b0))
+
+- Add MITRE CoT baseline files (CoTtypes.xml v1.80, types.txt v1.5)
+  ([`b0ad8c8`](https://github.com/pounde/FastTAK/commit/b0ad8c8b87776dfde30156cb2d609eabfb431ba9))
+
+- CoT registry 2026 consolidated edition — cleanup and full paths
+  ([`f312abb`](https://github.com/pounde/FastTAK/commit/f312abbe5def5e2b6d2393cc015399b8a734d66e))
+
+- Document per-install admin password (DD-033)
+  ([`14c2433`](https://github.com/pounde/FastTAK/commit/14c24332c052ad86dafd99228aab906f4dfd7ec2))
+
+- Generate CoT reference page at MkDocs build time
+  ([`06687e9`](https://github.com/pounde/FastTAK/commit/06687e9c798eeb39467fdc20332c18b16fbfdcb5))
+
+- Reformat CoTtypes.xml to multi-line attributes for readable diffs
+  ([`ecce446`](https://github.com/pounde/FastTAK/commit/ecce4465e06f9fdb0920bfb723997bee4126a828))
+
+- Remove residual FastTAK-Admin-1! references
+  ([`3eb2868`](https://github.com/pounde/FastTAK/commit/3eb2868585b50ca50c7d01882bf4c1eb7475192d))
+
+- Update README
+  ([`3c640e0`](https://github.com/pounde/FastTAK/commit/3c640e09189cb900f7390dd384bbf13e38a578a9))
+
+### Features
+
+- Add .env preflight validator with default-password gate
+  ([`3ccade8`](https://github.com/pounde/FastTAK/commit/3ccade821ba52e54a0f376e0feed110e6c947940))
+
+- Setup.sh auto-generates TAK_WEBADMIN_PASSWORD
+  ([`82b5b63`](https://github.com/pounde/FastTAK/commit/82b5b63e9985805f6aae3e57dd7e6e6b589b72d8))
+
+- Start.sh calls scripts/check-env.sh for preflight validation
+  ([`1461f04`](https://github.com/pounde/FastTAK/commit/1461f04cb7f53f9bebcae795b2bee794aa09c165))
+
+- Switch app-db to official postgres image for ARM support
+  ([`8e980f2`](https://github.com/pounde/FastTAK/commit/8e980f217d1c0f182b2a8b89be5efbb27d6444c3))
+
+
 ## v0.17.1 (2026-04-14)
 
 ### Performance Improvements
