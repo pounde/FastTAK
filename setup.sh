@@ -132,7 +132,7 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   fill_secret TAK_DB_PASSWORD "$(openssl rand -hex 16)"
   fill_secret APP_DB_PASSWORD "$(openssl rand -hex 16)"
   fill_secret LDAP_BIND_PASSWORD "$(openssl rand -hex 16)"
-  fill_secret TAK_WEBADMIN_PASSWORD "$(openssl rand -base64 18 | tr -d '/+=' | head -c 24)"
+  fill_secret TAK_WEBADMIN_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
 
   echo "  All secrets generated on this device."
 else
@@ -170,7 +170,7 @@ echo "  │   vim .env ← set SERVER_ADDRESS and DEPLOY_MODE    │"
 echo "  │                                                     │"
 echo "  │ Admin login (TAK Server + TAK Portal):               │"
 echo "  │   User: webadmin                                    │"
-echo "  │   Password: generated in .env (TAK_WEBADMIN_PASSWORD)│"
+echo "  │   Password: in .env as TAK_WEBADMIN_PASSWORD        │"
 echo "  │                                                     │"
 echo "  │ View:  grep TAK_WEBADMIN_PASSWORD .env              │"
 echo "  └─────────────────────────────────────────────────────┘"

@@ -54,7 +54,7 @@ documented in prior README versions and .env.example — and must be
 changed before the stack can start.
 
 Generate a random replacement:
-  NEW_PW=\$(openssl rand -base64 18 | tr -d '/+=' | head -c 24)
+  NEW_PW=\$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
   sed -i.bak "s|^TAK_WEBADMIN_PASSWORD=.*|TAK_WEBADMIN_PASSWORD=\${NEW_PW}|" $ENV_FILE && rm -f ${ENV_FILE}.bak
 
 Or set your own strong password in $ENV_FILE.
