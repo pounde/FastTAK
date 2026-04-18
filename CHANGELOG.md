@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.19.0 (2026-04-18)
+
+### Documentation
+
+- Document container memory caps (DD-034)
+  ([`23a0000`](https://github.com/pounde/FastTAK/commit/23a0000bed515205f809bd6bddf5148b6bcd7517))
+
+- Update DD numbering
+  ([`4d5b8a6`](https://github.com/pounde/FastTAK/commit/4d5b8a6d288e80926558a2dc999c7094066e9da8))
+
+### Features
+
+- Cap container memory per service
+  ([`c09b117`](https://github.com/pounde/FastTAK/commit/c09b117b3059801036b3359bc4345ba4e1076291))
+
+
 ## v0.18.0 (2026-04-18)
 
 ### Bug Fixes
