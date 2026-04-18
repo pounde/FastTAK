@@ -26,7 +26,7 @@ Set at minimum:
 
 - `FQDN` — your domain name (used for SSL, QR enrollment, server cert)
 
-All other values (secrets, database passwords) are generated automatically by `setup.sh`. Review `TAK_WEBADMIN_PASSWORD` if you want to change the default admin password.
+All other values (secrets, database passwords) are generated automatically by `setup.sh`. The admin password is generated per-install — find it with `grep TAK_WEBADMIN_PASSWORD .env`. The preflight check rejects any install still using a known-default value.
 
 ## Step 3: Start the stack
 
