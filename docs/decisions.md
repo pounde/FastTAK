@@ -4,7 +4,7 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
-## DD-036: `app-db` Uses Official `postgres:15-alpine` Instead of `postgis/postgis`
+## DD-035: `app-db` Uses Official `postgres:15-alpine` Instead of `postgis/postgis`
 
 **Date:** 2026-04-18
 **Status:** Decided
@@ -37,7 +37,7 @@ The tradeoff is the loss of PostGIS on `app-db`. Stock FastTAK does not depend o
 **Starting values:**
 
 | Service         | Limit |
-|-----------------|-------|
+| --------------- | ----- |
 | tak-server      | 4G    |
 | tak-database    | 2G    |
 | app-db          | 1G    |
@@ -55,6 +55,7 @@ The tradeoff is the loss of PostGIS on `app-db`. Stock FastTAK does not depend o
 These were chosen based on observed idle/startup footprint plus safety margin, and validated via the integration test suite (81/81 tests pass under these caps). Operators with larger workloads (more concurrent clients, higher CoT volume) should override via `docker-compose.override.yml` rather than edit the base file.
 
 **Alternatives considered:**
+
 - CPU limits — deliberately deferred. Memory limits give most of the safety benefit without introducing latency surprises. CPU throttling under load can manifest as mysterious timeouts; better to add them only after observing CPU-starvation issues.
 - Swarm-only `deploy.*` syntax — not relevant; Compose v2 honors `deploy.resources.limits.memory` in non-Swarm mode since 2020.
 - No limits (status quo) — rejected, leaves the stack exposed to single-container memory exhaustion.
