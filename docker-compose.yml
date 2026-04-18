@@ -51,6 +51,10 @@ services:
     entrypoint: ["/start.sh"]
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     environment:
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
       PG_AUTOVACUUM_SCALE_FACTOR: ${PG_AUTOVACUUM_SCALE_FACTOR:-}
@@ -71,6 +75,10 @@ services:
     build: ./init-config
     restart: "no"
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     depends_on:
       tak-database:
         condition: service_healthy
@@ -97,6 +105,10 @@ services:
     entrypoint: ["/start.sh"]
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 4G
     depends_on:
       tak-database:
         condition: service_healthy
@@ -125,6 +137,10 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     entrypoint: ["/start.sh"]
     environment:
       POSTGRES_DB: lldap
@@ -146,6 +162,10 @@ services:
     image: lldap/lldap:${LLDAP_VERSION}
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     depends_on:
       app-db:
         condition: service_healthy
@@ -167,6 +187,10 @@ services:
     build: ./ldap-proxy
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     depends_on:
       lldap:
         condition: service_healthy
@@ -193,6 +217,10 @@ services:
         LLDAP_VERSION: ${LLDAP_VERSION}
     restart: "no"
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     depends_on:
       init-config:
         condition: service_completed_successfully
@@ -220,6 +248,10 @@ services:
     build: ./init-ldap-ready
     restart: "no"
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 64M
     depends_on:
       ldap-proxy:
         condition: service_healthy
@@ -232,6 +264,10 @@ services:
     build: https://github.com/AdventureSeeker423/TAK-Portal.git#${TAK_PORTAL_VERSION:-main}
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     healthcheck:
       test: ["CMD", "node", "-e", "const h=require('http');h.get('http://localhost:3000',r=>{process.exit(r.statusCode<400?0:1)}).on('error',()=>process.exit(1))"]
       interval: 30s
@@ -253,6 +289,10 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     depends_on:
       init-config:
         condition: service_completed_successfully
@@ -268,6 +308,10 @@ services:
     image: bluenviron/mediamtx:${MEDIAMTX_VERSION}
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     # No healthcheck — scratch-based image has no shell/tools.
     # Monitor checks via Docker API container status instead.
     volumes:
@@ -281,6 +325,10 @@ services:
     image: nodered/node-red:${NODERED_VERSION}
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:1880/"]
       interval: 30s
@@ -316,6 +364,10 @@ services:
         LLDAP_VERSION: ${LLDAP_VERSION}
     restart: unless-stopped
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     depends_on:
       tak-server:
         condition: service_healthy
