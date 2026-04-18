@@ -161,3 +161,69 @@ def test_password_containing_equals_passes(tmp_path, mode):
         tmp_path,
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_leading_whitespace_default_fails(tmp_path, mode):
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"  TAK_WEBADMIN_PASSWORD={DEFAULT_PASSWORD}\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "default" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_export_prefix_default_fails(tmp_path, mode):
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"export TAK_WEBADMIN_PASSWORD={DEFAULT_PASSWORD}\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "default" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_trailing_whitespace_default_fails(tmp_path, mode):
+    """Docker Compose trims trailing whitespace on unquoted values."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"TAK_WEBADMIN_PASSWORD={DEFAULT_PASSWORD}   \n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "default" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_inline_comment_default_fails(tmp_path, mode):
+    """Compose treats # after quoted values as a comment; validator must too."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f'TAK_WEBADMIN_PASSWORD="{DEFAULT_PASSWORD}"  # inline comment\n',
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "default" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_export_prefix_custom_passes(tmp_path, mode):
+    """Export prefix with a custom password should still pass."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"export TAK_WEBADMIN_PASSWORD=strong-custom-pw-42\n",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+
+
+def test_missing_webadmin_password_key_passes(tmp_path):
+    """Entirely missing TAK_WEBADMIN_PASSWORD key = treated as empty = passes (skip webadmin)."""
+    result = _run(
+        "SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE=direct\n",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
