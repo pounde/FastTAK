@@ -102,12 +102,8 @@ if ! $TEST; then
   if [ ! -d "$SCRIPT_DIR/tak" ]; then
     echo "ERROR: tak/ not found. Run: ./setup.sh <zip>" >&2; exit 1
   fi
-  if [ ! -f "$SCRIPT_DIR/.env" ]; then
-    echo "ERROR: .env not found. Run: ./setup.sh <zip>" >&2; exit 1
-  fi
-  SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' .env | cut -d= -f2)
-  if [ "$SERVER_ADDRESS" = "tak.example.com" ] || [ -z "$SERVER_ADDRESS" ]; then
-    echo "ERROR: Set SERVER_ADDRESS in .env first. vim .env" >&2; exit 1
+  if ! "$SCRIPT_DIR/scripts/check-env.sh" "$SCRIPT_DIR/.env"; then
+    exit 1
   fi
 fi
 
