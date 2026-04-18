@@ -11,7 +11,7 @@ A Docker Compose stack for deploying and managing the TAK ecosystem:
 - **MediaMTX** — RTSP/RTMP/HLS video streaming
 - **LLDAP + ldap-proxy** — Lightweight LDAP authentication and user management
 - **TAK Portal** — User management, certificate enrollment via QR
-- **Node-RED** — Flow-based automation engine with pre-configured PostGIS and TAK Server connections
+- **Node-RED** — Flow-based automation engine with pre-configured PostgreSQL and TAK Server connections
 - **Monitor** — Health monitoring and operations API and minimal console
 
 ## Prerequisites
@@ -266,7 +266,7 @@ For details on authentication flows and LDAP, see [docs/authentication.md](docs/
 
 Node-RED is available at `https://<SERVER_ADDRESS>:1880` (direct mode) or `https://nodered.<SERVER_ADDRESS>` (subdomain mode).
 
-On first boot, FastTAK pre-installs `node-red-contrib-postgresql` and `node-red-contrib-tak`, and configures a PostGIS database connection. A `nodered` LDAP user is automatically created in the `tak_ROLE_ADMIN` group so CoT messages from Node-RED flows reach all TAK clients.
+On first boot, FastTAK pre-installs `node-red-contrib-postgresql` and `node-red-contrib-tak`, and configures a PostgreSQL connection to `app-db`. Flows needing spatial queries should point at `tak-database` instead — it has PostGIS natively. A `nodered` LDAP user is automatically created in the `tak_ROLE_ADMIN` group so CoT messages from Node-RED flows reach all TAK clients.
 
 ## Updating
 
@@ -328,7 +328,7 @@ FastTAK does not enforce resource limits — your hardware varies. Recommended s
 | -------------- | ------------------ | ---------------------------------------------- |
 | `tak-server`   | 4-8 GB             | JVM heap; scales with connected clients        |
 | `tak-database` | 1-2 GB             | PostgreSQL shared_buffers                      |
-| `app-db`       | 1 GB               | PostGIS — shared by LLDAP and Node-RED         |
+| `app-db`       | 1 GB               | PostgreSQL — shared by LLDAP and Node-RED      |
 | `lldap`        | 128 MB             | Lightweight Rust LDAP server                   |
 | `ldap-proxy`   | 128 MB             | Go binary — LDAP proxy + forward auth          |
 | `nodered`      | 512 MB             | Depends on installed nodes and flow complexity |

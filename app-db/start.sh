@@ -1,5 +1,5 @@
 #!/bin/bash
-# App database entrypoint — PostGIS shared by LLDAP and Node-RED.
+# App database entrypoint — PostgreSQL shared by LLDAP and Node-RED.
 #
 # On first boot: POSTGRES_DB creates the primary database (lldap).
 # This script creates the nodered database if it doesn't exist yet.
@@ -7,6 +7,10 @@
 # On subsequent boots: syncs the role password with POSTGRES_PASSWORD
 # in case .env was regenerated while the data volume persisted.
 # Works because pg_hba.conf trusts local (Unix socket) connections.
+#
+# PostGIS is not installed on app-db (DD-036 — official postgres image is
+# multi-arch; postgis/postgis is amd64-only). Node-RED flows that need
+# spatial queries should point at tak-database, which has PostGIS natively.
 
 # Reap idle connections for good PostgreSQL hygiene.
 docker-entrypoint.sh postgres \
@@ -45,8 +49,5 @@ psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tc \
   grep -q 1 ||
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
     "CREATE DATABASE lldap;" >/dev/null 2>&1
-
-psql -U "$POSTGRES_USER" -d nodered -c \
-  "CREATE EXTENSION IF NOT EXISTS postgis;" >/dev/null 2>&1
 
 wait $PG_PID
