@@ -1,7 +1,9 @@
 # Node-RED
 
 FastTAK includes [Node-RED](https://nodered.org/) with **node-red-contrib-postgresql**
-pre-installed for querying the PostGIS database.
+pre-installed for querying the `app-db` PostgreSQL database. For spatial queries,
+point your flow at `tak-database` (connection details are the same pattern;
+`tak-database` has PostGIS natively).
 
 ## Pre-configured Config Nodes
 
@@ -9,7 +11,7 @@ Two config nodes are available out of the box — no credentials or certificates
 
 | Config Node            | Type       | Use With                                                |
 | ---------------------- | ---------- | ------------------------------------------------------- |
-| **FastTAK PostGIS**    | PostgreSQL | Any `postgresql` node — select it as the server         |
+| **FastTAK App DB**     | PostgreSQL | Any `postgresql` node — select it as the server         |
 | **FastTAK Server TLS** | TLS        | Any `tcp in` or `tcp out` node that talks to TAK Server |
 
 ### Sending / Receiving CoT

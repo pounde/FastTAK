@@ -4,6 +4,27 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-036: `app-db` Uses Official `postgres:15-alpine` Instead of `postgis/postgis`
+
+**Date:** 2026-04-18
+**Status:** Decided
+
+**Decision:** The `app-db` service (shared PostgreSQL for LLDAP + Node-RED) uses the official `postgres:15-alpine` image instead of `postgis/postgis:15-3.4-alpine`. PostGIS is no longer installed on `app-db`. Flows that need spatial queries should connect to `tak-database`, which has PostGIS natively.
+
+**Why:** `postgis/postgis` ships `amd64` only. The community multi-arch fork (`imresamu/postgis`) marks its arm64 support as experimental. Running FastTAK on ARM hosts (Apple Silicon development, AWS Graviton, Oracle Ampere A1, Hetzner Ampere) either fails outright or runs under emulation. The official `postgres` image is first-party, multi-arch-stable, and maintained by the PostgreSQL Docker team — no supply-chain or architecture-compatibility caveats.
+
+The tradeoff is the loss of PostGIS on `app-db`. Stock FastTAK does not depend on it — the `CREATE EXTENSION postgis` call in `app-db/start.sh` was a convenience for user-authored Node-RED flows that might want spatial queries. `tak-database` already has PostGIS and already holds the spatial data that matters in a TAK context, so routing spatial-needing flows there is both cheaper and more honest about where the data lives.
+
+**Alternatives considered:**
+
+- Keep `postgis/postgis:15-3.4-alpine` — rejected, blocks ARM deployments. Oracle A1 / Graviton / Apple Silicon all become non-starters.
+- Switch to `imresamu/postgis:15-3.4-alpine` (community multi-arch) — rejected, the maintainer's README explicitly marks arm64 as experimental. Not appropriate for a production-oriented stack.
+- Build our own PostGIS image — rejected as overkill. The feature (PostGIS on app-db) isn't used by stock FastTAK, so maintaining our own image for a user-convenience feature is disproportionate effort.
+
+**Related:** DD-033 (same principle — security/reliability defaults stay universal across deploy modes and host architectures).
+
+---
+
 ## DD-033: Admin Password Generated Per-Install; Default Value Always Rejected
 
 **Date:** 2026-04-18
@@ -16,6 +37,7 @@ Significant architectural and design decisions, with reasoning. Newest first.
 **Scope — empty password is permitted:** Preserves the existing escape hatch from `.env.example` ("Leave empty to skip webadmin user creation"). Operators who don't want a webadmin user (e.g., cert-only deployments) can set it empty and `init-identity` skips the LLDAP user creation.
 
 **Alternatives considered:**
+
 - Warning-only — rejected, warnings get ignored on the exact deployments that need hardening most.
 - Gate by `DEPLOY_MODE=subdomain` only — rejected, conflates routing with security. A `direct` + public deployment would bypass the check.
 - Introduce a separate `ENVIRONMENT=prod|dev` flag — rejected, adds config surface for a use case (legitimate default-password use) that doesn't exist once setup.sh auto-generates.
@@ -35,6 +57,7 @@ Significant architectural and design decisions, with reasoning. Newest first.
 **Why:** The Pydantic model validator on the service account creation endpoint enforced mode/group rules at creation time, but the PATCH endpoint and the general-purpose `PUT /api/users/{id}/groups` endpoint had no way to determine account type after creation. Without a persisted type, the rules could be circumvented by updating groups post-creation — which is how the bug was discovered (assigning groups to an admin-mode service account via the Monitor UI). Regular users also had no group requirement, allowing creation of users with no channel assignments (useless for TAK operations).
 
 **Alternatives considered:**
+
 - `fastak_svc_mode` (admin/data) on service accounts only — doesn't cover regular users, requires combining prefix checks with mode checks.
 - Infer type from current state (no groups = admin) — circular; using the rule's expected outcome to enforce the rule.
 
@@ -52,11 +75,13 @@ Significant architectural and design decisions, with reasoning. Newest first.
 **Why:** Authentik was the single largest source of operational issues — connection storms exhausting PostgreSQL (requiring PgBouncer), slow startup blocking the entire stack, heavy memory usage, and complex bootstrap logic (~850 lines). See [issue #31](https://github.com/pounde/FastTAK/issues/31) for the full history.
 
 **Architecture:**
+
 - **LLDAP** — lightweight Rust LDAP server (stock Docker image), backed by PostgreSQL. Provides the user directory and a GraphQL management API.
 - **ldap-proxy** — custom Go binary sitting in front of LLDAP on port 3389. Intercepts LDAP bind requests to check enrollment tokens (SQLite on tmpfs) before falling through to LLDAP for real passwords. Also exposes `/auth/verify` for Caddy forward auth and a REST API for token management.
 - **init-identity** — one-shot Python container bootstrapping LLDAP via GraphQL (~250 lines replacing ~850).
 
 **Notable constraints discovered during implementation:**
+
 - LLDAP requires email on user creation (v0.5+ security fix). Placeholder `{username}@dummy.example.com` used since TAK Server doesn't query email attributes.
 - LLDAP uses `uid=`/`ou=people` DN format (not `cn=`/`ou=users` like Authentik's LDAP outpost).
 - LLDAP uses the OPAQUE protocol for passwords — requires the `lldap_set_password` binary (copied from LLDAP image via multi-stage Docker build).
@@ -75,11 +100,13 @@ Significant architectural and design decisions, with reasoning. Newest first.
 **Context:** Authentik's Dramatiq worker creates hundreds of psycopg3 connection pools, exhausting PostgreSQL's `max_connections`. The Postgres tuning (`idle_session_timeout`, `max_connections=300`) mitigates but doesn't prevent the issue under load or with accumulated state.
 
 **Alternatives considered:**
+
 1. Postgres tuning only (current state) — fragile, doesn't cap concurrent connections
 2. PgBouncer for all Authentik services — failed: worker migrations use advisory locks incompatible with transaction pooling
 3. Replace Authentik entirely — too disruptive for a connection management issue
 
 **Consequences:**
+
 - One additional container (`pgbouncer`), ~10MB RAM
 - `authentik-server` connects to `pgbouncer` instead of `app-db`
 - `authentik-worker` environment overrides the shared anchor to connect directly to `app-db`
@@ -98,10 +125,12 @@ Significant architectural and design decisions, with reasoning. Newest first.
 **Context:** FastTAK required a domain name and public DNS, blocking field deployments, air-gapped networks, and Tailscale-style hostnames. The dev stack bypassed Caddy entirely.
 
 **Alternatives considered:**
+
 1. Path-based routing (rejected — Authentik doesn't handle path prefixes well)
 2. Keep dev override separate (rejected — maintaining two routing models adds complexity)
 
 **Consequences:**
+
 - `docker-compose.dev.yml` is deleted — `direct` mode replaces it
 - Caddyfile is generated by `init-config`, no longer a static file
 - Caddy is the single entry point for all HTTP/HTTPS in both modes
@@ -158,6 +187,7 @@ Significant architectural and design decisions, with reasoning. Newest first.
 **Why:** `atakatak` is a universal TAK ecosystem convention. Every TAK tool, tutorial, deployment guide, and client application assumes this password. The `.p12` password protects the file at rest (prevents accidental import), not the connection — the real security is that the cert must be signed by the deployment's CA. Introducing unique passwords per cert would add operational burden (tracking and communicating passwords alongside certs) without meaningful security benefit, since the cert file itself is the credential.
 
 **Alternatives considered:**
+
 - Per-cert auto-generated passwords shown once at download — adds friction for operators familiar with TAK conventions, marginal security gain
 - Configurable default password — breaks compatibility with existing TAK tooling that hardcodes `atakatak`
 

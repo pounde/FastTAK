@@ -4,13 +4,13 @@
         "type": "tab",
         "label": "FastTAK",
         "disabled": false,
-        "info": "Pre-configured connections for FastTAK.\n\nPostgreSQL (PostGIS) and TAK Server TLS are ready to use as config nodes.",
+        "info": "Pre-configured connections for FastTAK.\n\nPostgreSQL (app-db) and TAK Server TLS are ready to use as config nodes.",
         "env": []
     },
     {
         "id": "fastak-postgres-config",
         "type": "postgreSQLConfig",
-        "name": "FastTAK PostGIS",
+        "name": "FastTAK App DB",
         "host": "DB_HOST",
         "hostFieldType": "env",
         "port": "DB_PORT",
@@ -45,7 +45,7 @@
         "type": "comment",
         "z": "fastak-tab",
         "name": "FastTAK Connections",
-        "info": "Two config nodes are pre-configured and ready to use:\n\n## PostGIS Database\n\nAdd a **postgresql** node to any flow and select **FastTAK PostGIS** as the server.\nCredentials and connection details are already set.\n\n## TAK Server (TLS)\n\nAdd a **tcp out** or **tcp in** node to any flow and:\n1. Set host to `tak-server`, port to `8089`\n2. Enable TLS and select **FastTAK Server TLS**\n\nThe client certificate, private key, and CA are already configured.\n\n## Channel Groups\n\nThe `svc_nodered` service account has no TAK channel groups assigned by default.\nBefore flows can push data to specific channels, an admin must assign `tak_*` groups\nto the `svc_nodered` account via the FastTAK dashboard (Service Accounts page).\nWithout group assignment, CoT sent by Node-RED flows is not visible to other clients.",
+        "info": "Two config nodes are pre-configured and ready to use:\n\n## App Database\n\nAdd a **postgresql** node to any flow and select **FastTAK App DB** as the server.\nCredentials and connection details are already set. This is plain PostgreSQL;\nif your flow needs spatial queries (PostGIS), point it at `tak-database` instead —\nit has PostGIS natively and already holds FastTAK's spatial data.\n\n## TAK Server (TLS)\n\nAdd a **tcp out** or **tcp in** node to any flow and:\n1. Set host to `tak-server`, port to `8089`\n2. Enable TLS and select **FastTAK Server TLS**\n\nThe client certificate, private key, and CA are already configured.\n\n## Channel Groups\n\nThe `svc_nodered` service account has no TAK channel groups assigned by default.\nBefore flows can push data to specific channels, an admin must assign `tak_*` groups\nto the `svc_nodered` account via the FastTAK dashboard (Service Accounts page).\nWithout group assignment, CoT sent by Node-RED flows is not visible to other clients.",
         "x": 250,
         "y": 60,
         "wires": []

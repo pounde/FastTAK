@@ -39,7 +39,7 @@ Or manually: `docker compose up -d --build`
 ### What happens on startup
 
 1. **tak-database** and **app-db** start and become healthy
-   - `app-db` syncs the database password, creates the `nodered` database, and enables PostGIS
+   - `app-db` syncs the database password and creates the `nodered` database
 2. **init-config** runs:
    - Patches CoreConfig.xml (DB connection, admin UI, LDAP auth)
    - Generates certificates (CA, server, admin, nodered client certs)
