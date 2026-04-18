@@ -21,7 +21,7 @@ TAK Server ←→ ldap-proxy ←→ LLDAP ←→ PostgreSQL (app-db)
 1. **LLDAP starts** — lightweight LDAP server backed by PostgreSQL (app-db)
 2. **`init-identity` runs** — creates the LDAP infrastructure via LLDAP's GraphQL API:
    - Creates `adm_ldapservice` service account (LDAP bind user)
-   - Creates `webadmin` user with password from `TAK_WEBADMIN_PASSWORD` (default: `FastTAK-Admin-1!`)
+   - Creates `webadmin` user with password from `TAK_WEBADMIN_PASSWORD` (generated per-install by `setup.sh`; find it with `grep TAK_WEBADMIN_PASSWORD .env`)
    - Creates `tak_ROLE_ADMIN` group
    - Configures custom attribute schemas
    - Generates TAK Portal `settings.json`
