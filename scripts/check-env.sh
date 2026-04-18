@@ -11,15 +11,34 @@ set -u
 ENV_FILE="${1:-.env}"
 DEFAULT_WEBADMIN_PASSWORD="FastTAK-Admin-1!"
 
-# Reads a key's value from the env file, matching dotenv semantics used by
-# Docker Compose: last occurrence wins, surrounding quotes are stripped,
-# and `=` within values is preserved.
+# Reads a key's value from the env file, matching Docker Compose dotenv
+# semantics: optional 'export' prefix, optional leading whitespace,
+# last-wins on duplicates, surrounding quotes stripped, `=` in values
+# preserved, inline comments after quoted values trimmed, trailing
+# whitespace trimmed for unquoted values.
 get_env_value() {
-  local key="$1"
-  local val
-  val=$(grep "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-)
-  val="${val%\"}"; val="${val#\"}"
-  val="${val%\'}"; val="${val#\'}"
+  local key="$1" line val
+  line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE" | tail -n 1)
+  [ -z "$line" ] && { printf '%s' ''; return; }
+  # Strip everything up to and including the first `=` (key + optional prefix)
+  val="${line#*=}"
+  # Handle quoted values: strip quotes and anything after the closing quote (inline comment)
+  case "$val" in
+    \"*)
+      # Double-quoted: take up to the closing double quote
+      val="${val#\"}"
+      val="${val%%\"*}"
+      ;;
+    \'*)
+      # Single-quoted: take up to the closing single quote
+      val="${val#\'}"
+      val="${val%%\'*}"
+      ;;
+    *)
+      # Unquoted: strip trailing whitespace
+      val="${val%"${val##*[![:space:]]}"}"
+      ;;
+  esac
   printf '%s' "$val"
 }
 
