@@ -4,6 +4,38 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-036: Rate Limit on LDAP `/auth/verify`
+
+**Date:** 2026-04-18
+**Status:** Decided
+
+**Decision:** `ldap-proxy` rate-limits requests to `/auth/verify`: default 10 attempts per 5 minutes per source IP, 15-minute lockout on exceed. Keyed on `X-Forwarded-For` (Caddy is the only upstream that reaches ldap-proxy on the Docker network, so the header is trusted) with fallback to `RemoteAddr`. Returns HTTP 429 with `Retry-After` header on rejection. Rule applies unconditionally — no `DEPLOY_MODE` branching. Configurable via `LDAP_RATE_LIMIT_WINDOW`, `LDAP_RATE_LIMIT_MAX_ATTEMPTS`, `LDAP_RATE_LIMIT_LOCKOUT` env vars.
+
+**Why:** Without a rate limit, an attacker with network reach to `/auth/verify` can brute-force passwords or enumerate usernames at line speed. Caddy's forward_auth makes this endpoint reachable from the public internet on every protected subdomain (portal, monitor, Node-RED). Defense in depth: LDAP auth must resist brute force regardless of whether the specific endpoint is "supposed to" be reachable.
+
+**Scope:**
+
+- `/auth/verify` — rate-limited
+- `/tokens/*` — NOT rate-limited; internal-only (monitor service over the Docker network, no Caddy route)
+- `/healthz` — NOT rate-limited; Docker health probes, not user traffic
+- LDAP bind port 3389 — NOT rate-limited at this layer; it's on the internal Docker network and TAK Server binds twice per enrollment by design (DD-031)
+
+**Implementation:**
+
+- In-memory sliding-window limiter in Go, ~80 lines + tests
+- Process-local state (if ldap-proxy restarts, limiter history resets — acceptable tradeoff; token state is already ephemeral on tmpfs per DD-031)
+- Integration test (`tests-integration/test_rate_limit.py`) verifies 429 behavior end-to-end; `docker-compose.test.yml` overrides the env to short window/lockout (10s/5s) so tests recover quickly between runs
+
+**Alternatives considered:**
+
+- Caddy-level rate limit plugin — rejected, requires a custom Caddy image, breaking the "stock `caddy:2-alpine`" simplicity.
+- fail2ban sidecar — rejected, log-parsing is fragile and adds another container.
+- Disk-backed limiter — rejected, unnecessary complexity; in-memory survives ldap-proxy's natural lifecycle fine.
+
+**Related:** DD-031 (ldap-proxy architecture), DD-033 (universal security defaults).
+
+---
+
 ## DD-035: `app-db` Uses Official `postgres:15-alpine` Instead of `postgis/postgis`
 
 **Date:** 2026-04-18
