@@ -90,3 +90,74 @@ def test_custom_webadmin_password_passes(tmp_path, mode):
         tmp_path,
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_quoted_default_password_fails(tmp_path, mode):
+    """Docker Compose strips quotes on load — quoted default must also be rejected."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f'TAK_WEBADMIN_PASSWORD="{DEFAULT_PASSWORD}"\n',
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "default" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_single_quoted_default_password_fails(tmp_path, mode):
+    """Same bypass with single quotes."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"TAK_WEBADMIN_PASSWORD='{DEFAULT_PASSWORD}'\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "default" in result.stderr.lower()
+
+
+def test_quoted_placeholder_server_address_fails(tmp_path):
+    """Quoted placeholder SERVER_ADDRESS must also be rejected."""
+    result = _run(
+        'SERVER_ADDRESS="tak.example.com"\nDEPLOY_MODE=subdomain\n'
+        "TAK_WEBADMIN_PASSWORD=custom-pw-42\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "server_address" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_duplicate_key_last_wins_default_fails(tmp_path, mode):
+    """Duplicate key: last wins (Compose dotenv semantics). Default on last line is rejected."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"TAK_WEBADMIN_PASSWORD=real-password-99\n"
+        f"TAK_WEBADMIN_PASSWORD={DEFAULT_PASSWORD}\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "default" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_duplicate_key_last_wins_custom_passes(tmp_path, mode):
+    """Duplicate key: last value wins. Custom on last line passes even if default appears first."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"TAK_WEBADMIN_PASSWORD={DEFAULT_PASSWORD}\n"
+        f"TAK_WEBADMIN_PASSWORD=real-password-99\n",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_password_containing_equals_passes(tmp_path, mode):
+    """Password with `=` in it must be read in full, not truncated at the first `=`."""
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"TAK_WEBADMIN_PASSWORD=abc=def=ghi\n",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
