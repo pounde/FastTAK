@@ -46,3 +46,10 @@ services:
   monitor:
     ports:
       - "18180:8080"
+  ldap-proxy:
+    # Tight limits so integration tests trigger lockout quickly and recover
+    # between test runs without 15-minute waits.
+    environment:
+      LDAP_RATE_LIMIT_WINDOW: 10s
+      LDAP_RATE_LIMIT_MAX_ATTEMPTS: 10
+      LDAP_RATE_LIMIT_LOCKOUT: 5s
