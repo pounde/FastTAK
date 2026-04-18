@@ -73,3 +73,11 @@ Only groups with the `tak_` prefix appear as TAK channels. Create groups in LLDA
 | `init-identity` | One-shot bootstrap of LDAP users, groups, and schemas via GraphQL | Exits after setup |
 | `adm_ldapservice` | Service account TAK Server uses to query LDAP | LLDAP user |
 | `CoreConfig.xml` | TAK Server config with LDAP connection details | `/opt/tak/` |
+
+## Rate Limiting
+
+Authentication requests to `/auth/verify` (the endpoint Caddy uses for
+forward_auth) are rate-limited per source IP. By default, 10 attempts
+per 5 minutes triggers a 15-minute lockout. Tunable via
+`LDAP_RATE_LIMIT_*` env vars (see `.env.example`). Exceeding the limit
+returns HTTP 429 with a `Retry-After` header. See DD-035.
