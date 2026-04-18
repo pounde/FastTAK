@@ -4,6 +4,27 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-033: Admin Password Generated Per-Install; Default Value Always Rejected
+
+**Date:** 2026-04-18
+**Status:** Decided
+
+**Decision:** `setup.sh` auto-generates a random 24-char `TAK_WEBADMIN_PASSWORD` on fresh install. `start.sh` (via `scripts/check-env.sh`) refuses to start if `TAK_WEBADMIN_PASSWORD` is set to the documented default `FastTAK-Admin-1!`. The rule applies unconditionally — in every `DEPLOY_MODE`. Empty is permitted and preserves the existing "skip webadmin user creation" semantics.
+
+**Why:** Security defaults should be unconditional. Keying the gate on `DEPLOY_MODE=subdomain` would leak the wrong assumption that `direct` mode is never publicly reachable — which is false: `direct` mode on a public IP is still public. Reachability can't be inferred from inside the stack, so the gate shouldn't try. The honest rule is simpler: the default password is public knowledge; no deployment should run it.
+
+**Scope — empty password is permitted:** Preserves the existing escape hatch from `.env.example` ("Leave empty to skip webadmin user creation"). Operators who don't want a webadmin user (e.g., cert-only deployments) can set it empty and `init-identity` skips the LLDAP user creation.
+
+**Alternatives considered:**
+- Warning-only — rejected, warnings get ignored on the exact deployments that need hardening most.
+- Gate by `DEPLOY_MODE=subdomain` only — rejected, conflates routing with security. A `direct` + public deployment would bypass the check.
+- Introduce a separate `ENVIRONMENT=prod|dev` flag — rejected, adds config surface for a use case (legitimate default-password use) that doesn't exist once setup.sh auto-generates.
+- Gate in `init-identity` instead of preflight — rejected, error would surface in Docker logs after the operator has been waiting. Preflight fails loud and fast.
+
+**Related:** DD-029 keeps `DEPLOY_MODE` as a routing/cert-only knob; this decision preserves that boundary.
+
+---
+
 ## DD-032: User Type Attribute (`fastak_user_type`)
 
 **Date:** 2026-04-13
