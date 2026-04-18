@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v0.20.0 (2026-04-18)
+
+### Documentation
+
+- Document LDAP rate limit (DD-035)
+  ([`61ac509`](https://github.com/pounde/FastTAK/commit/61ac5095d3244f75d4358ddf11be1ca885ac3ab2))
+
+### Features
+
+- Switch app-db to official postgres image for ARM support
+  ([`0161f4c`](https://github.com/pounde/FastTAK/commit/0161f4cc4bb41df86f49b5da23588e2d94fe7099))
+
+- **ldap-proxy**: Add in-memory sliding-window rate limiter
+  ([`4af1a40`](https://github.com/pounde/FastTAK/commit/4af1a401596ede1d8ca196d0f135996cf4434c4a))
+
+- **ldap-proxy**: Env-configurable rate limit defaults
+  ([`c8e7ef7`](https://github.com/pounde/FastTAK/commit/c8e7ef769cdd2b42f70895c0093ef4fde05439ba))
+
+- **ldap-proxy**: Wire rate limiter into /auth/verify
+  ([`a1f8fe8`](https://github.com/pounde/FastTAK/commit/a1f8fe8d57b4a8c94f26efea5d34f2a64d74131d))
+
+### Testing
+
+- **integration**: Verify /auth/verify returns 429 after rate limit
+  ([`57bf455`](https://github.com/pounde/FastTAK/commit/57bf4551ace0f445b277ec186efd433b10d7b798))
+
+
 ## v0.19.0 (2026-04-18)
 
 ### Documentation
