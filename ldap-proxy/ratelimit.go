@@ -1,6 +1,11 @@
 package main
 
 import (
+	"math"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -102,4 +107,41 @@ func (rl *RateLimiter) Check(ip string) (allowed bool, retryAfter time.Duration)
 	}
 
 	return true, 0
+}
+
+// clientIP extracts the rate-limit key from a request.
+//
+// If X-Forwarded-For is present and its first entry is a valid IP, that IP is
+// used (Caddy is the only upstream that reaches ldap-proxy, so this header is
+// trusted). Otherwise the host portion of r.RemoteAddr is used.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		first := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0])
+		if net.ParseIP(first) != nil {
+			return first
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// Middleware wraps an http.Handler with rate-limit enforcement.
+// Source IP is taken from X-Forwarded-For (first entry) if present,
+// else from r.RemoteAddr (port stripped). On rate-limit, returns 429
+// with Retry-After set to seconds until the next permitted attempt.
+func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		allowed, retryAfter := rl.Check(ip)
+		if !allowed {
+			secs := int(math.Ceil(retryAfter.Seconds()))
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

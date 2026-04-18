@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -63,6 +64,11 @@ func main() {
 	authHandler := NewAuthHandler(proxy)
 	healthHandler := NewHealthHandler(tokens, proxy)
 
+	// Rate limiter for /auth/verify — protects against brute force on LDAP auth.
+	// /tokens is internal-only (not Caddy-exposed). /healthz is Docker health probes.
+	// Defaults: 10 attempts per 5 minutes, 15-minute lockout. Configurable via env (DD-035).
+	authRateLimit := NewRateLimiter(5*time.Minute, 15*time.Minute, 10, time.Now)
+
 	// HTTP mux — no auth on these endpoints. The REST API is internal-only
 	// (not exposed via Caddy), reachable only from the Docker network by
 	// the monitor service. If the proxy is ever exposed externally, add auth.
@@ -70,7 +76,7 @@ func main() {
 	mux.Handle("POST /tokens", tokensAPI)
 	mux.Handle("GET /tokens/{username}", tokensAPI)
 	mux.Handle("DELETE /tokens/{username}", tokensAPI)
-	mux.HandleFunc("GET /auth/verify", authHandler.HandleVerify)
+	mux.Handle("GET /auth/verify", authRateLimit.Middleware(http.HandlerFunc(authHandler.HandleVerify)))
 	mux.HandleFunc("GET /healthz", healthHandler.HandleHealthz)
 
 	// Start LDAP proxy in background
