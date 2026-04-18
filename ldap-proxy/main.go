@@ -34,6 +34,15 @@ func envBoolOrDefault(key string, fallback bool) bool {
 	return fallback
 }
 
+func envDurationOrDefault(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return fallback
+}
+
 func main() {
 	dbPath := envOrDefault("TOKEN_DB_PATH", "/data/tokens.db")
 	lldapAddr := envOrDefault("LLDAP_ADDR", "lldap:3890")
@@ -67,7 +76,11 @@ func main() {
 	// Rate limiter for /auth/verify — protects against brute force on LDAP auth.
 	// /tokens is internal-only (not Caddy-exposed). /healthz is Docker health probes.
 	// Defaults: 10 attempts per 5 minutes, 15-minute lockout. Configurable via env (DD-035).
-	authRateLimit := NewRateLimiter(5*time.Minute, 15*time.Minute, 10, time.Now)
+	rateLimitWindow := envDurationOrDefault("LDAP_RATE_LIMIT_WINDOW", 5*time.Minute)
+	rateLimitLockout := envDurationOrDefault("LDAP_RATE_LIMIT_LOCKOUT", 15*time.Minute)
+	rateLimitMax := envIntOrDefault("LDAP_RATE_LIMIT_MAX_ATTEMPTS", 10)
+	log.Printf("rate limit: window=%s max=%d lockout=%s", rateLimitWindow, rateLimitMax, rateLimitLockout)
+	authRateLimit := NewRateLimiter(rateLimitWindow, rateLimitLockout, rateLimitMax, time.Now)
 
 	// HTTP mux — no auth on these endpoints. The REST API is internal-only
 	// (not exposed via Caddy), reachable only from the Docker network by
