@@ -11,14 +11,26 @@ set -u
 ENV_FILE="${1:-.env}"
 DEFAULT_WEBADMIN_PASSWORD="FastTAK-Admin-1!"
 
+# Reads a key's value from the env file, matching dotenv semantics used by
+# Docker Compose: last occurrence wins, surrounding quotes are stripped,
+# and `=` within values is preserved.
+get_env_value() {
+  local key="$1"
+  local val
+  val=$(grep "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-)
+  val="${val%\"}"; val="${val#\"}"
+  val="${val%\'}"; val="${val#\'}"
+  printf '%s' "$val"
+}
+
 if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: .env not found at $ENV_FILE" >&2
   echo "Run ./setup.sh <takserver-docker-X.X.zip> first." >&2
   exit 1
 fi
 
-SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' "$ENV_FILE" | cut -d= -f2)
-WEBADMIN_PASSWORD=$(grep '^TAK_WEBADMIN_PASSWORD=' "$ENV_FILE" | cut -d= -f2)
+SERVER_ADDRESS=$(get_env_value SERVER_ADDRESS)
+WEBADMIN_PASSWORD=$(get_env_value TAK_WEBADMIN_PASSWORD)
 
 # ── SERVER_ADDRESS ─────────────────────────────────────────────────────────
 if [ -z "$SERVER_ADDRESS" ] || [ "$SERVER_ADDRESS" = "tak.example.com" ]; then
