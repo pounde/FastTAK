@@ -15,6 +15,8 @@ theme:
 nav:
   - Home: index.md
   - Getting Started: quickstart-walkthrough.md
+  - Deployment:
+    - AWS Lightsail: lightsail-deployment.md
   - Guides:
     - Authentication: authentication.md
     - Certificates: certificates.md
