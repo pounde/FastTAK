@@ -10,29 +10,34 @@ import (
 	"time"
 )
 
-// ipState tracks per-IP attempt history and any active lockout.
+// ipState tracks per-IP failure history and any active lockout.
 type ipState struct {
-	// attempts holds the timestamp of each recent attempt. Entries older than
-	// the window are pruned on every Check call, keeping memory bounded.
-	attempts []time.Time
+	// failures holds the timestamp of each recent *failed* auth attempt.
+	// Successful auths do not consume the budget. Entries older than the
+	// window are pruned on every interaction, keeping memory bounded.
+	failures []time.Time
 
-	// lockoutUntil is zero when the IP is not locked out. Once maxAttempts is
-	// reached, it is set to now+lockout and the IP is blocked until that time.
+	// lockoutUntil is zero when the IP is not locked out. Once maxAttempts
+	// failures accumulate within the window, it is set to now+lockout.
 	lockoutUntil time.Time
 }
 
-// RateLimiter is a per-IP sliding-window rate limiter with lockout support.
+// RateLimiter is a per-IP sliding-window failure-counting rate limiter with
+// lockout support.
 //
-// Design notes:
-//   - Sliding window (vs. fixed bucket): avoids the burst-at-bucket-boundary
-//     problem where an attacker can make 2×maxAttempts in a short span by
-//     timing requests to straddle two fixed windows.
-//   - In-memory state: ldap-proxy is a single-process, single-replica service.
-//     There is no need for distributed state (Redis etc.) at this scale, and
-//     keeping it in-process eliminates a runtime dependency.
-//   - Lockout distinct from window: after exceeding the attempt budget, the IP
-//     is locked out for a longer duration than the window, giving defenders
-//     time to react and penalising automated scanners more severely.
+// Design:
+//   - **Only failures count.** Legitimate users making lots of successful
+//     requests (e.g., Caddy's forward_auth, which hits /auth/verify on every
+//     protected-route request) do not consume budget. Only actual 401 returns
+//     from the auth handler count toward the lockout threshold.
+//   - Sliding window: avoids the burst-at-bucket-boundary problem where an
+//     attacker can make 2×maxAttempts in a short span by timing requests to
+//     straddle two fixed windows.
+//   - In-memory state: ldap-proxy is single-process, single-replica. No need
+//     for distributed state.
+//   - Lockout distinct from window: once maxAttempts failures accumulate, the
+//     IP is blocked for the longer lockout duration — gives defenders time to
+//     react and penalises automated scanners.
 type RateLimiter struct {
 	window      time.Duration
 	lockout     time.Duration
@@ -43,12 +48,12 @@ type RateLimiter struct {
 	state map[string]*ipState
 }
 
-// NewRateLimiter creates a limiter with the given window, lockout, max attempts,
+// NewRateLimiter creates a limiter with the given window, lockout, max failures,
 // and clock function.
 //
-//   - window:      period over which attempts are counted (e.g. 1 minute).
+//   - window:      period over which failures are counted (e.g. 5 minutes).
 //   - lockout:     how long an IP stays blocked after exceeding maxAttempts.
-//   - maxAttempts: number of attempts permitted within a window before blocking.
+//   - maxAttempts: number of failures permitted within a window before blocking.
 //   - clock:       time source; pass time.Now for production, a fake for tests.
 func NewRateLimiter(window, lockout time.Duration, maxAttempts int, clock func() time.Time) *RateLimiter {
 	return &RateLimiter{
@@ -60,15 +65,37 @@ func NewRateLimiter(window, lockout time.Duration, maxAttempts int, clock func()
 	}
 }
 
-// Check records an attempt from ip and reports whether it is permitted.
+// CheckLockout reports whether an IP is currently locked out. It does NOT
+// record anything — use RecordFailure to register a failed auth attempt.
 //
 // Returns:
-//   - allowed=true, retryAfter=0 when the attempt is within the budget.
-//   - allowed=false, retryAfter>0 when the IP is locked out; retryAfter is the
-//     remaining lockout duration.
+//   - allowed=true, retryAfter=0 when the IP is not locked out.
+//   - allowed=false, retryAfter>0 when the IP is locked out; retryAfter is
+//     the remaining lockout duration.
 //
 // Safe for concurrent use.
-func (rl *RateLimiter) Check(ip string) (allowed bool, retryAfter time.Duration) {
+func (rl *RateLimiter) CheckLockout(ip string) (allowed bool, retryAfter time.Duration) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	st, ok := rl.state[ip]
+	if !ok {
+		return true, 0
+	}
+
+	now := rl.clock()
+	if now.Before(st.lockoutUntil) {
+		return false, st.lockoutUntil.Sub(now)
+	}
+	return true, 0
+}
+
+// RecordFailure registers a failed authentication attempt from ip. If the
+// failure count within the sliding window reaches maxAttempts, the IP is
+// locked out for the configured lockout duration.
+//
+// Safe for concurrent use.
+func (rl *RateLimiter) RecordFailure(ip string) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -80,33 +107,31 @@ func (rl *RateLimiter) Check(ip string) (allowed bool, retryAfter time.Duration)
 		rl.state[ip] = st
 	}
 
-	// If the IP is currently locked out, report the remaining duration.
+	// If already locked out, don't extend — the existing lockout stands.
 	if now.Before(st.lockoutUntil) {
-		return false, st.lockoutUntil.Sub(now)
+		return
 	}
 
-	// Prune attempts that have aged out of the sliding window.
+	// Prune failures that have aged out of the sliding window.
 	cutoff := now.Add(-rl.window)
-	fresh := st.attempts[:0]
-	for _, ts := range st.attempts {
+	fresh := st.failures[:0]
+	for _, ts := range st.failures {
 		if ts.After(cutoff) {
 			fresh = append(fresh, ts)
 		}
 	}
-	st.attempts = fresh
+	st.failures = fresh
 
-	// Record the attempt.
-	st.attempts = append(st.attempts, now)
+	// Record the failure.
+	st.failures = append(st.failures, now)
 
-	// If the attempt count has reached the cap, apply lockout immediately.
-	// We set lockout on the attempt that fills the last slot so that subsequent
-	// checks (even after the window has rolled past the recorded attempts) still
-	// see the lockout. The attempt itself is allowed — the *next* one is blocked.
-	if len(st.attempts) >= rl.maxAttempts {
+	// If we've hit the threshold, apply lockout. We set lockout on the
+	// failure that fills the last slot so subsequent CheckLockout calls
+	// (even after the window has rolled past the recorded failures) still
+	// see the lockout.
+	if len(st.failures) >= rl.maxAttempts {
 		st.lockoutUntil = now.Add(rl.lockout)
 	}
-
-	return true, 0
 }
 
 // clientIP extracts the rate-limit key from a request.
@@ -128,14 +153,18 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// Middleware wraps an http.Handler with rate-limit enforcement.
-// Source IP is taken from X-Forwarded-For (first entry) if present,
-// else from r.RemoteAddr (port stripped). On rate-limit, returns 429
-// with Retry-After set to seconds until the next permitted attempt.
+// Middleware wraps an http.Handler with lockout enforcement.
+//
+// The middleware ONLY checks whether the source IP is currently locked out —
+// it does not record failures. The wrapped handler is responsible for calling
+// RecordFailure when an auth attempt fails (e.g., 401 response).
+//
+// On lockout, returns 429 with Retry-After set to seconds until the next
+// permitted attempt.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)
-		allowed, retryAfter := rl.Check(ip)
+		allowed, retryAfter := rl.CheckLockout(ip)
 		if !allowed {
 			secs := int(math.Ceil(retryAfter.Seconds()))
 			w.Header().Set("Retry-After", strconv.Itoa(secs))

@@ -11,11 +11,27 @@ import (
 )
 
 type AuthHandler struct {
-	proxy *LDAPProxy
+	proxy   *LDAPProxy
+	limiter *RateLimiter // optional; when non-nil, failed auths call RecordFailure
 }
 
-func NewAuthHandler(proxy *LDAPProxy) *AuthHandler {
-	return &AuthHandler{proxy: proxy}
+// NewAuthHandler creates a handler for /auth/verify.
+//
+// If limiter is non-nil, the handler calls limiter.RecordFailure on each 401
+// response so failures (and only failures) count toward the rate-limit budget.
+// Successful auths don't consume budget — important because Caddy's
+// forward_auth hits this endpoint on every protected request.
+func NewAuthHandler(proxy *LDAPProxy, limiter *RateLimiter) *AuthHandler {
+	return &AuthHandler{proxy: proxy, limiter: limiter}
+}
+
+// recordFailure records a failed auth against the rate limiter, if one is
+// configured. Called from every 401 return path in HandleVerify.
+func (a *AuthHandler) recordFailure(r *http.Request) {
+	if a.limiter == nil {
+		return
+	}
+	a.limiter.RecordFailure(clientIP(r))
 }
 
 // HandleVerify implements GET /auth/verify for Caddy forward_auth.
@@ -25,6 +41,7 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	if authHeader == "" || !strings.HasPrefix(authHeader, "Basic ") {
 		w.Header().Set("WWW-Authenticate", `Basic realm="FastTAK"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		a.recordFailure(r)
 		return
 	}
 
@@ -53,6 +70,7 @@ func (a *AuthHandler) HandleVerify(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		w.Header().Set("WWW-Authenticate", `Basic realm="FastTAK"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		a.recordFailure(r)
 		return
 	}
 

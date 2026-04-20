@@ -77,7 +77,20 @@ Only groups with the `tak_` prefix appear as TAK channels. Create groups in LLDA
 ## Rate Limiting
 
 Authentication requests to `/auth/verify` (the endpoint Caddy uses for
-forward_auth) are rate-limited per source IP. By default, 10 attempts
-per 5 minutes triggers a 15-minute lockout. Tunable via
-`LDAP_RATE_LIMIT_*` env vars (see `.env.example`). Exceeding the limit
-returns HTTP 429 with a `Retry-After` header. See DD-035.
+forward_auth) are rate-limited per source IP. Only **failed** attempts
+count toward the budget — successful auths don't consume it, because
+Caddy's forward_auth hits this endpoint on every protected-route
+request and counting successes would lock out legitimate users. See
+DD-037 for the failures-only semantics.
+
+By default, 10 failures per 5 minutes triggers a 15-minute lockout.
+Tunable via `LDAP_RATE_LIMIT_*` env vars (see `.env.example`).
+Exceeding the limit returns HTTP 429 with a `Retry-After` header.
+
+**Recovering from accidental lockout:** if you trip the limit during
+testing (wrong password, debugging client configs), restart
+`ldap-proxy` to clear the in-memory state:
+
+```bash
+docker compose restart ldap-proxy
+```
