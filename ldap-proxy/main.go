@@ -68,19 +68,21 @@ func main() {
 	// Initialize proxy
 	proxy := NewLDAPProxy(tokens, lldapAddr, baseDN, adminDN, adminPass)
 
-	// REST API
-	tokensAPI := NewTokensAPI(tokens, defaultTTL, defaultOneTime)
-	authHandler := NewAuthHandler(proxy)
-	healthHandler := NewHealthHandler(tokens, proxy)
-
 	// Rate limiter for /auth/verify — protects against brute force on LDAP auth.
-	// /tokens is internal-only (not Caddy-exposed). /healthz is Docker health probes.
-	// Defaults: 10 attempts per 5 minutes, 15-minute lockout. Configurable via env (DD-035).
+	// Only counts FAILED attempts (DD-037): Caddy's forward_auth hits this on every
+	// request, so counting successes would lock out legitimate users. /tokens is
+	// internal-only (not Caddy-exposed). /healthz is Docker health probes.
+	// Defaults: 10 failures per 5 minutes, 15-minute lockout. Configurable via env.
 	rateLimitWindow := envDurationOrDefault("LDAP_RATE_LIMIT_WINDOW", 5*time.Minute)
 	rateLimitLockout := envDurationOrDefault("LDAP_RATE_LIMIT_LOCKOUT", 15*time.Minute)
 	rateLimitMax := envIntOrDefault("LDAP_RATE_LIMIT_MAX_ATTEMPTS", 10)
-	log.Printf("rate limit: window=%s max=%d lockout=%s", rateLimitWindow, rateLimitMax, rateLimitLockout)
+	log.Printf("rate limit: window=%s max=%d lockout=%s (counting failures only)", rateLimitWindow, rateLimitMax, rateLimitLockout)
 	authRateLimit := NewRateLimiter(rateLimitWindow, rateLimitLockout, rateLimitMax, time.Now)
+
+	// REST API
+	tokensAPI := NewTokensAPI(tokens, defaultTTL, defaultOneTime)
+	authHandler := NewAuthHandler(proxy, authRateLimit)
+	healthHandler := NewHealthHandler(tokens, proxy)
 
 	// HTTP mux — no auth on these endpoints. The REST API is internal-only
 	// (not exposed via Caddy), reachable only from the Docker network by

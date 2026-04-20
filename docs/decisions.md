@@ -4,6 +4,40 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-037: Rate Limit Counts Only Failed Auth Attempts
+
+**Date:** 2026-04-19
+**Status:** Decided (refines DD-036)
+
+**Decision:** The `/auth/verify` rate limiter counts **only failed** authentication attempts (401 responses). Successful auths do not consume the budget. The middleware's job is reduced to checking lockout state; the auth handler itself calls `RateLimiter.RecordFailure(ip)` on each 401 return.
+
+**Why:** Caddy's `forward_auth` hits `/auth/verify` on **every protected-route request**, not just logins. Counting every attempt — the original DD-036 implementation — meant a legitimate user clicking around the portal could trivially exceed the budget and lock themselves out. The original defaults of 10 attempts per 5 minutes were correct for a brute-force threat model but catastrophically tight for the actual per-request-forward-auth traffic pattern.
+
+Failures-only counting restores the intended semantics: brute-force attempts (which fail) are penalised; legitimate use (which succeeds) is not.
+
+**How it works:**
+- `Middleware` → calls `CheckLockout(ip)` only. Does not record anything. Returns 429 if the IP is currently locked out.
+- `HandleVerify` → on every 401 return path (missing header, bad credentials, invalid bind), calls `RecordFailure(ip)`.
+- `RecordFailure` → tracks per-IP failure timestamps in a sliding window; once the window-bounded failure count reaches `maxAttempts`, sets `lockoutUntil`.
+- `CheckLockout` → returns blocked if `now < lockoutUntil`, else allowed.
+
+**What does NOT count:**
+- 200 responses (successful auth)
+- 400 responses (malformed Basic auth header — user error, not credential guessing)
+- 500 responses (internal errors on the ldap-proxy side)
+- Any request that reaches the handler via a non-`/auth/verify` route
+
+**Lockout is not extended by continued retries:** once an attacker triggers lockout, their further attempts don't reset or extend the timer. The initial lockout duration is the penalty; they must stop or wait it out.
+
+**Alternatives considered:**
+- Count all attempts but raise the threshold (e.g., 1000/min) — rejected, makes brute-force protection largely theatrical. The right fix is semantic, not numeric.
+- Session-level caching at Caddy so forward_auth doesn't hit ldap-proxy every request — rejected as scope creep; would need a second cookie/session layer on top of forward_auth.
+- Count based on response code via a wrapped ResponseWriter in middleware — rejected, tighter coupling and harder to reason about. Explicit `RecordFailure` call from the handler is clearer.
+
+**Related:** DD-036 (the limiter this refines), DD-031 (ldap-proxy architecture).
+
+---
+
 ## DD-036: Rate Limit on LDAP `/auth/verify`
 
 **Date:** 2026-04-18

@@ -17,78 +17,88 @@ func advance(t *time.Time, d time.Duration) {
 	*t = t.Add(d)
 }
 
-func TestRateLimiter_UnderLimit_Allows(t *testing.T) {
+// ---------------------------------------------------------------------------
+// RateLimiter core (CheckLockout + RecordFailure)
+// ---------------------------------------------------------------------------
+
+func TestRateLimiter_FreshIP_NotLockedOut(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
 
-	for i := 0; i < 2; i++ {
-		allowed, retryAfter := rl.Check("10.0.0.1")
-		if !allowed {
-			t.Fatalf("attempt %d (under limit): expected allowed, got blocked", i+1)
-		}
-		if retryAfter != 0 {
-			t.Fatalf("attempt %d: expected retryAfter=0, got %v", i+1, retryAfter)
-		}
+	allowed, retryAfter := rl.CheckLockout("10.0.0.1")
+	if !allowed {
+		t.Fatal("fresh IP: expected allowed, got blocked")
+	}
+	if retryAfter != 0 {
+		t.Fatalf("fresh IP: expected retryAfter=0, got %v", retryAfter)
 	}
 }
 
-func TestRateLimiter_AtLimit_Blocks(t *testing.T) {
+func TestRateLimiter_FailuresUnderLimit_NotLockedOut(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
 
-	// Burn through the budget.
-	for i := 0; i < 3; i++ {
-		rl.Check("10.0.0.1")
-	}
+	// Record 2 failures — one short of the limit.
+	rl.RecordFailure("10.0.0.2")
+	rl.RecordFailure("10.0.0.2")
 
-	// The Nth attempt (4th, already over limit) should be blocked.
-	allowed, retryAfter := rl.Check("10.0.0.1")
-	if allowed {
-		t.Fatal("at/over limit: expected blocked, got allowed")
-	}
-	if retryAfter <= 0 {
-		t.Fatalf("expected positive retryAfter, got %v", retryAfter)
+	allowed, _ := rl.CheckLockout("10.0.0.2")
+	if !allowed {
+		t.Fatal("2 of 3 failures: expected still allowed, got blocked")
 	}
 }
 
-func TestRateLimiter_OverLimit_LockoutApplies(t *testing.T) {
+func TestRateLimiter_FailuresAtLimit_LockoutApplies(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	lockout := 5 * time.Minute
 	rl := NewRateLimiter(1*time.Minute, lockout, 3, fakeClock(&now))
 
-	// Exhaust budget — the 3rd attempt triggers lockout.
+	// Fill the budget with failures.
 	for i := 0; i < 3; i++ {
-		rl.Check("10.0.0.2")
+		rl.RecordFailure("10.0.0.3")
 	}
 
-	// Advance time but stay inside the lockout window.
-	advance(&now, 2*time.Minute)
-	allowed, retryAfter := rl.Check("10.0.0.2")
+	allowed, retryAfter := rl.CheckLockout("10.0.0.3")
 	if allowed {
-		t.Fatal("inside lockout: expected blocked")
+		t.Fatal("after maxAttempts failures: expected blocked, got allowed")
 	}
-	// retryAfter should reflect remaining lockout (~3 min), not the full 5 min.
 	if retryAfter <= 0 || retryAfter > lockout {
-		t.Fatalf("unexpected retryAfter inside lockout: %v", retryAfter)
+		t.Fatalf("unexpected retryAfter: %v (lockout=%v)", retryAfter, lockout)
 	}
 }
 
-func TestRateLimiter_WindowRollover_Unblocks(t *testing.T) {
+func TestRateLimiter_SuccessesDontConsumeBudget(t *testing.T) {
+	// Regression test for the DD-037 fix: a legitimate user hitting
+	// /auth/verify 1000 times should not get locked out because only
+	// failures count toward the threshold. CheckLockout is a pure read.
+	now := time.Unix(1_000_000, 0)
+	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
+
+	for i := 0; i < 1000; i++ {
+		allowed, _ := rl.CheckLockout("10.0.0.4")
+		if !allowed {
+			t.Fatalf("after %d CheckLockout calls: expected allowed, got blocked", i+1)
+		}
+	}
+}
+
+func TestRateLimiter_WindowRollover_ClearsFailures(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	window := 1 * time.Minute
 	rl := NewRateLimiter(window, 5*time.Minute, 3, fakeClock(&now))
 
-	// Make 2 attempts — one short of the limit.
-	rl.Check("10.0.0.3")
-	rl.Check("10.0.0.3")
+	// Two failures — one short of lockout.
+	rl.RecordFailure("10.0.0.5")
+	rl.RecordFailure("10.0.0.5")
 
-	// Roll the window forward so those attempts age out.
+	// Age those out of the window.
 	advance(&now, window+1*time.Second)
 
-	// Should be allowed again (slate wiped by window expiry).
-	allowed, _ := rl.Check("10.0.0.3")
+	// One more failure should NOT trigger lockout (pruned earlier ones).
+	rl.RecordFailure("10.0.0.5")
+	allowed, _ := rl.CheckLockout("10.0.0.5")
 	if !allowed {
-		t.Fatal("after window rollover: expected allowed, got blocked")
+		t.Fatal("after window rollover + 1 new failure: expected allowed")
 	}
 }
 
@@ -97,17 +107,16 @@ func TestRateLimiter_LockoutExpires_Unblocks(t *testing.T) {
 	lockout := 5 * time.Minute
 	rl := NewRateLimiter(1*time.Minute, lockout, 3, fakeClock(&now))
 
-	// Exhaust budget to trigger lockout.
+	// Trigger lockout.
 	for i := 0; i < 3; i++ {
-		rl.Check("10.0.0.4")
+		rl.RecordFailure("10.0.0.6")
 	}
 
-	// Advance past the lockout.
 	advance(&now, lockout+1*time.Second)
 
-	allowed, retryAfter := rl.Check("10.0.0.4")
+	allowed, retryAfter := rl.CheckLockout("10.0.0.6")
 	if !allowed {
-		t.Fatal("after lockout expiry: expected allowed, got blocked")
+		t.Fatal("after lockout expiry: expected allowed")
 	}
 	if retryAfter != 0 {
 		t.Fatalf("after lockout expiry: expected retryAfter=0, got %v", retryAfter)
@@ -118,132 +127,147 @@ func TestRateLimiter_PerIPIsolation(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
 	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
 
-	// Exhaust budget for IP A.
+	// Lock out IP A.
 	for i := 0; i < 3; i++ {
-		rl.Check("10.0.0.5")
+		rl.RecordFailure("10.0.0.7")
 	}
 
-	// IP B should be completely unaffected.
-	allowed, retryAfter := rl.Check("10.0.0.6")
+	// IP B should be unaffected.
+	allowed, _ := rl.CheckLockout("10.0.0.8")
 	if !allowed {
-		t.Fatal("per-IP isolation: IP B should be allowed after IP A is blocked")
-	}
-	if retryAfter != 0 {
-		t.Fatalf("per-IP isolation: IP B retryAfter should be 0, got %v", retryAfter)
+		t.Fatal("per-IP isolation: IP B should be allowed when IP A is locked out")
 	}
 }
+
+func TestRateLimiter_AlreadyLockedOut_RecordFailureDoesntExtend(t *testing.T) {
+	// An already-locked-out IP that keeps retrying shouldn't have its lockout
+	// extended further — that would effectively create a permanent DoS with
+	// steady brute-force traffic. The initial lockout duration is the penalty.
+	now := time.Unix(1_000_000, 0)
+	lockout := 5 * time.Minute
+	rl := NewRateLimiter(1*time.Minute, lockout, 3, fakeClock(&now))
+
+	// Trigger lockout at t=0.
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("10.0.0.9")
+	}
+
+	// Attacker keeps hammering for 3 minutes.
+	for i := 0; i < 100; i++ {
+		advance(&now, 2*time.Second)
+		rl.RecordFailure("10.0.0.9")
+	}
+
+	// Advance past the ORIGINAL 5-minute lockout (with some slack for the
+	// 3 minutes we already advanced).
+	advance(&now, 3*time.Minute)
+
+	allowed, _ := rl.CheckLockout("10.0.0.9")
+	if !allowed {
+		t.Fatal("after original lockout elapsed: lockout should not have been extended by retries")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Middleware
+// ---------------------------------------------------------------------------
 
 // dummyHandler returns 200 OK and records how many times it was called.
 type dummyHandler struct{ calls int }
 
-func (h *dummyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *dummyHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	h.calls++
 	w.WriteHeader(http.StatusOK)
 }
 
-// TestMiddleware_Under_PassesThrough — N-1 requests from the same IP all
-// reach the inner handler with 200.
-func TestMiddleware_Under_PassesThrough(t *testing.T) {
+func TestMiddleware_SuccessfulRequests_DontLockOut(t *testing.T) {
+	// Regression test for DD-037. The middleware only checks lockout state;
+	// it does NOT record anything. A handler that always returns 200 should
+	// therefore never get its caller rate-limited.
 	now := time.Unix(1_000_000, 0)
-	maxAttempts := 5
-	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, maxAttempts, fakeClock(&now))
+	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
 
 	inner := &dummyHandler{}
 	handler := rl.Middleware(inner)
 
-	for i := 0; i < maxAttempts-1; i++ {
+	// 100 successful requests from the same IP.
+	for i := 0; i < 100; i++ {
 		req := httptest.NewRequest("GET", "/auth/verify", nil)
-		req.RemoteAddr = "10.0.0.1:12345"
+		req.RemoteAddr = "10.0.0.10:12345"
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
-			t.Fatalf("request %d: expected 200, got %d", i+1, rr.Code)
+			t.Fatalf("request %d: expected 200, got %d (regression — successes shouldn't lock out)", i+1, rr.Code)
 		}
 	}
-	if inner.calls != maxAttempts-1 {
-		t.Fatalf("expected inner handler called %d times, got %d", maxAttempts-1, inner.calls)
+	if inner.calls != 100 {
+		t.Fatalf("expected 100 handler calls, got %d", inner.calls)
 	}
 }
 
-// TestMiddleware_AtLimit_Returns429 — after the budget-filling attempt, the
-// next request returns 429 with a Retry-After header.
-func TestMiddleware_AtLimit_Returns429(t *testing.T) {
+func TestMiddleware_LockedOutIP_Returns429(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
-	maxAttempts := 3
-	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, maxAttempts, fakeClock(&now))
+	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
 
-	handler := rl.Middleware(&dummyHandler{})
-
-	// Burn through the full budget (triggers lockout on last allowed request).
-	for i := 0; i < maxAttempts; i++ {
-		req := httptest.NewRequest("GET", "/auth/verify", nil)
-		req.RemoteAddr = "10.0.0.2:9999"
-		handler.ServeHTTP(httptest.NewRecorder(), req)
+	// Manually lock out an IP via direct RecordFailure calls.
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("10.0.0.11")
 	}
 
-	// The next request must be rejected.
+	inner := &dummyHandler{}
+	handler := rl.Middleware(inner)
+
 	req := httptest.NewRequest("GET", "/auth/verify", nil)
-	req.RemoteAddr = "10.0.0.2:9999"
+	req.RemoteAddr = "10.0.0.11:54321"
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d", rr.Code)
+		t.Fatalf("locked-out IP: expected 429, got %d", rr.Code)
 	}
 	if rr.Header().Get("Retry-After") == "" {
-		t.Fatal("expected Retry-After header, got none")
+		t.Fatal("expected Retry-After header")
+	}
+	if inner.calls != 0 {
+		t.Fatalf("locked-out request should not reach handler, but handler was called %d times", inner.calls)
 	}
 }
 
-// TestMiddleware_XForwardedFor_UsedForKeying — when X-Forwarded-For is
-// present, the limiter keys on that IP, not on RemoteAddr.
-func TestMiddleware_XForwardedFor_UsedForKeying(t *testing.T) {
+func TestMiddleware_XForwardedFor_UsedForLockoutKey(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
-	maxAttempts := 3
-	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, maxAttempts, fakeClock(&now))
+	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
+
+	// Lock out via XFF "10.0.0.20".
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("10.0.0.20")
+	}
 
 	handler := rl.Middleware(&dummyHandler{})
 
-	// Exhaust budget keyed on X-Forwarded-For "10.0.0.5".
-	for i := 0; i < maxAttempts; i++ {
-		req := httptest.NewRequest("GET", "/auth/verify", nil)
-		req.RemoteAddr = "127.0.0.1:1111"
-		req.Header.Set("X-Forwarded-For", "10.0.0.5")
-		handler.ServeHTTP(httptest.NewRecorder(), req)
-	}
-
-	// Next request from the same X-Forwarded-For IP should be rate-limited.
 	req := httptest.NewRequest("GET", "/auth/verify", nil)
-	req.RemoteAddr = "127.0.0.1:2222" // different port, same XFF
-	req.Header.Set("X-Forwarded-For", "10.0.0.5")
+	req.RemoteAddr = "127.0.0.1:1111"
+	req.Header.Set("X-Forwarded-For", "10.0.0.20")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429 keyed on XFF IP, got %d", rr.Code)
+		t.Fatalf("expected 429 keyed on XFF, got %d", rr.Code)
 	}
 }
 
-// TestMiddleware_MultipleIPsInXForwardedFor_UsesFirst — when X-Forwarded-For
-// contains a comma-separated list, only the first entry is used.
 func TestMiddleware_MultipleIPsInXForwardedFor_UsesFirst(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
-	maxAttempts := 3
-	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, maxAttempts, fakeClock(&now))
+	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
+
+	// Lock out the first IP in a multi-value XFF.
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("1.2.3.4")
+	}
 
 	handler := rl.Middleware(&dummyHandler{})
 
-	// Exhaust budget using the first IP in a multi-value XFF header.
-	for i := 0; i < maxAttempts; i++ {
-		req := httptest.NewRequest("GET", "/auth/verify", nil)
-		req.RemoteAddr = "127.0.0.1:3333"
-		req.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
-		handler.ServeHTTP(httptest.NewRecorder(), req)
-	}
-
-	// Next request keyed on "1.2.3.4" should be blocked.
 	req := httptest.NewRequest("GET", "/auth/verify", nil)
-	req.RemoteAddr = "127.0.0.1:4444"
+	req.RemoteAddr = "127.0.0.1:3333"
 	req.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -252,37 +276,33 @@ func TestMiddleware_MultipleIPsInXForwardedFor_UsesFirst(t *testing.T) {
 		t.Fatalf("expected 429 for first XFF IP, got %d", rr.Code)
 	}
 
-	// A request arriving only from 5.6.7.8 should NOT be blocked (different key).
+	// Only the forwarding proxy (5.6.7.8) should not trigger lockout.
+	inner := &dummyHandler{}
+	handler2 := rl.Middleware(inner)
 	req2 := httptest.NewRequest("GET", "/auth/verify", nil)
 	req2.RemoteAddr = "127.0.0.1:5555"
 	req2.Header.Set("X-Forwarded-For", "5.6.7.8")
 	rr2 := httptest.NewRecorder()
-	handler.ServeHTTP(rr2, req2)
+	handler2.ServeHTTP(rr2, req2)
 
-	if rr2.Code == http.StatusTooManyRequests {
-		t.Fatal("5.6.7.8 should not be rate-limited — it was only a forwarding proxy")
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("5.6.7.8 should not be rate-limited, got %d", rr2.Code)
 	}
 }
 
-// TestMiddleware_NoXForwardedFor_FallsBackToRemoteAddr — without an XFF
-// header, the limiter falls back to RemoteAddr with the port stripped.
 func TestMiddleware_NoXForwardedFor_FallsBackToRemoteAddr(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
-	maxAttempts := 3
-	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, maxAttempts, fakeClock(&now))
+	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
+
+	// Lock out via the host part of a RemoteAddr.
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("192.168.1.1")
+	}
 
 	handler := rl.Middleware(&dummyHandler{})
 
-	// Exhaust budget via RemoteAddr (no XFF).
-	for i := 0; i < maxAttempts; i++ {
-		req := httptest.NewRequest("GET", "/auth/verify", nil)
-		req.RemoteAddr = "192.168.1.1:6666"
-		handler.ServeHTTP(httptest.NewRecorder(), req)
-	}
-
-	// Same host, different port — should still be blocked (port is stripped).
 	req := httptest.NewRequest("GET", "/auth/verify", nil)
-	req.RemoteAddr = "192.168.1.1:7777"
+	req.RemoteAddr = "192.168.1.1:7777" // same host, different port
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -291,22 +311,15 @@ func TestMiddleware_NoXForwardedFor_FallsBackToRemoteAddr(t *testing.T) {
 	}
 }
 
-// TestMiddleware_MalformedXForwardedFor_FallsBackToRemoteAddr — a garbage XFF
-// header value falls back to RemoteAddr.
 func TestMiddleware_MalformedXForwardedFor_FallsBackToRemoteAddr(t *testing.T) {
 	now := time.Unix(1_000_000, 0)
-	maxAttempts := 3
-	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, maxAttempts, fakeClock(&now))
+	rl := NewRateLimiter(1*time.Minute, 5*time.Minute, 3, fakeClock(&now))
+
+	for i := 0; i < 3; i++ {
+		rl.RecordFailure("172.16.0.1")
+	}
 
 	handler := rl.Middleware(&dummyHandler{})
-
-	// Exhaust budget — malformed XFF should fall back to the RemoteAddr host.
-	for i := 0; i < maxAttempts; i++ {
-		req := httptest.NewRequest("GET", "/auth/verify", nil)
-		req.RemoteAddr = "172.16.0.1:8888"
-		req.Header.Set("X-Forwarded-For", "!!!not-an-ip!!!")
-		handler.ServeHTTP(httptest.NewRecorder(), req)
-	}
 
 	req := httptest.NewRequest("GET", "/auth/verify", nil)
 	req.RemoteAddr = "172.16.0.1:9999"
