@@ -4,6 +4,37 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-038: Expose TAK Server 8446 Directly in Base Compose
+
+**Date:** 2026-04-19
+**Status:** Decided
+
+**Decision:** `tak-server` binds port 8446 on the host in the base `docker-compose.yml`, regardless of `DEPLOY_MODE`. The Caddy port binding for 8446 is removed from `docker-compose.direct.yml` (no longer needed and would collide). The Caddy subdomain route `takserver.${SERVER_ADDRESS}` is preserved as a convenience for browser access to the admin UI with Caddy's Let's Encrypt cert, but enrollment flows hit `SERVER_ADDRESS:8446` directly.
+
+**Why:** Before this change, subdomain mode didn't expose 8446 on the host at all — TAK Server listened on it internally and Caddy optionally proxied via the `takserver.` subdomain. But the portal generates enrollment URLs using `TAK_ENROLLMENT_PORT=8446` directly (`https://SERVER_ADDRESS:8446/Marti/api/...`). Clients scanning enrollment QRs tried to reach `:8446` and got connection refused. Operators had to add a local compose override binding 8446 before enrollment would work.
+
+In direct mode, Caddy previously handled 8446 with its internal-CA cert. That cert isn't in the TAK CA chain clients trust via the enrollment data package, so TLS validation could fail on strict clients. Routing 8446 directly to tak-server fixes both problems — clients consistently see the TAK CA cert regardless of mode.
+
+**Consequences:**
+
+- Subdomain mode: operators no longer need a local override for enrollment to work. Existing overrides remain harmless but unnecessary.
+- Direct mode: 8446 now hits tak-server directly instead of Caddy. The cert presented switches from Caddy's internal CA to the TAK CA — matches what enrollment clients expect. No operator action required; Docker port binding moves automatically on `docker compose up`.
+- The `docker-compose.test.yml` override (port offset `18446:8446` on tak-server) was already consistent with this model — confirms the test harness and the base compose were misaligned before this change, not after.
+
+**Scope:**
+
+- 8443 and 8089 remain bound on tak-server as before (HTTPS + CoT streaming, both mTLS).
+- 8446 is mTLS-protected for admin access (cert-based); unauthenticated enrollment (`/Marti/api/tls/signClient/v2`) requires Basic auth with a valid enrollment token. Public exposure is safe because both auth paths are cryptographically strong.
+
+**Alternatives considered:**
+
+- Generate subdomain-style enrollment URLs (`https://takserver.SERVER_ADDRESS`) from the portal instead of `:8446` URLs in subdomain mode — rejected as a larger change (touches monitor's Python URL-generation code) and inconsistent with how TAK ecosystem tooling and documentation refer to the enrollment port.
+- Document the local-override workaround permanently — rejected, puts the burden on every operator forever and foot-guns the deployment walkthrough.
+
+**Related:** DD-029 (deploy modes), DD-033 (universal security defaults applied regardless of mode).
+
+---
+
 ## DD-037: Rate Limit Counts Only Failed Auth Attempts
 
 **Date:** 2026-04-19
@@ -16,12 +47,14 @@ Significant architectural and design decisions, with reasoning. Newest first.
 Failures-only counting restores the intended semantics: brute-force attempts (which fail) are penalised; legitimate use (which succeeds) is not.
 
 **How it works:**
+
 - `Middleware` → calls `CheckLockout(ip)` only. Does not record anything. Returns 429 if the IP is currently locked out.
 - `HandleVerify` → on every 401 return path (missing header, bad credentials, invalid bind), calls `RecordFailure(ip)`.
 - `RecordFailure` → tracks per-IP failure timestamps in a sliding window; once the window-bounded failure count reaches `maxAttempts`, sets `lockoutUntil`.
 - `CheckLockout` → returns blocked if `now < lockoutUntil`, else allowed.
 
 **What does NOT count:**
+
 - 200 responses (successful auth)
 - 400 responses (malformed Basic auth header — user error, not credential guessing)
 - 500 responses (internal errors on the ldap-proxy side)
@@ -30,13 +63,12 @@ Failures-only counting restores the intended semantics: brute-force attempts (wh
 **Lockout is not extended by continued retries:** once an attacker triggers lockout, their further attempts don't reset or extend the timer. The initial lockout duration is the penalty; they must stop or wait it out.
 
 **Alternatives considered:**
+
 - Count all attempts but raise the threshold (e.g., 1000/min) — rejected, makes brute-force protection largely theatrical. The right fix is semantic, not numeric.
 - Session-level caching at Caddy so forward_auth doesn't hit ldap-proxy every request — rejected as scope creep; would need a second cookie/session layer on top of forward_auth.
 - Count based on response code via a wrapped ResponseWriter in middleware — rejected, tighter coupling and harder to reason about. Explicit `RecordFailure` call from the handler is clearer.
 
 **Related:** DD-036 (the limiter this refines), DD-031 (ldap-proxy architecture).
-
----
 
 ## DD-036: Rate Limit on LDAP `/auth/verify`
 

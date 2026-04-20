@@ -5,6 +5,11 @@
 # Used when DEPLOY_MODE=direct in .env.
 #
 #   Activated automatically by start.sh / justfile when DEPLOY_MODE=direct.
+#
+# NOTE: TAK Server's admin/enrollment port (8446) is bound directly on the
+# tak-server service in the base docker-compose.yml so that enrollment URLs
+# reach TAK Server's own cert chain (TAK CA), not Caddy's internal CA. Do not
+# add 8446 to Caddy here — it would collide with tak-server's binding.
 # =============================================================================
 
 services:
@@ -12,5 +17,4 @@ services:
     ports:
       - "${NODERED_PORT:-1880}:${NODERED_PORT:-1880}"
       - "${MONITOR_PORT:-8180}:${MONITOR_PORT:-8180}"
-      - "${TAKSERVER_ADMIN_PORT:-8446}:${TAKSERVER_ADMIN_PORT:-8446}"
       - "${MEDIAMTX_PORT:-8888}:${MEDIAMTX_PORT:-8888}"
