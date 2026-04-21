@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v0.20.1 (2026-04-21)
+
+### Bug Fixes
+
+- Bind tak-server 8446 on host in base compose (DD-038)
+  ([`f053307`](https://github.com/pounde/FastTAK/commit/f0533071f6f9e9637b27f6a34422f49b005e63cf))
+
+- **ldap-proxy**: Rate limit counts only failed auth attempts (DD-037)
+  ([`1fbb57d`](https://github.com/pounde/FastTAK/commit/1fbb57d813ff6d0750c8fe975371a5137a4c71e9))
+
+- **monitor**: Skip certmod registration on cert generation
+  ([`bb1a738`](https://github.com/pounde/FastTAK/commit/bb1a7389f9c6e27012bb4597142ae1f39daf0fa4))
+
+- **monitor**: Switch bulk cert revocation to CRL path
+  ([`6f17864`](https://github.com/pounde/FastTAK/commit/6f17864d54725b39454b4172c0f79b0c46256a93))
+
+### Chores
+
+- **monitor**: Remove dead register_cert helper
+  ([`a4566cc`](https://github.com/pounde/FastTAK/commit/a4566cc443f6c574c0a6c54c7c400fbf12cd2c13))
+
+### Documentation
+
+- Add AWS Lightsail deployment walkthrough
+  ([`4c5312f`](https://github.com/pounde/FastTAK/commit/4c5312fb0f43e2ec8dfab17fd54fe4b643303dce))
+
+
 ## v0.20.0 (2026-04-18)
 
 ### Documentation
