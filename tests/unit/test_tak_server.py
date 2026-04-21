@@ -76,7 +76,33 @@ class TestRevokeCert:
 
 
 class TestRevokeAllUserCerts:
-    def test_revokes_all_active_certs(self, client, mock_http):
+    """Tests for the CRL-based revocation path.
+
+    `revoke_all_user_certs` covers two cert sources:
+    - On-disk .pem files (monitor-generated) — handled by
+      `revoke_certs_on_disk_for_user` which runs openssl ca -revoke + gencrl.
+    - certadmin-only certs (QR-enrolled) — handled by fetching PEM from
+      certadmin and feeding to `revoke_cert_by_pem` (also CRL-based).
+    """
+
+    def test_returns_true_when_no_certs_anywhere(self, client, mock_http):
+        mock_http["get"].return_value = {"data": []}
+        with patch(
+            "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+            return_value={"success": True, "revoked": 0, "errors": []},
+        ):
+            assert client.revoke_all_user_certs("jsmith") is True
+
+    def test_revokes_on_disk_certs(self, client, mock_http):
+        mock_http["get"].return_value = {"data": []}
+        with patch(
+            "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+            return_value={"success": True, "revoked": 2, "errors": []},
+        ) as mock_disk:
+            assert client.revoke_all_user_certs("jsmith") is True
+            mock_disk.assert_called_once_with("jsmith")
+
+    def test_revokes_certadmin_certs_via_pem(self, client, mock_http):
         mock_http["get"].return_value = {
             "data": [
                 {
@@ -86,23 +112,24 @@ class TestRevokeAllUserCerts:
                     "expirationDate": None,
                     "revocationDate": None,
                     "serialNumber": "1",
-                },
-                {
-                    "id": 2,
-                    "hash": "h2",
-                    "issuanceDate": None,
-                    "expirationDate": None,
-                    "revocationDate": None,
-                    "serialNumber": "2",
+                    "certificate": "-----BEGIN CERTIFICATE-----\nPEM1\n-----END CERTIFICATE-----",
                 },
             ],
         }
-        mock_http["delete"].return_value = None
-        result = client.revoke_all_user_certs("jsmith")
-        assert result is True
-        assert mock_http["delete"].call_count == 2
+        with (
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+                return_value={"success": True, "revoked": 0, "errors": []},
+            ),
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_cert_by_pem",
+                return_value={"success": True},
+            ) as mock_pem,
+        ):
+            assert client.revoke_all_user_certs("jsmith") is True
+            mock_pem.assert_called_once()
 
-    def test_skips_already_revoked(self, client, mock_http):
+    def test_skips_already_revoked_certadmin_certs(self, client, mock_http):
         mock_http["get"].return_value = {
             "data": [
                 {
@@ -112,16 +139,31 @@ class TestRevokeAllUserCerts:
                     "expirationDate": None,
                     "revocationDate": "2026-03-27T00:00:00Z",
                     "serialNumber": "1",
+                    "certificate": "-----BEGIN CERTIFICATE-----\nPEM1\n-----END CERTIFICATE-----",
                 },
             ],
         }
-        result = client.revoke_all_user_certs("jsmith")
-        assert result is True
-        mock_http["delete"].assert_not_called()
+        with (
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+                return_value={"success": True, "revoked": 0, "errors": []},
+            ),
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_cert_by_pem",
+            ) as mock_pem,
+        ):
+            assert client.revoke_all_user_certs("jsmith") is True
+            mock_pem.assert_not_called()
 
-    def test_returns_false_on_partial_failure(self, client, mock_http):
-        import httpx
+    def test_returns_false_on_disk_failure(self, client, mock_http):
+        mock_http["get"].return_value = {"data": []}
+        with patch(
+            "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+            return_value={"success": False, "revoked": 0, "errors": ["boom"]},
+        ):
+            assert client.revoke_all_user_certs("jsmith") is False
 
+    def test_returns_false_when_certadmin_pem_missing(self, client, mock_http):
         mock_http["get"].return_value = {
             "data": [
                 {
@@ -131,22 +173,38 @@ class TestRevokeAllUserCerts:
                     "expirationDate": None,
                     "revocationDate": None,
                     "serialNumber": "1",
-                },
-                {
-                    "id": 2,
-                    "hash": "h2",
-                    "issuanceDate": None,
-                    "expirationDate": None,
-                    "revocationDate": None,
-                    "serialNumber": "2",
+                    "certificate": "",
                 },
             ],
         }
-        mock_http["delete"].side_effect = [None, httpx.HTTPError("fail")]
-        result = client.revoke_all_user_certs("jsmith")
-        assert result is False
+        with patch(
+            "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+            return_value={"success": True, "revoked": 0, "errors": []},
+        ):
+            assert client.revoke_all_user_certs("jsmith") is False
 
-    def test_returns_true_when_no_certs(self, client, mock_http):
-        mock_http["get"].return_value = {"data": []}
-        result = client.revoke_all_user_certs("jsmith")
-        assert result is True
+    def test_returns_false_when_pem_revocation_fails(self, client, mock_http):
+        mock_http["get"].return_value = {
+            "data": [
+                {
+                    "id": 1,
+                    "hash": "h1",
+                    "issuanceDate": None,
+                    "expirationDate": None,
+                    "revocationDate": None,
+                    "serialNumber": "1",
+                    "certificate": "-----BEGIN CERTIFICATE-----\nPEM1\n-----END CERTIFICATE-----",
+                },
+            ],
+        }
+        with (
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_certs_on_disk_for_user",
+                return_value={"success": True, "revoked": 0, "errors": []},
+            ),
+            patch(
+                "app.api.service_accounts.cert_gen.revoke_cert_by_pem",
+                return_value={"success": False, "error": "crl regen failed"},
+            ),
+        ):
+            assert client.revoke_all_user_certs("jsmith") is False

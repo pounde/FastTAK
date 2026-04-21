@@ -140,16 +140,52 @@ class TakServerClient:
             return False
 
     def revoke_all_user_certs(self, username: str) -> bool:
-        """Revoke all active certs for a user. Returns True if all succeeded."""
-        certs = self.list_user_certs(username)
-        if not certs:
-            return True
+        """Revoke all active certs for a user via CRL (not certadmin DB flag).
+
+        Covers two cert sources:
+        1. On-disk .pem files matching {username}-*.pem (monitor-generated)
+        2. Certs in TAK certadmin with no on-disk copy (QR-enrolled) — PEM is
+           extracted from the certadmin response and fed to CRL revocation.
+
+        CRL is regenerated so TAK Server rejects revoked certs on next connect.
+        Returns True only if every cert was successfully revoked.
+        """
+        from app.api.service_accounts.cert_gen import (
+            revoke_cert_by_pem,
+            revoke_certs_on_disk_for_user,
+        )
+
         all_ok = True
+
+        disk_result = revoke_certs_on_disk_for_user(username)
+        if not disk_result["success"]:
+            all_ok = False
+            for err in disk_result.get("errors", []):
+                log.error("On-disk cert revocation failed for %s: %s", username, err)
+
+        certs = self.list_user_certs(username)
         for cert in certs:
             if cert.get("revocation_date") is not None:
                 continue
-            if not self.revoke_cert(cert["id"]):
+            pem = cert.get("certificate_pem")
+            if not pem:
+                log.warning(
+                    "certadmin cert %s for %s has no PEM — cannot CRL-revoke",
+                    cert.get("id"),
+                    username,
+                )
                 all_ok = False
+                continue
+            result = revoke_cert_by_pem(pem)
+            if not result["success"]:
+                log.error(
+                    "PEM cert revocation failed for %s cert %s: %s",
+                    username,
+                    cert.get("id"),
+                    result.get("error", ""),
+                )
+                all_ok = False
+
         return all_ok
 
     def list_groups(self) -> list[dict]:
