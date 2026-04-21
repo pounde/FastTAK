@@ -283,6 +283,61 @@ def revoke_cert_by_pem(pem_content: str) -> dict:
         return {"success": False, "error": str(e)[:300]}
 
 
+def revoke_certs_on_disk_for_user(username: str, container=None) -> dict:
+    """Revoke all on-disk certs for a user via CRL (openssl ca -revoke + gencrl).
+
+    Enumerates `{CERT_FILES}/{username}-*.pem` — the naming pattern used by
+    `generate_client_cert` when called with `cn_override=username`. Each match
+    is revoked via `_revoke_via_crl`. The CRL is regenerated on each revoke
+    (one-cert-at-a-time through _revoke_via_crl); for TTL-scale revocations
+    this is acceptable overhead.
+
+    QR-enrolled certs have no on-disk .pem (they live only in TAK certadmin)
+    and are NOT handled here — callers must separately iterate certadmin and
+    use `revoke_cert_by_pem`.
+    """
+    if err := _validate_name(username):
+        return {"success": False, "error": err, "revoked": 0, "errors": [err]}
+
+    if container is None:
+        container, error = _get_tak_container()
+        if error:
+            return {**error, "revoked": 0, "errors": [error.get("error", "")]}
+
+    exit_code, output = container.exec_run(
+        [
+            "find",
+            CERT_FILES,
+            "-maxdepth",
+            "1",
+            "-type",
+            "f",
+            "-name",
+            f"{username}-*.pem",
+        ],
+    )
+    if exit_code != 0:
+        err_msg = output.decode(errors="replace")[:300]
+        return {"success": False, "error": err_msg, "revoked": 0, "errors": [err_msg]}
+
+    paths = [line.strip() for line in output.decode(errors="replace").splitlines() if line.strip()]
+    if not paths:
+        return {"success": True, "revoked": 0, "errors": []}
+
+    errors = []
+    for path in paths:
+        name = path.rsplit("/", 1)[-1].removesuffix(".pem")
+        result = _revoke_via_crl(name, container=container)
+        if not result["success"]:
+            errors.append(f"{name}: {result.get('error', '')[:200]}")
+
+    return {
+        "success": len(errors) == 0,
+        "revoked": len(paths) - len(errors),
+        "errors": errors,
+    }
+
+
 def _revoke_via_crl(name: str, container=None) -> dict:
     """Revoke a cert and update the CRL using openssl directly.
 
