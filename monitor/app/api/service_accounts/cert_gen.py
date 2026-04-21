@@ -189,15 +189,6 @@ def generate_client_cert(
                 "error": f"P12 creation failed: {output.decode(errors='replace')[:300]}",
             }
 
-        # Register cert with TAK Server so certadmin knows about it
-        # (enables listing and revocation by cert ID)
-        reg_result = register_cert(name, container=container)
-        if not reg_result["success"]:
-            return {
-                "success": False,
-                "error": f"Cert created but registration failed: {reg_result.get('error', '')}",
-            }
-
         return {"success": True}
 
     except Exception as e:
