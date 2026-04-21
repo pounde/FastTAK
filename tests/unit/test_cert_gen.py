@@ -45,7 +45,6 @@ class TestGenerateClientCert:
             (0, b"cert generated"),
             (0, b"signed"),
             (0, b"bundled"),
-            (0, b"registered"),  # certmod registration
         ]
 
         result = generate_client_cert("svc_test", validity_days=365)

@@ -195,36 +195,6 @@ def generate_client_cert(
         return {"success": False, "error": str(e)[:300]}
 
 
-def register_cert(name: str, container=None) -> dict:
-    """Register a cert with TAK Server via certmod (no admin flag).
-
-    This makes TAK Server's certadmin API aware of the cert, enabling
-    listing and revocation by cert ID. Without registration, the cert
-    is trusted (signed by the CA) but invisible to certadmin queries.
-    """
-    if container is None:
-        container, error = _get_tak_container()
-        if error:
-            return error
-
-    try:
-        exit_code, output = container.exec_run(
-            [
-                "java",
-                "-jar",
-                "/opt/tak/utils/UserManager.jar",
-                "certmod",
-                f"{CERT_FILES}/{name}.pem",
-            ],
-        )
-        return {
-            "success": exit_code == 0,
-            "output": output.decode(errors="replace")[:500],
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)[:300]}
-
-
 def revoke_cert_by_name(name: str) -> dict:
     """Revoke a cert by name via CRL update.
 
