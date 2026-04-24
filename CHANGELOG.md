@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.21.0 (2026-04-24)
+
+### Features
+
+- **nodered**: DroneSense flow — drones, phones w/ video, operators
+  ([`0169326`](https://github.com/pounde/FastTAK/commit/0169326828afb7092aee49a61ff81cf60d1a661d))
+
+- **nodered**: Per-account PEM pipeline for Node-RED TLS
+  ([`13c3505`](https://github.com/pounde/FastTAK/commit/13c350544ad46038b54108b628af15e2eb0d4687))
+
+- **nodered**: TLS config UX polish and bootstrap cleanup
+  ([`e630f49`](https://github.com/pounde/FastTAK/commit/e630f490325701484257dc8a49f42461c82e25fd))
+
+
 ## v0.20.1 (2026-04-21)
 
 ### Bug Fixes
