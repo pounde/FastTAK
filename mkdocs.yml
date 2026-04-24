@@ -23,6 +23,9 @@ nav:
     - Node-RED: nodered.md
     - Configuration: configuration.md
     - Database Management: database-management.md
+  - Flows:
+    - Overview: flows/index.md
+    - DroneSense: flows/dronesense.md
   - Reference:
     - CoT Type Codes: reference/cot-types.md
 

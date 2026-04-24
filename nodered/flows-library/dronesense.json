@@ -1,0 +1,193 @@
+[
+  {
+    "id": "ds-tab",
+    "type": "tab",
+    "label": "DroneSense UAS",
+    "disabled": false,
+    "info": "Polls the DroneSense REST API and emits UAS-fidelity CoT to TAK Server.\n\nFor each drone (isDrone=true) in the response, emits:\n  - Platform event (a-f-A-M-H-Q) with video element (empty when idle, populated when a sensor stream is active)\n  - SPI event (b-m-p-s-p-i) with <link> back-ref to the platform, when DroneSense provides spoiLat/spoiLng\n\nDroneSense video streams use rtsps:// with self-signed certs. Each stream is proxied through MediaMTX so TAK clients connect to plain rtsp://. TLS fingerprints are grabbed automatically on first contact and cached.\n\nNon-drone items (operators, phones without video) are ignored by this flow \u2014 they belong in a separate operator-tracking flow."
+  },
+  {
+    "id": "ds-comment",
+    "type": "comment",
+    "z": "ds-tab",
+    "name": "Setup",
+    "info": "### 1. Pick a client cert (required)\n\nThis flow ships with its own TLS config node: **DroneSense Server TLS** (`ds-tls`). It's shared only by this flow \u2014 other library flows have their own.\n\n1. Create a data-mode service account in the FastTAK dashboard (Service Accounts page) with whichever `tak_*` groups this flow's CoT should reach.\n2. Open the **DroneSense Server TLS** config node (config-nodes panel, or double-click the `TAK Server` tcp-out node \u2192 edit the TLS reference).\n3. Set **Client Certificate** to `/data/certs/svc_<name>.cert.pem`.\n4. Set **Client Key** to `/data/certs/svc_<name>.key.pem`.\n5. Leave **CA Certificate** at `/opt/tak/certs/ca.pem`.\n\n### 2. Set API keys\n\nEdit the **Missions** change node below with your DroneSense API keys and mission names.\n\n### 3. Optional env\n\nThe nodered service receives `SERVER_ADDRESS` from `.env` automatically; add `DRONESENSE_STALE_SECONDS` (default 10) to override the CoT stale window. Poll interval is the **Every 5s** inject node's repeat value.\n\n### Using the same cert as another flow\n\nJust paste the same `cert` / `key` paths into both flows' TLS config nodes. They'll share the service account (and its group visibility).",
+    "x": 120,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "ds-inject",
+    "type": "inject",
+    "z": "ds-tab",
+    "name": "Every 5s",
+    "props": [],
+    "repeat": "5",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "1",
+    "topic": "",
+    "x": 120,
+    "y": 100,
+    "wires": [
+      [
+        "ds-missions"
+      ]
+    ]
+  },
+  {
+    "id": "ds-missions",
+    "type": "change",
+    "z": "ds-tab",
+    "name": "Missions",
+    "rules": [
+      {
+        "t": "set",
+        "p": "missions",
+        "pt": "msg",
+        "to": "[{\"name\": \"Structure Fire\", \"key\": \"YOUR-API-KEY-HERE\"}]",
+        "tot": "json"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 290,
+    "y": 100,
+    "wires": [
+      [
+        "ds-split"
+      ]
+    ]
+  },
+  {
+    "id": "ds-split",
+    "type": "function",
+    "z": "ds-tab",
+    "name": "Split missions",
+    "func": "const missions = msg.missions || [];\nconst messages = [];\n\nfor (const m of missions) {\n    messages.push({\n        url: 'https://external.dronesense.com/v1/drones/with-sensors',\n        headers: { 'x-api-key': m.key },\n        missionLabel: m.name\n    });\n}\n\nreturn [messages];",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 470,
+    "y": 100,
+    "wires": [
+      [
+        "ds-http"
+      ]
+    ]
+  },
+  {
+    "id": "ds-http",
+    "type": "http request",
+    "z": "ds-tab",
+    "name": "DroneSense API",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 650,
+    "y": 100,
+    "wires": [
+      [
+        "ds-build"
+      ]
+    ]
+  },
+  {
+    "id": "ds-build",
+    "type": "function",
+    "z": "ds-tab",
+    "name": "Build CoT",
+    "func": "// DroneSense API \u2192 CoT\n//   Type selection per item:\n//     - isDrone=true \u2192 a-f-A-M-H-Q (rotary UAV)\n//     - isDrone=false with any sensor.rtsp_url \u2192 a-f-G-E-S (ground sensor w/ video)\n//     - isDrone=false with no video \u2192 a-f-G-U-C (ground unit)\n//   SPI (b-m-p-s-p-i) emitted only when spoiLat/spoiLng present (practically, drones).\n//   Video <__video> element emitted for any item with an active sensor.\n//\n// Output 1: MediaMTX proxy register requests (one per active sensor)\n// Output 2: CoT XML events (platform + optional SPI)\n\nconst items = msg.payload || [];\nif (!Array.isArray(items)) return [null, null];\n\nconst missionLabel = msg.missionLabel || '';\nconst serverAddress = env.get('SERVER_ADDRESS') || 'localhost';\nconst staleSeconds = parseInt(env.get('DRONESENSE_STALE_SECONDS') || '10', 10);\n\nfunction xmlEscape(s) {\n    return String(s)\n        .replace(/&/g, '&amp;')\n        .replace(/</g, '&lt;')\n        .replace(/>/g, '&gt;')\n        .replace(/\"/g, '&quot;')\n        .replace(/'/g, '&apos;');\n}\n\nfunction pickCotType(item) {\n    if (item.isDrone) return 'a-f-A-M-H-Q';\n    const hasVideo = (item.sensors || []).some(s => s.rtsp_url);\n    return hasVideo ? 'a-f-G-E-S' : 'a-f-G-U-C';\n}\n\n// Cache TLS fingerprints in flow context so we only TLS-connect once per host\nconst fpCache = flow.get('_dsFingerprintCache') || {};\nconst hostsToResolve = new Map();\nfor (const item of items) {\n    if (!item.sensors) continue;\n    for (const sensor of item.sensors) {\n        if (!sensor.rtsp_url) continue;\n        try {\n            const u = new URL(sensor.rtsp_url);\n            const hp = `${u.hostname}:${u.port}`;\n            if (!fpCache[hp]) hostsToResolve.set(hp, { host: u.hostname, port: parseInt(u.port, 10) });\n        } catch (e) {}\n    }\n}\n\nfunction getFingerprint(host, port) {\n    return new Promise((resolve) => {\n        const sock = tls.connect({ host, port, rejectUnauthorized: false }, () => {\n            const cert = sock.getPeerCertificate(true);\n            const fp = crypto.createHash('sha256').update(cert.raw).digest('hex');\n            sock.destroy();\n            resolve(fp);\n        });\n        sock.on('error', () => resolve(''));\n        sock.setTimeout(5000, () => { sock.destroy(); resolve(''); });\n    });\n}\n\nasync function run() {\n    for (const [hp, info] of hostsToResolve) {\n        const fp = await getFingerprint(info.host, info.port);\n        if (fp) {\n            fpCache[hp] = fp;\n            node.log(`Cached TLS fingerprint for ${hp}: ${fp}`);\n        }\n    }\n    flow.set('_dsFingerprintCache', fpCache);\n\n    const proxyMsgs = [];\n    const cotMsgs = [];\n    const nowMs = Date.now();\n    const time = new Date(nowMs).toISOString();\n    const stale = new Date(nowMs + staleSeconds * 1000).toISOString();\n\n    for (const item of items) {\n        if (item.latitude == null || item.longitude == null) continue;\n\n        const cotType = pickCotType(item);\n        const platformUid = `ds-${item.id}`;\n        const callsignBase = item.callSign || item.model || item.id;\n        const displayCallsign = missionLabel ? `${missionLabel} // ${callsignBase}` : callsignBase;\n        const model = item.model || 'Unknown';\n        const hae = item.altitudeMsl != null ? item.altitudeMsl : 0;\n        const course = item.heading != null ? item.heading : 0;\n        // DroneSense uses -1 as invalid-speed sentinel\n        const speed = (item.speed != null && item.speed >= 0) ? item.speed : 0;\n\n        const hasSpi = item.spoiLat != null && item.spoiLng != null;\n        const spiShort = hasSpi ? `${callsignBase}.SPI1` : '';\n\n        // --- video element: empty when idle, short-form + ConnectionEntry when streaming ---\n        const activeSensors = (item.sensors || []).filter(s => s.rtsp_url);\n        let videoXml = '<__video/>';\n        if (activeSensors.length > 0) {\n            videoXml = '';\n            for (const sensor of activeSensors) {\n                let fingerprint = '';\n                try {\n                    const u = new URL(sensor.rtsp_url);\n                    fingerprint = fpCache[`${u.hostname}:${u.port}`] || '';\n                } catch (e) {}\n\n                const proxyPath = `ds/${sensor.id}`;\n                proxyMsgs.push({\n                    url: `http://mediamtx:9997/v3/config/paths/add/${proxyPath}`,\n                    method: 'POST',\n                    headers: { 'Content-Type': 'application/json' },\n                    payload: JSON.stringify({\n                        source: sensor.rtsp_url,\n                        sourceFingerprint: fingerprint,\n                        sourceOnDemand: false\n                    })\n                });\n\n                const proxyUrl = `rtsp://${serverAddress}:8554/${proxyPath}?tcp`;\n                const feedUid = `ds-video-${sensor.id}`;\n                const sensorName = sensor.name || callsignBase;\n                const alias = missionLabel ? `${missionLabel} // ${sensorName}` : sensorName;\n\n                videoXml +=\n                    `<__video sensor=\"${xmlEscape(displayCallsign)}\" spi=\"${xmlEscape(spiShort)}\" url=\"${xmlEscape(proxyUrl)}\">` +\n                    `<ConnectionEntry networkTimeout=\"12000\" uid=\"${xmlEscape(feedUid)}\" ` +\n                    `path=\"/${xmlEscape(proxyPath)}\" protocol=\"rtsp\" bufferTime=\"-1\" ` +\n                    `address=\"${xmlEscape(serverAddress)}\" port=\"8554\" roverPort=\"-1\" rtspReliable=\"0\" ` +\n                    `alias=\"${xmlEscape(alias)}\"/>` +\n                    `</__video>`;\n            }\n        }\n\n        const remarks = missionLabel ? `${model} \u2014 ${missionLabel}` : model;\n\n        // --- platform event ---\n        const platformCot =\n            `<?xml version=\"1.0\" encoding=\"UTF-8\"?>` +\n            `<event version=\"2.0\" uid=\"${xmlEscape(platformUid)}\" type=\"${cotType}\" how=\"m-g\" ` +\n            `time=\"${time}\" start=\"${time}\" stale=\"${stale}\">` +\n            `<point lat=\"${item.latitude}\" lon=\"${item.longitude}\" hae=\"${hae}\" ce=\"0.0\" le=\"0.0\"/>` +\n            `<detail>` +\n            `<contact callsign=\"${xmlEscape(displayCallsign)}\"/>` +\n            `<track course=\"${course}\" slope=\"0.0\" speed=\"${speed}\"/>` +\n            `<remarks>${xmlEscape(remarks)}</remarks>` +\n            videoXml +\n            `</detail>` +\n            `</event>`;\n        cotMsgs.push({ payload: platformCot });\n\n        // --- SPI event \u2014 only when DroneSense gives us a ground intersection ---\n        if (hasSpi) {\n            const spiUid = `${callsignBase}.${platformUid}.SPI1`;\n\n            const spiCot =\n                `<?xml version=\"1.0\" encoding=\"UTF-8\"?>` +\n                `<event version=\"2.0\" uid=\"${xmlEscape(spiUid)}\" type=\"b-m-p-s-p-i\" how=\"m-g\" ` +\n                `time=\"${time}\" start=\"${time}\" stale=\"${stale}\">` +\n                `<point lat=\"${item.spoiLat}\" lon=\"${item.spoiLng}\" hae=\"0.0\" ce=\"9999999.0\" le=\"9999999.0\"/>` +\n                `<detail>` +\n                `<contact callsign=\"${xmlEscape(spiShort)}\"/>` +\n                `<link uid=\"${xmlEscape(platformUid)}\" type=\"${cotType}\" relation=\"p-p\"/>` +\n                `<precisionlocation altsrc=\"GPS\"/>` +\n                `</detail>` +\n                `</event>`;\n            cotMsgs.push({ payload: spiCot });\n        }\n    }\n\n    return [proxyMsgs, cotMsgs];\n}\n\nreturn run();\n",
+    "outputs": 2,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [
+      {
+        "var": "tls",
+        "module": "tls"
+      },
+      {
+        "var": "crypto",
+        "module": "crypto"
+      }
+    ],
+    "x": 850,
+    "y": 100,
+    "wires": [
+      [
+        "ds-proxy"
+      ],
+      [
+        "ds-tcp"
+      ]
+    ]
+  },
+  {
+    "id": "ds-proxy",
+    "type": "http request",
+    "z": "ds-tab",
+    "name": "MediaMTX proxy",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 1060,
+    "y": 60,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "ds-tcp",
+    "type": "tcp out",
+    "z": "ds-tab",
+    "name": "TAK Server",
+    "host": "tak-server",
+    "port": "8089",
+    "beserver": "client",
+    "base64": false,
+    "end": false,
+    "tls": "ds-tls",
+    "close": false,
+    "x": 1060,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "ds-tls",
+    "type": "tls-config",
+    "name": "DroneSense Server TLS",
+    "cert": "/data/certs/{svc_user}.cert.pem",
+    "key": "/data/certs/{svc_user}.key.pem",
+    "ca": "/opt/tak/certs/ca.pem",
+    "certname": "",
+    "keyname": "",
+    "caname": "ca.pem",
+    "servername": "",
+    "verifyservercert": true,
+    "alpnprotocol": ""
+  }
+]
