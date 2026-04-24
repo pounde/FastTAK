@@ -27,6 +27,22 @@ def mock_clients(monkeypatch):
     return mock_ak, mock_tak
 
 
+@pytest.fixture(autouse=True)
+def mock_nodered_pems(monkeypatch):
+    """Mock the Node-RED PEM extraction/cleanup — they exec into the tak-server
+    container, which isn't available in unit tests. The router treats these as
+    best-effort and logs on failure, so we just stub them out.
+    """
+    monkeypatch.setattr(
+        "app.api.service_accounts.router.write_nodered_pems",
+        lambda name: {"success": True},
+    )
+    monkeypatch.setattr(
+        "app.api.service_accounts.router.remove_nodered_pems",
+        lambda name: {"success": True},
+    )
+
+
 # ── Create ───────────────────────────────────────────────────────
 
 

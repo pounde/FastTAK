@@ -6,7 +6,9 @@ from app.api.service_accounts.cert_gen import (
     generate_client_cert,
     parse_ca_subject,
     register_admin_cert,
+    remove_nodered_pems,
     revoke_certs_on_disk_for_user,
+    write_nodered_pems,
 )
 
 
@@ -186,6 +188,98 @@ class TestRevokeCertsOnDiskForUser:
         result = revoke_certs_on_disk_for_user("jsmith")
         assert result["success"] is False
         assert "cannot access" in result["errors"][0]
+
+
+class TestWriteNoderedPems:
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_runs_openssl_extraction(self, mock_find):
+        container = MagicMock()
+        mock_find.return_value = container
+        container.exec_run.return_value = (0, b"")
+
+        result = write_nodered_pems("svc_test")
+        assert result["success"] is True
+        container.exec_run.assert_called_once()
+        # Verify the shell script references both cert and key extraction
+        args, kwargs = container.exec_run.call_args
+        script = args[0][2]  # ["sh", "-c", "<script>"]
+        assert "-nokeys -clcerts" in script
+        assert "-nocerts -nodes" in script
+        assert kwargs["environment"]["NAME"] == "svc_test"
+
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_sets_cross_container_readable_perms(self, mock_find):
+        """Regression: PEMs must be world-readable for the nodered container
+        (running as a different UID) to open them through the bind mount.
+        Earlier versions set the key to chmod 640, which produced EACCES in
+        nodered. Pin the fix so it doesn't silently drift back.
+        """
+        container = MagicMock()
+        mock_find.return_value = container
+        container.exec_run.return_value = (0, b"")
+
+        write_nodered_pems("svc_test")
+        script = container.exec_run.call_args[0][0][2]
+        assert "chmod 755" in script, "NODERED_CERTS dir must be traversable"
+        assert "chmod 644" in script, "PEM files must be world-readable"
+        # Specifically, both the cert and key need 644 — not 640 on the key.
+        assert "chmod 640" not in script, "640 on the key breaks cross-container read"
+
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_returns_error_on_failure(self, mock_find):
+        container = MagicMock()
+        mock_find.return_value = container
+        container.exec_run.return_value = (1, b"openssl: wrong password")
+
+        result = write_nodered_pems("svc_test")
+        assert result["success"] is False
+        assert "wrong password" in result["error"]
+
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_validates_name(self, mock_find):
+        result = write_nodered_pems("bad name!")
+        assert result["success"] is False
+        assert "Name must" in result["error"]
+        mock_find.assert_not_called()
+
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_returns_error_when_container_missing(self, mock_find):
+        mock_find.return_value = None
+        result = write_nodered_pems("svc_test")
+        assert result["success"] is False
+        assert "not found" in result["error"]
+
+
+class TestRemoveNoderedPems:
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_removes_pem_pair(self, mock_find):
+        container = MagicMock()
+        mock_find.return_value = container
+        container.exec_run.return_value = (0, b"")
+
+        result = remove_nodered_pems("svc_test")
+        assert result["success"] is True
+        args, kwargs = container.exec_run.call_args
+        script = args[0][2]
+        assert "rm -f" in script
+        assert ".cert.pem" in script
+        assert ".key.pem" in script
+
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_idempotent_when_pems_absent(self, mock_find):
+        """rm -f doesn't error on missing files, and we don't surface it either."""
+        container = MagicMock()
+        mock_find.return_value = container
+        container.exec_run.return_value = (0, b"")
+
+        result = remove_nodered_pems("never_existed")
+        assert result["success"] is True
+
+    @patch("app.api.service_accounts.cert_gen.find_container")
+    def test_validates_name(self, mock_find):
+        result = remove_nodered_pems("bad name!")
+        assert result["success"] is False
+        mock_find.assert_not_called()
 
 
 class TestRegisterAdminCert:

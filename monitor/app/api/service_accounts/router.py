@@ -13,6 +13,8 @@ from app.api.service_accounts.cert_gen import (
     generate_client_cert,
     get_revoked_serials,
     register_admin_cert,
+    remove_nodered_pems,
+    write_nodered_pems,
 )
 from app.api.users.identity import IdentityClient
 from app.api.users.tak_server import TakServerClient
@@ -195,6 +197,19 @@ def create_service_account(body: CreateServiceAccountRequest):
             f"Certificate generation failed: {cert_result.get('error', 'unknown error')}",
         )
 
+    # For data-mode accounts, also extract unencrypted PEM cert+key into the
+    # Node-RED-bound subdirectory so flows can use the account without a
+    # container restart. Best-effort — a failure here is non-fatal (the .p12
+    # is still usable for manual WinTAK/ATAK import), but log it.
+    if body.mode == ServiceAccountMode.data:
+        pem_result = write_nodered_pems(username)
+        if not pem_result.get("success"):
+            log.warning(
+                "Node-RED PEM extraction failed for %s: %s",
+                username,
+                pem_result.get("error"),
+            )
+
     # Register as admin if admin mode
     if body.mode == ServiceAccountMode.admin:
         admin_result = register_admin_cert(username)
@@ -326,6 +341,10 @@ def delete_service_account(account_id: int):
         all_revoked = tak.revoke_all_user_certs(user["username"])
         if all_revoked:
             ak.mark_certs_revoked(account_id)
+
+    # Clean up the Node-RED PEM pair if it was provisioned. Idempotent —
+    # admin-mode accounts never had one, rm -f handles that case.
+    remove_nodered_pems(user["username"])
 
     return {"success": True, "username": user["username"]}
 

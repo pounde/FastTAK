@@ -14,6 +14,10 @@ from app.docker_client import find_container
 CERT_DIR = "/opt/tak/certs"
 CERT_FILES = "/opt/tak/certs/files"
 CERT_FILES_PATH = Path("/opt/tak/certs/files")
+# Subdirectory under CERT_FILES that the nodered container bind-mounts read-only.
+# Only Node-RED-consumable PEM pairs (unencrypted) live here — not the CA key,
+# TAK Server cert, or encrypted private keys.
+NODERED_CERTS = "/opt/tak/certs/files/nodered"
 _VALID_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 _DEFAULTS = {"state": "XX", "city": "Default", "org_unit": "FastTAK"}
@@ -249,6 +253,89 @@ def revoke_cert_by_pem(pem_content: str) -> dict:
         container.exec_run(["rm", "-f", f"{CERT_FILES}/{pem_filename}"])
 
         return result
+    except Exception as e:
+        return {"success": False, "error": str(e)[:300]}
+
+
+def write_nodered_pems(name: str, container=None) -> dict:
+    """Extract unencrypted PEM cert+key into NODERED_CERTS for Node-RED consumption.
+
+    Node-RED's tls-config node loads cert/key from file paths at flow deploy time
+    and requires unencrypted PEM — it can't handle .p12 or passphrased keys.
+    This pulls both from the existing {name}.p12 (which generate_client_cert
+    just created) and writes them to a dedicated subdirectory that's bind-mounted
+    read-only into the nodered container.
+
+    Call after generate_client_cert for any service account a Node-RED flow
+    should be able to use.
+    """
+    if err := _validate_name(name):
+        return {"success": False, "error": err}
+
+    if container is None:
+        container, error = _get_tak_container()
+        if error:
+            return error
+
+    try:
+        # Both files end up 644 so they're readable by any UID the nodered
+        # container might run as. The directory is 755 for the same reason
+        # (traversable). Security comes from the bind-mount scoping and the
+        # fact that only svc_* service-account PEMs live in this subdir —
+        # the CA key and server cert are outside the mount entirely.
+        exit_code, output = container.exec_run(
+            [
+                "sh",
+                "-c",
+                'mkdir -p "${NODERED_CERTS}" && '
+                'chmod 755 "${NODERED_CERTS}" && '
+                'openssl pkcs12 -in "${CERT_FILES}/${NAME}.p12" -nokeys -clcerts '
+                '  -passin pass:atakatak -out "${NODERED_CERTS}/${NAME}.cert.pem" && '
+                'openssl pkcs12 -in "${CERT_FILES}/${NAME}.p12" -nocerts -nodes '
+                '  -passin pass:atakatak -out "${NODERED_CERTS}/${NAME}.key.pem" && '
+                'chmod 644 "${NODERED_CERTS}/${NAME}.cert.pem" '
+                '          "${NODERED_CERTS}/${NAME}.key.pem"',
+            ],
+            environment={
+                "CERT_FILES": CERT_FILES,
+                "NODERED_CERTS": NODERED_CERTS,
+                "NAME": name,
+            },
+        )
+        if exit_code != 0:
+            return {
+                "success": False,
+                "error": output.decode(errors="replace")[:300],
+            }
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)[:300]}
+
+
+def remove_nodered_pems(name: str, container=None) -> dict:
+    """Remove the Node-RED PEM pair for a service account.
+
+    Called when a service account is deleted so stale PEMs don't linger in
+    the bind-mounted directory. Idempotent — missing files are not an error.
+    """
+    if err := _validate_name(name):
+        return {"success": False, "error": err}
+
+    if container is None:
+        container, error = _get_tak_container()
+        if error:
+            return error
+
+    try:
+        container.exec_run(
+            [
+                "sh",
+                "-c",
+                'rm -f "${NODERED_CERTS}/${NAME}.cert.pem" "${NODERED_CERTS}/${NAME}.key.pem"',
+            ],
+            environment={"NODERED_CERTS": NODERED_CERTS, "NAME": name},
+        )
+        return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)[:300]}
 

@@ -357,7 +357,10 @@ services:
       - nodered-data:/data
       - ./nodered/flows.json:/opt/fastak/flows.json:ro
       - ./nodered/start.sh:/opt/fastak/start.sh:ro
-      - ${TAK_HOST_PATH:-./tak}/certs/files/svc_nodered.p12:/opt/tak/certs/svc_nodered.p12:ro
+      # Node-RED-consumable PEMs written by the monitor on data-mode service
+      # account creation. Scoped subdirectory — CA key, TAK Server cert, and
+      # encrypted private keys stay outside this mount.
+      - ${TAK_HOST_PATH:-./tak}/certs/files/nodered:/data/certs:ro
       - ${TAK_HOST_PATH:-./tak}/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro
 
   # ── Monitor (health API + operations dashboard) ────────────────────────
