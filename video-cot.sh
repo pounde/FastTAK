@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d= -f2)
 CERT_DIR="$SCRIPT_DIR/tak/certs/files"
-CERT_NAME="nodered"  # nodered cert is in tak_ROLE_ADMIN, reaches all clients
+CERT_NAME="svc_fasttakapi"  # auto-bootstrapped admin cert; reaches all clients
 CERT_PASS="atakatak" # TAK Server default cert password
 
 STREAM_PATH="live/test1"

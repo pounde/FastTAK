@@ -25,9 +25,88 @@ To connect to TAK Server, add a **tcp out** (send) or **tcp in** (receive) node 
 For receiving, set the tcp in node to split on `</event>` so each CoT event arrives
 as a complete message.
 
-!!! note
-A `nodered` LDAP user is automatically created in the `tak_ROLE_ADMIN` group,
-so CoT messages sent from Node-RED flows reach all connected TAK clients.
+!!! warning "You must pick a client cert before TLS works"
+
+    **FastTAK Server TLS** ships with empty cert and key fields. Do this once
+    after install to make it functional. Copy-paste walkthrough using the
+    example account name `svc_nodered` — substitute your actual account name
+    wherever you see it.
+
+    ### Step 1 — Create a service account
+
+    1. Open the FastTAK dashboard in your browser.
+    2. Go to **Service Accounts**.
+    3. Click **Create Service Account**.
+    4. Fill in:
+        - **Username**: `svc_nodered` (or another name; must start with `svc_`)
+        - **Mode**: select **data**
+        - **Groups**: check every `tak_*` group that flows using this account
+          should publish to. Clients who aren't in at least one of these groups
+          won't see the CoT.
+    5. Click **Create**.
+
+    The dashboard makes the cert for you behind the scenes.
+
+    ### Step 2 — Open the TLS config node in Node-RED
+
+    1. Open Node-RED in your browser.
+    2. Click the **☰** (hamburger) menu at the top right.
+    3. Click **Configuration nodes**. A sidebar appears with a list of config
+       nodes grouped by type.
+    4. Under **tls-config**, double-click **FastTAK Server TLS**.
+
+    An edit dialog opens.
+
+    ### Step 3 — Switch cert/key fields to file-path mode
+
+    The dialog defaults to a file-upload widget. FastTAK needs file paths
+    instead (the cert files live on disk inside the container — you won't
+    upload anything).
+
+    **Check the checkbox labeled "Use key or certificate from local file".**
+
+    After checking it, the Client Certificate and Client Key inputs change
+    into plain text fields.
+
+    ### Step 4 — Fill in the account name
+
+    The Client Certificate and Client Key fields are pre-filled with a
+    template path:
+
+    ```
+    /data/certs/{svc_user}.cert.pem
+    /data/certs/{svc_user}.key.pem
+    ```
+
+    Replace `{svc_user}` with the account you created in Step 1. If the
+    account is `svc_nodered`, the fields become:
+
+    ```
+    /data/certs/svc_nodered.cert.pem
+    /data/certs/svc_nodered.key.pem
+    ```
+
+    Leave **CA Certificate** at `/opt/tak/certs/ca.pem` (already filled in).
+
+    Click **Update**, then click the red **Deploy** button at the top right.
+
+    Everything that uses **FastTAK Server TLS** now connects as that
+    account and can publish into its groups.
+
+### Using different certs for different flows
+
+`FastTAK Server TLS` is a **single shared** config node — if you reference it from
+multiple flows, they all use the same cert (same service account, same groups).
+
+For per-flow cert isolation:
+
+- **If the flow ships with its own TLS config node** (everything under
+  [Flows library](flows/index.md) does), just configure that node and leave
+  `FastTAK Server TLS` alone. See [Flows overview](flows/index.md).
+- **For ad-hoc flows you build yourself**, clone `FastTAK Server TLS` in the
+  config-nodes panel: find it, use Node-RED's duplicate action, rename the clone,
+  set its `cert` and `key` to a different service account's PEMs, and change your
+  flow's `tcp out` **TLS** dropdown to the clone.
 
 ---
 

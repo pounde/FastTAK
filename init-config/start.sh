@@ -98,23 +98,21 @@ if [ ! -f "${CERT_FILES}/ca.pem" ]; then
   bash ./makeRootCa.sh --ca-name FastTAK-CA 2>&1 | tail -3
   bash ./makeCert.sh server takserver 2>&1 | tail -2
   bash ./makeCert.sh client svc_fasttakapi 2>&1 | tail -2
-  bash ./makeCert.sh client svc_nodered 2>&1 | tail -2
   cd /
   echo "[init] Certificates generated"
 fi
 
-# Generate any missing service certs (handles upgrades where CA already exists)
-if [ -f "${CERT_FILES}/ca.pem" ]; then
+# Generate missing svc_fasttakapi cert (handles upgrades where CA already exists).
+# This is the only bootstrap-time service cert — other service accounts (e.g.,
+# those used by Node-RED flows) are created on demand via the Service Accounts
+# dashboard.
+if [ -f "${CERT_FILES}/ca.pem" ] && [ ! -f "${CERT_FILES}/svc_fasttakapi.pem" ]; then
   export STATE="${STATE:-XX}"
   export CITY="${CITY:-Default}"
   export ORGANIZATIONAL_UNIT="${ORGANIZATIONAL_UNIT:-FastTAK}"
-  for svc_cert in svc_fasttakapi svc_nodered; do
-    if [ ! -f "${CERT_FILES}/${svc_cert}.pem" ]; then
-      echo "[init] Generating missing cert: ${svc_cert}"
-      cd "${CERT_DIR}" && bash ./makeCert.sh client "${svc_cert}" 2>&1 | tail -2
-      cd /
-    fi
-  done
+  echo "[init] Generating missing cert: svc_fasttakapi"
+  cd "${CERT_DIR}" && bash ./makeCert.sh client svc_fasttakapi 2>&1 | tail -2
+  cd /
 fi
 
 # ── 5. Create CA signing keystore ────────────────────────────────────────────
