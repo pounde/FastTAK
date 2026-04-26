@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.22.0 (2026-04-26)
+
+### Features
+
+- **nodered**: TAK CoT flow library + pipelines
+  ([`27cc849`](https://github.com/pounde/FastTAK/commit/27cc849a4b6666bfca09f9c4f77f13b96d60100e))
+
+
 ## v0.21.0 (2026-04-24)
 
 ### Features
