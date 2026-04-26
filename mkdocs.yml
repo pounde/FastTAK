@@ -26,6 +26,12 @@ nav:
   - Flows:
     - Overview: flows/index.md
     - DroneSense: flows/dronesense.md
+    - USGS Earthquakes: flows/usgs-earthquakes.md
+    - NOAA Weather Alerts: flows/noaa-weather.md
+    - ADS-B Aircraft: flows/adsb.md
+    - Generic Sensor Feed: flows/generic-sensor.md
+    - Subflows:
+      - GeoJSON to CoT: flows/subflows/geojson-to-cot.md
   - Reference:
     - CoT Type Codes: reference/cot-types.md
 

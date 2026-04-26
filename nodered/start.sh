@@ -17,28 +17,16 @@ if [ ! -f /data/.fastak-initialized ]; then
   echo "[nodered] Installed starter flows with FastTAK connections"
 fi
 
-# Set TLS servername on every tls-config node that has an empty one.
-# The TAK Server cert's SAN is SERVER_ADDRESS (from .env). Without this,
-# Node.js falls back to using the tcp-out node's host ("tak-server", the
-# Docker hostname), which doesn't match the cert SAN → handshake fails
-# verification. Users can override servername per-node; this only fills
-# in empties.
-if [ -n "${SERVER_ADDRESS}" ] && [ -f /data/flows.json ]; then
-  node -e "
-const fs = require('fs');
-const flows = JSON.parse(fs.readFileSync('/data/flows.json', 'utf8'));
-let patched = 0;
-for (const n of flows) {
-  if (n.type === 'tls-config' && !n.servername) {
-    n.servername = process.env.SERVER_ADDRESS;
-    patched++;
-  }
-}
-if (patched) {
-  fs.writeFileSync('/data/flows.json', JSON.stringify(flows, null, 4));
-  console.log('[nodered] Set servername on ' + patched + ' tls-config node(s) to ' + process.env.SERVER_ADDRESS);
-}
-" 2>/dev/null || echo "[nodered] WARNING: Failed to patch tls-config servername"
+# Sanity-check the shipped library bind mount. If the host directory is
+# missing or unreadable, Compose silently mounts an empty directory and
+# Node-RED's library scanner shows an empty fasttak folder with no error
+# in any log. Surface it here so the failure mode is diagnosable.
+if [ -d /data/lib/flows/fasttak ] && [ -z "$(ls -A /data/lib/flows/fasttak 2>/dev/null)" ]; then
+  echo "[nodered] WARNING: /data/lib/flows/fasttak is empty — host bind mount './nodered/flows-library' may be missing or unreadable. Library flows will not appear under Import → Local."
+fi
+
+if [ -z "${SERVER_ADDRESS}" ]; then
+  echo "[nodered] WARNING: SERVER_ADDRESS is unset — TLS handshakes will fail because library tls-config nodes resolve servername from this env var. Set SERVER_ADDRESS in .env."
 fi
 
 exec ./entrypoint.sh

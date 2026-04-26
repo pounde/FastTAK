@@ -36,7 +36,7 @@
         "certname": "",
         "keyname": "",
         "caname": "ca.pem",
-        "servername": "",
+        "servername": "${SERVER_ADDRESS}",
         "verifyservercert": true,
         "alpnprotocol": ""
     },

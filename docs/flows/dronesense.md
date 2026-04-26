@@ -59,12 +59,11 @@ the `tak_*` groups this flow should publish to.
 ### 1. Import the flow
 
 1. Open Node-RED.
-2. Click **☰** (top right) → **Import**.
-3. Click **select a file to import** and choose
-   `nodered/flows-library/dronesense.json` from your FastTAK checkout.
+2. Click **☰** (top right) → **Import** → **Local** tab.
+3. Expand the **fasttak** folder and click **dronesense**.
 4. Click **Import**. A **DroneSense UAS** tab appears.
 
-### 2. Point the TLS node at your service account
+### 2. Configure the TLS node
 
 1. Click **☰** → **Configuration nodes**.
 2. Under **tls-config**, double-click **DroneSense Server TLS** (this is
@@ -76,8 +75,9 @@ the `tak_*` groups this flow should publish to.
    Replace `{svc_user}` with your account's username (e.g., for
    `svc_nodered` the cert path becomes `/data/certs/svc_nodered.cert.pem`).
    **CA Certificate** stays at `/opt/tak/certs/ca.pem`.
-
-5. Click **Update**.
+5. Leave **Server Name** at `${SERVER_ADDRESS}` — Node-RED resolves it
+   from your `.env` on every flow load.
+6. Click **Update**.
 
 ### 3. Add your DroneSense API keys
 

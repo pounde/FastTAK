@@ -1,0 +1,143 @@
+[
+  {
+    "id": "usgs-tab",
+    "type": "tab",
+    "label": "USGS Earthquakes",
+    "disabled": false,
+    "info": "Polls the USGS earthquake GeoJSON feed and emits one CoT marker per quake to TAK Server.\n\nDefault feed: significant quakes in the past week. Change the URL in the 'USGS feed URL' change node to use other feeds:\n  - https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson\n  - https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson\n  - https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson\n\nAll USGS feeds use the same GeoJSON FeatureCollection schema.\n\nTransforms before the subflow:\n  - Filter out quakes below MIN_MAGNITUDE\n  - Copy `properties.title` → `properties.callsign`\n  - Build a `properties.remarks` with magnitude, depth, time, URL\n\nThe GeoJSON-to-CoT subflow converts each Feature into a CoT Point event (type `a-u-G` by default)."
+  },
+  {
+    "id": "usgs-comment",
+    "type": "comment",
+    "z": "usgs-tab",
+    "name": "Setup",
+    "info": "### 1. Import the GeoJSON-to-CoT subflow first\n\nThis flow uses the FastTAK `GeoJSON to CoT` subflow. If it's not in your palette, import it from **Import → Local → fasttak → subflows → geojson-to-cot** before deploying.\n\n### 2. Pick a client cert\n\nCreate a data-mode service account (e.g., `svc_usgs`) in the FastTAK dashboard with whichever `tak_*` groups should receive earthquake markers, then configure the **USGS Server TLS** config node with the cert/key paths. See `docs/flows/index.md` for the walkthrough.\n\n### 3. Tune the filter\n\nEdit the **Transform** change node's `MIN_MAGNITUDE` default (currently 2.5) and the feed URL in the **USGS feed URL** change node as needed.\n\n### 4. Deploy.",
+    "x": 120,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "usgs-inject",
+    "type": "inject",
+    "z": "usgs-tab",
+    "name": "Every 5 min",
+    "props": [],
+    "repeat": "300",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "3",
+    "topic": "",
+    "x": 120,
+    "y": 120,
+    "wires": [["usgs-feed-url"]]
+  },
+  {
+    "id": "usgs-feed-url",
+    "type": "change",
+    "z": "usgs-tab",
+    "name": "USGS feed URL",
+    "rules": [
+      {
+        "t": "set",
+        "p": "url",
+        "pt": "msg",
+        "to": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson",
+        "tot": "str"
+      },
+      {
+        "t": "set",
+        "p": "MIN_MAGNITUDE",
+        "pt": "flow",
+        "to": "2.5",
+        "tot": "num"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 300,
+    "y": 120,
+    "wires": [["usgs-http"]]
+  },
+  {
+    "id": "usgs-http",
+    "type": "http request",
+    "z": "usgs-tab",
+    "name": "Fetch feed",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 490,
+    "y": 120,
+    "wires": [["usgs-transform"]]
+  },
+  {
+    "id": "usgs-transform",
+    "type": "function",
+    "z": "usgs-tab",
+    "name": "Transform",
+    "func": "const minMag = Number(flow.get('MIN_MAGNITUDE') || 2.5);\nconst fc = msg.payload;\nif (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {\n    node.warn('USGS: unexpected payload shape');\n    return null;\n}\n\nfunction fmt(feature) {\n    const p = feature.properties || {};\n    const depthKm = (feature.geometry && feature.geometry.coordinates && feature.geometry.coordinates[2]) || 0;\n    const when = p.time ? new Date(p.time).toISOString() : '';\n    feature.properties = {\n        ...p,\n        callsign: p.title || `M ${p.mag} earthquake`,\n        remarks: `M${p.mag} at ${p.place || 'unknown'} (depth ${depthKm.toFixed(1)} km) ${when} ${p.url || ''}`.trim()\n    };\n    return feature;\n}\n\nconst filtered = fc.features.filter(f => (f.properties && typeof f.properties.mag === 'number' && f.properties.mag >= minMag));\nmsg.payload = {\n    type: 'FeatureCollection',\n    features: filtered.map(fmt)\n};\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 670,
+    "y": 120,
+    "wires": [["usgs-to-cot"]]
+  },
+  {
+    "id": "usgs-to-cot",
+    "type": "subflow:geojson-to-cot",
+    "z": "usgs-tab",
+    "name": "GeoJSON → CoT",
+    "env": [
+      { "name": "COT_TYPE", "value": "a-u-G", "type": "str" },
+      { "name": "UID_PREFIX", "value": "usgs", "type": "str" },
+      { "name": "STALE_SECONDS", "value": "900", "type": "num" },
+      { "name": "CALLSIGN_PROP", "value": "callsign", "type": "str" },
+      { "name": "REMARKS_PROP", "value": "remarks", "type": "str" }
+    ],
+    "x": 860,
+    "y": 120,
+    "wires": [["usgs-tak-out"]]
+  },
+  {
+    "id": "usgs-tak-out",
+    "type": "tcp out",
+    "z": "usgs-tab",
+    "name": "TAK Server",
+    "host": "tak-server",
+    "port": "8089",
+    "beserver": "client",
+    "base64": false,
+    "end": false,
+    "tls": "usgs-tls",
+    "x": 1060,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "usgs-tls",
+    "type": "tls-config",
+    "name": "USGS Server TLS",
+    "cert": "/data/certs/{svc_user}.cert.pem",
+    "key": "/data/certs/{svc_user}.key.pem",
+    "ca": "/opt/tak/certs/ca.pem",
+    "certname": "",
+    "keyname": "",
+    "caname": "ca.pem",
+    "servername": "${SERVER_ADDRESS}",
+    "verifyservercert": true,
+    "alpnprotocol": ""
+  }
+]

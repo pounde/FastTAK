@@ -1,0 +1,167 @@
+[
+  {
+    "id": "geojson-to-cot",
+    "type": "subflow",
+    "name": "GeoJSON to CoT",
+    "info": "Convert GeoJSON Feature / FeatureCollection into TAK CoT XML.\n\n## Input\n\n`msg.payload` is one of:\n- GeoJSON `Feature`\n- GeoJSON `FeatureCollection`\n- Array of Features\n\nSupported geometries: `Point`, `Polygon`, `LineString`. Other types are dropped silently.\n\n## Output\n\nOne `msg` per feature on the single output wire. Each message has:\n- `msg.payload` — CoT XML string (UTF-8, ends with `</event>` — no trailing newline added)\n- `msg.topic` — stable UID (based on `UID_PREFIX` + feature.id / properties.id / index)\n\nDownstream nodes (tcp out, mqtt out) receive each feature as a separate message.\n\n## Environment variables\n\n| Name | Default | Purpose |\n|---|---|---|\n| `COT_TYPE` | `a-u-G` | CoT event type for Point features. For Polygon / LineString, a `u-d-f` (drawing) type is used if `COT_TYPE` does not already start with `u-d`. |\n| `UID_PREFIX` | `geojson` | Prefix for generated UIDs. Full UID is `<prefix>-<id>` where id falls back to `feature.id`, `properties.id`, or the feature index. |\n| `STALE_SECONDS` | `300` | How long the CoT is valid after emission. |\n| `CALLSIGN_PROP` | `name` | `feature.properties.<name>` becomes the CoT `callsign`. |\n| `REMARKS_PROP` | `description` | `feature.properties.<name>` becomes the CoT `<remarks>`. |\n| `ALTITUDE_PROP` | (empty) | Optional. `feature.properties.<name>` becomes `point[@hae]`. If empty, uses `geometry.coordinates[2]` when present, else 0. |\n| `SPEED_PROP` | (empty) | Optional. Populates `<track speed>` (m/s). Adds `<track>` to detail when speed or course is set. |\n| `COURSE_PROP` | (empty) | Optional. Populates `<track course>` (degrees true). |\n\nAir/sea track pipelines (e.g., ADS-B) should set `COT_TYPE` to an `a-f-A-*` / `a-n-A-*` value and populate altitude/speed/course props.\n\nWeather/earthquake pipelines emitting polygons pass through with the default `COT_TYPE=a-u-G` — the function auto-switches to `u-d-f` for non-point geometries.\n\n## Shape rendering\n\nPolygon and LineString features are emitted as TAK drawing events:\n- Outer ring vertices become `<link point=\"lat,lon,hae\"/>` entries in `<detail>`.\n- Interior rings (holes) are ignored — TAK CoT drawings don't represent them.\n- Point position is the centroid.\n- Stroke/fill colors and `labels_on` are set to reasonable defaults; override in a downstream change node if you need custom styling.",
+    "category": "fasttak",
+    "in": [
+      {
+        "x": 60,
+        "y": 80,
+        "wires": [
+          {
+            "id": "gjc-build"
+          }
+        ]
+      }
+    ],
+    "out": [
+      {
+        "x": 500,
+        "y": 80,
+        "wires": [
+          {
+            "id": "gjc-build",
+            "port": 0
+          }
+        ]
+      }
+    ],
+    "env": [
+      {
+        "name": "COT_TYPE",
+        "type": "str",
+        "value": "a-u-G",
+        "ui": {
+          "label": {
+            "en-US": "CoT type (Point)"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["str"]
+          }
+        }
+      },
+      {
+        "name": "UID_PREFIX",
+        "type": "str",
+        "value": "geojson",
+        "ui": {
+          "label": {
+            "en-US": "UID prefix"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["str"]
+          }
+        }
+      },
+      {
+        "name": "STALE_SECONDS",
+        "type": "num",
+        "value": "300",
+        "ui": {
+          "label": {
+            "en-US": "Stale seconds"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["num"]
+          }
+        }
+      },
+      {
+        "name": "CALLSIGN_PROP",
+        "type": "str",
+        "value": "name",
+        "ui": {
+          "label": {
+            "en-US": "Callsign property"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["str"]
+          }
+        }
+      },
+      {
+        "name": "REMARKS_PROP",
+        "type": "str",
+        "value": "description",
+        "ui": {
+          "label": {
+            "en-US": "Remarks property"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["str"]
+          }
+        }
+      },
+      {
+        "name": "ALTITUDE_PROP",
+        "type": "str",
+        "value": "",
+        "ui": {
+          "label": {
+            "en-US": "Altitude property (optional)"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["str"]
+          }
+        }
+      },
+      {
+        "name": "SPEED_PROP",
+        "type": "str",
+        "value": "",
+        "ui": {
+          "label": {
+            "en-US": "Speed property (optional)"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["str"]
+          }
+        }
+      },
+      {
+        "name": "COURSE_PROP",
+        "type": "str",
+        "value": "",
+        "ui": {
+          "label": {
+            "en-US": "Course property (optional)"
+          },
+          "type": "input",
+          "opts": {
+            "types": ["str"]
+          }
+        }
+      }
+    ],
+    "meta": {
+      "module": "fasttak-geojson-to-cot",
+      "version": "0.1.0"
+    },
+    "color": "#87A980",
+    "icon": "font-awesome/fa-map-marker"
+  },
+  {
+    "id": "gjc-build",
+    "type": "function",
+    "z": "geojson-to-cot",
+    "name": "build CoT",
+    "func": "const cotType = env.get('COT_TYPE') || 'a-u-G';\nconst uidPrefix = env.get('UID_PREFIX') || 'geojson';\nconst staleSec = parseInt(env.get('STALE_SECONDS') || '300', 10);\nconst callsignProp = env.get('CALLSIGN_PROP') || 'name';\nconst remarksProp = env.get('REMARKS_PROP') || 'description';\nconst altitudeProp = env.get('ALTITUDE_PROP') || '';\nconst speedProp = env.get('SPEED_PROP') || '';\nconst courseProp = env.get('COURSE_PROP') || '';\n\nfunction xmlEsc(s) {\n    return String(s == null ? '' : s).replace(/[<>&\"']/g, c => ({\n        '<': '&lt;', '>': '&gt;', '&': '&amp;', '\"': '&quot;', \"'\": '&apos;'\n    }[c]));\n}\n\nfunction num(v, fallback) {\n    const n = Number(v);\n    return Number.isFinite(n) ? n : fallback;\n}\n\nfunction iso(ms) { return new Date(ms).toISOString(); }\n\nfunction stableUid(feature, idx) {\n    const id = feature.id != null ? feature.id\n             : feature.properties && feature.properties.id != null ? feature.properties.id\n             : idx;\n    return `${uidPrefix}-${id}`;\n}\n\nfunction featuresOf(payload) {\n    if (!payload) return [];\n    if (payload.type === 'Feature') return [payload];\n    if (payload.type === 'FeatureCollection') return payload.features || [];\n    if (Array.isArray(payload)) return payload;\n    return [];\n}\n\nfunction trackElement(props) {\n    if (!speedProp && !courseProp) return '';\n    const hasSpeed = speedProp && props[speedProp] != null && Number.isFinite(Number(props[speedProp]));\n    const hasCourse = courseProp && props[courseProp] != null && Number.isFinite(Number(props[courseProp]));\n    if (!hasSpeed && !hasCourse) return '';\n    const course = hasCourse ? Number(props[courseProp]) : 0;\n    const speed = hasSpeed ? Number(props[speedProp]) : 0;\n    return `<track course=\"${course}\" speed=\"${speed}\"/>`;\n}\n\nfunction pointCot(feature, idx, now, stale) {\n    const coords = feature.geometry.coordinates;\n    const lon = num(coords[0], null);\n    const lat = num(coords[1], null);\n    if (lat == null || lon == null) return null;\n    const coordHae = num(coords[2], 0);\n    const props = feature.properties || {};\n    const hae = altitudeProp ? num(props[altitudeProp], coordHae) : coordHae;\n    const callsign = props[callsignProp] || '';\n    const remarks = props[remarksProp] || '';\n    const uid = stableUid(feature, idx);\n    return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\\n<event version=\"2.0\" uid=\"${xmlEsc(uid)}\" type=\"${xmlEsc(cotType)}\" how=\"m-g\" time=\"${now}\" start=\"${now}\" stale=\"${stale}\"><point lat=\"${lat}\" lon=\"${lon}\" hae=\"${hae}\" ce=\"9999999.0\" le=\"9999999.0\"/><detail><contact callsign=\"${xmlEsc(callsign)}\"/>${trackElement(props)}<remarks>${xmlEsc(remarks)}</remarks></detail></event>`;\n}\n\nfunction shapeCot(feature, idx, now, stale, vertices) {\n    // GeoJSON polygon rings are closed — first and last vertex are identical.\n    // Drop the duplicate before averaging so the centroid isn't biased.\n    const n = vertices.length;\n    const first = vertices[0], last = vertices[n - 1];\n    const closed = n > 1 && first[0] === last[0] && first[1] === last[1];\n    const ring = closed ? vertices.slice(0, -1) : vertices;\n    let sumLat = 0, sumLon = 0;\n    let links = '';\n    for (const v of vertices) {\n        const vLon = num(v[0], 0);\n        const vLat = num(v[1], 0);\n        const vHae = num(v[2], 0);\n        links += `<link point=\"${vLat},${vLon},${vHae}\"/>`;\n    }\n    for (const v of ring) {\n        sumLat += num(v[1], 0);\n        sumLon += num(v[0], 0);\n    }\n    const cLat = sumLat / ring.length;\n    const cLon = sumLon / ring.length;\n    const props = feature.properties || {};\n    const callsign = props[callsignProp] || '';\n    const remarks = props[remarksProp] || '';\n    const uid = stableUid(feature, idx);\n    const shapeType = cotType.startsWith('u-d') ? cotType : 'u-d-f';\n    return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\\n<event version=\"2.0\" uid=\"${xmlEsc(uid)}\" type=\"${xmlEsc(shapeType)}\" how=\"m-g\" time=\"${now}\" start=\"${now}\" stale=\"${stale}\"><point lat=\"${cLat}\" lon=\"${cLon}\" hae=\"0\" ce=\"9999999.0\" le=\"9999999.0\"/><detail>${links}<strokeColor value=\"-65536\"/><strokeWeight value=\"2.0\"/><fillColor value=\"1073741824\"/><labels_on value=\"true\"/><contact callsign=\"${xmlEsc(callsign)}\"/><remarks>${xmlEsc(remarks)}</remarks></detail></event>`;\n}\n\nfunction buildCot(feature, idx, now, stale) {\n    const geom = feature && feature.geometry;\n    if (!geom) return null;\n    if (geom.type === 'Point') return pointCot(feature, idx, now, stale);\n    if (geom.type === 'Polygon') {\n        const ring = (geom.coordinates && geom.coordinates[0]) || [];\n        if (ring.length < 3) return null;\n        return shapeCot(feature, idx, now, stale, ring);\n    }\n    if (geom.type === 'LineString') {\n        const line = geom.coordinates || [];\n        if (line.length < 2) return null;\n        return shapeCot(feature, idx, now, stale, line);\n    }\n    return null;\n}\n\nconst features = featuresOf(msg.payload);\nconst now = iso(Date.now());\nconst stale = iso(Date.now() + staleSec * 1000);\n\nconst out = [];\nfor (let i = 0; i < features.length; i++) {\n    const cot = buildCot(features[i], i, now, stale);\n    if (cot == null) continue;\n    out.push({ payload: cot, topic: stableUid(features[i], i) });\n}\n\nreturn [out];\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 260,
+    "y": 80,
+    "wires": [[]]
+  }
+]

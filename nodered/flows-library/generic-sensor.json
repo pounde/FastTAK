@@ -1,0 +1,136 @@
+[
+  {
+    "id": "gen-tab",
+    "type": "tab",
+    "label": "Generic Sensor Feed",
+    "disabled": false,
+    "info": "Skeleton flow for polling an arbitrary REST API and publishing its results as CoT.\n\nCopy this flow, rename the tab, and fill in the four nodes marked with **EDIT ME**:\n\n1. **Poll interval** — how often to hit the API (inject node).\n2. **Feed URL** — the REST endpoint.\n3. **Map to GeoJSON** — transform the API response into a GeoJSON FeatureCollection. Most of your work happens here.\n4. **GeoJSON → CoT** — subflow instance; set `COT_TYPE`, `UID_PREFIX`, `STALE_SECONDS` etc. for your domain.\n\nThe flow is wired; you just fill in the transforms.\n\nExamples of what goes in the mapping function:\n\n- CAD dispatch feed: map incident address → geocoded point, incident type → `a-f-G-E` emergency, unit ID → callsign.\n- River gauge feed: map site ID → point, river stage → remarks, crossing-flood-threshold → severity.\n- Lightning strike feed: map strike location → point, peak current kA → remarks."
+  },
+  {
+    "id": "gen-comment",
+    "type": "comment",
+    "z": "gen-tab",
+    "name": "Setup",
+    "info": "### 1. Import the GeoJSON-to-CoT subflow first\n\nThis flow uses the FastTAK `GeoJSON to CoT` subflow. Import from **Import → Local → fasttak → subflows → geojson-to-cot** if missing.\n\n### 2. Pick a client cert\n\nCreate a data-mode service account for this feed and configure **Generic Sensor Server TLS**.\n\n### 3. Fill in the EDIT ME nodes\n\nSee tab-level info for the four nodes to customize.",
+    "x": 120,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "gen-inject",
+    "type": "inject",
+    "z": "gen-tab",
+    "name": "Every 60s — EDIT ME",
+    "props": [],
+    "repeat": "60",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "",
+    "x": 160,
+    "y": 120,
+    "wires": [["gen-url"]]
+  },
+  {
+    "id": "gen-url",
+    "type": "change",
+    "z": "gen-tab",
+    "name": "Feed URL — EDIT ME",
+    "rules": [
+      {
+        "t": "set",
+        "p": "url",
+        "pt": "msg",
+        "to": "https://example.com/api/sensors",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 360,
+    "y": 120,
+    "wires": [["gen-http"]]
+  },
+  {
+    "id": "gen-http",
+    "type": "http request",
+    "z": "gen-tab",
+    "name": "Fetch feed",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 550,
+    "y": 120,
+    "wires": [["gen-map"]]
+  },
+  {
+    "id": "gen-map",
+    "type": "function",
+    "z": "gen-tab",
+    "name": "Map to GeoJSON — EDIT ME",
+    "func": "// EDIT ME: transform `msg.payload` (your API response) into a GeoJSON FeatureCollection.\n//\n// Required shape:\n//   {\n//     type: 'FeatureCollection',\n//     features: [\n//       {\n//         type: 'Feature',\n//         id: <stable unique id per entity>,\n//         geometry: { type: 'Point', coordinates: [lon, lat] },\n//         properties: {\n//           callsign: '...',   // what the TAK map shows as the marker label\n//           remarks: '...',    // free-text details\n//           // Optional for air/sea tracks:\n//           // altitude: <meters>, speed: <m/s>, course: <degrees from N>\n//         }\n//       },\n//       ...\n//     ]\n//   }\n//\n// Example — adapt the source shape to this:\n//\n// const raw = msg.payload; // whatever your API returns\n// const features = (raw.items || []).map(item => ({\n//     type: 'Feature',\n//     id: item.id,\n//     geometry: { type: 'Point', coordinates: [item.lon, item.lat] },\n//     properties: {\n//         callsign: item.name,\n//         remarks: item.description || ''\n//     }\n// }));\n// msg.payload = { type: 'FeatureCollection', features };\n// return msg;\n\nnode.warn('Generic Sensor Feed: fill in the mapping function');\nreturn null;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 770,
+    "y": 120,
+    "wires": [["gen-to-cot"]]
+  },
+  {
+    "id": "gen-to-cot",
+    "type": "subflow:geojson-to-cot",
+    "z": "gen-tab",
+    "name": "GeoJSON → CoT",
+    "env": [
+      { "name": "COT_TYPE", "value": "a-u-G", "type": "str" },
+      { "name": "UID_PREFIX", "value": "sensor", "type": "str" },
+      { "name": "STALE_SECONDS", "value": "300", "type": "num" },
+      { "name": "CALLSIGN_PROP", "value": "callsign", "type": "str" },
+      { "name": "REMARKS_PROP", "value": "remarks", "type": "str" }
+    ],
+    "x": 990,
+    "y": 120,
+    "wires": [["gen-tak-out"]]
+  },
+  {
+    "id": "gen-tak-out",
+    "type": "tcp out",
+    "z": "gen-tab",
+    "name": "TAK Server",
+    "host": "tak-server",
+    "port": "8089",
+    "beserver": "client",
+    "base64": false,
+    "end": false,
+    "tls": "gen-tls",
+    "x": 1190,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "gen-tls",
+    "type": "tls-config",
+    "name": "Generic Sensor Server TLS",
+    "cert": "/data/certs/{svc_user}.cert.pem",
+    "key": "/data/certs/{svc_user}.key.pem",
+    "ca": "/opt/tak/certs/ca.pem",
+    "certname": "",
+    "keyname": "",
+    "caname": "ca.pem",
+    "servername": "${SERVER_ADDRESS}",
+    "verifyservercert": true,
+    "alpnprotocol": ""
+  }
+]

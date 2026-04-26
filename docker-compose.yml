@@ -357,6 +357,13 @@ services:
       - nodered-data:/data
       - ./nodered/flows.json:/opt/fastak/flows.json:ro
       - ./nodered/start.sh:/opt/fastak/start.sh:ro
+      # Shipped library flows mount directly under Node-RED's library
+      # path so they appear under Import → Local → fasttak in the editor.
+      # User-saved library entries land elsewhere under /data/lib/flows/
+      # and are unaffected. Bind-mounted (not symlinked) so Node-RED's
+      # library scanner sees a real directory, not a symlink — avoids
+      # path-traversal rejection in some Node-RED versions.
+      - ./nodered/flows-library:/data/lib/flows/fasttak:ro
       # Node-RED-consumable PEMs written by the monitor on data-mode service
       # account creation. Scoped subdirectory — CA key, TAK Server cert, and
       # encrypted private keys stay outside this mount.

@@ -1,0 +1,149 @@
+[
+  {
+    "id": "noaa-tab",
+    "type": "tab",
+    "label": "NOAA Weather Alerts",
+    "disabled": false,
+    "info": "Polls the NOAA National Weather Service active-alerts API and emits one CoT polygon per alert.\n\nAPI: https://api.weather.gov/alerts/active\n\nDefault filter: severity=Severe,Extreme (tornado warnings, severe thunderstorms, flash floods, etc.) — without a filter, the full US feed can exceed a thousand active alerts.\n\nTo scope by state: change the URL in the 'NOAA feed URL' node to `?area=TX` (or any US state/territory two-letter code).\nTo scope by point: use `?point=LAT,LON`.\nSee https://www.weather.gov/documentation/services-web-api for the full query vocabulary.\n\n## CoT type\n\nAlerts come back as GeoJSON Polygon features. The GeoJSON-to-CoT subflow emits each as a `u-d-f` TAK drawing — a generic `Map/Drawing/Polyline` shape — with the alert polygon vertices, a centroid marker, and the alert text in `<remarks>`. This shows the affected area on the map but uses a generic shape symbol regardless of the alert type.\n\nThe TAK CoT catalog has dedicated meteorological **point-marker** types (`a-n-X-i-m-*`) that render alert-specific symbols but don't carry a polygon shape:\n\n| NWS event | CoT type |\n|---|---|\n| Tornado Warning | `a-n-X-i-m-t` |\n| Severe Thunderstorm Warning | `a-n-X-i-m-u` |\n| Flash Flood / Flood Warning | `a-n-X-i-m-f` |\n| Winter Storm / Snow alerts | `a-n-X-i-m-s` |\n| Hail | `a-n-X-i-m-h` |\n| Tropical Cyclone / Hurricane | `a-n-X-i-m-c` |\n| (default / other) | `a-n-X-i-m` |\n\nTo emit incident-specific point markers in addition to (or instead of) the polygon shape, extend the `Transform` function to map `properties.event` → CoT type and either fan out a second message per alert, or change the subflow's `COT_TYPE` env to one of these values. The subflow currently applies one CoT type to all features in a batch — for per-feature types, the subflow itself needs to read `properties.cotType`."
+  },
+  {
+    "id": "noaa-comment",
+    "type": "comment",
+    "z": "noaa-tab",
+    "name": "Setup",
+    "info": "### 1. Import the GeoJSON-to-CoT subflow first\n\nThis flow uses the FastTAK `GeoJSON to CoT` subflow. Import it from **Import → Local → fasttak → subflows → geojson-to-cot** if it's not in your palette yet.\n\n### 2. Pick a client cert\n\nCreate a data-mode service account (e.g., `svc_weather`) with the `tak_*` groups that should receive weather alerts. Configure **NOAA Server TLS** with the cert/key paths.\n\n### 3. Set your User-Agent\n\nNOAA's API requires a unique User-Agent with a contact email (see their ToS). Edit the **User-Agent** header in the **Fetch feed** http-request node with something like `FastTAK/1.0 (your-email@example.com)`.\n\n### 4. Deploy.",
+    "x": 120,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "noaa-inject",
+    "type": "inject",
+    "z": "noaa-tab",
+    "name": "Every 2 min",
+    "props": [],
+    "repeat": "120",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "",
+    "x": 120,
+    "y": 120,
+    "wires": [["noaa-feed-url"]]
+  },
+  {
+    "id": "noaa-feed-url",
+    "type": "change",
+    "z": "noaa-tab",
+    "name": "NOAA feed URL",
+    "rules": [
+      {
+        "t": "set",
+        "p": "url",
+        "pt": "msg",
+        "to": "https://api.weather.gov/alerts/active?status=actual&severity=Severe,Extreme",
+        "tot": "str"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 300,
+    "y": 120,
+    "wires": [["noaa-http"]]
+  },
+  {
+    "id": "noaa-http",
+    "type": "http request",
+    "z": "noaa-tab",
+    "name": "Fetch feed",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "authType": "",
+    "senderr": false,
+    "headers": [
+      {
+        "keyType": "User-Agent",
+        "keyValue": "",
+        "valueType": "other",
+        "valueValue": "FastTAK/1.0 (contact@example.com)"
+      },
+      {
+        "keyType": "Accept",
+        "keyValue": "",
+        "valueType": "other",
+        "valueValue": "application/geo+json"
+      }
+    ],
+    "x": 490,
+    "y": 120,
+    "wires": [["noaa-transform"]]
+  },
+  {
+    "id": "noaa-transform",
+    "type": "function",
+    "z": "noaa-tab",
+    "name": "Transform",
+    "func": "const fc = msg.payload;\nif (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {\n    node.warn('NOAA: unexpected payload shape');\n    return null;\n}\n\nfunction fmt(feature) {\n    const p = feature.properties || {};\n    const headline = p.headline || p.event || 'Weather Alert';\n    const desc = (p.description || '').replace(/\\s+/g, ' ').trim().slice(0, 600);\n    const instr = (p.instruction || '').replace(/\\s+/g, ' ').trim().slice(0, 300);\n    const sent = p.sent || '';\n    const expires = p.expires || '';\n    const area = p.areaDesc || '';\n    const remarks = [\n        headline,\n        area && `Area: ${area}`,\n        (p.severity || p.certainty) && `Severity: ${p.severity || '?'} / Certainty: ${p.certainty || '?'}`,\n        sent && `Sent: ${sent}`,\n        expires && `Expires: ${expires}`,\n        desc && `\\n${desc}`,\n        instr && `\\nInstruction: ${instr}`\n    ].filter(Boolean).join(' | ');\n    feature.id = p.id || feature.id;\n    feature.properties = {\n        ...p,\n        callsign: p.event || 'Weather Alert',\n        remarks: remarks\n    };\n    return feature;\n}\n\n// NOAA returns alerts even when no polygon is present (area-based alerts without geometry).\n// Drop those — can't plot a shape without coordinates.\nconst withGeom = fc.features.filter(f => f.geometry && f.geometry.type === 'Polygon');\nmsg.payload = {\n    type: 'FeatureCollection',\n    features: withGeom.map(fmt)\n};\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 670,
+    "y": 120,
+    "wires": [["noaa-to-cot"]]
+  },
+  {
+    "id": "noaa-to-cot",
+    "type": "subflow:geojson-to-cot",
+    "z": "noaa-tab",
+    "name": "GeoJSON → CoT",
+    "env": [
+      { "name": "COT_TYPE", "value": "u-d-f", "type": "str" },
+      { "name": "UID_PREFIX", "value": "noaa", "type": "str" },
+      { "name": "STALE_SECONDS", "value": "3600", "type": "num" },
+      { "name": "CALLSIGN_PROP", "value": "callsign", "type": "str" },
+      { "name": "REMARKS_PROP", "value": "remarks", "type": "str" }
+    ],
+    "x": 860,
+    "y": 120,
+    "wires": [["noaa-tak-out"]]
+  },
+  {
+    "id": "noaa-tak-out",
+    "type": "tcp out",
+    "z": "noaa-tab",
+    "name": "TAK Server",
+    "host": "tak-server",
+    "port": "8089",
+    "beserver": "client",
+    "base64": false,
+    "end": false,
+    "tls": "noaa-tls",
+    "x": 1060,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "noaa-tls",
+    "type": "tls-config",
+    "name": "NOAA Server TLS",
+    "cert": "/data/certs/{svc_user}.cert.pem",
+    "key": "/data/certs/{svc_user}.key.pem",
+    "ca": "/opt/tak/certs/ca.pem",
+    "certname": "",
+    "keyname": "",
+    "caname": "ca.pem",
+    "servername": "${SERVER_ADDRESS}",
+    "verifyservercert": true,
+    "alpnprotocol": ""
+  }
+]

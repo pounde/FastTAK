@@ -2,11 +2,23 @@
 
 Reusable Node-RED flows that ship with FastTAK. Each flow is a single importable JSON file under `nodered/flows-library/` with a matching docs page here.
 
-Currently shipped:
+## Available flows
 
-- [DroneSense](dronesense.md) — poll the DroneSense REST API and emit CoT for drones (platform + SPI + video), operator phones with video, and plain operators.
+| Flow | Source | Geometry | CoT type |
+|---|---|---|---|
+| [DroneSense](dronesense.md) | DroneSense REST API | Point (drones, operators, phones with video) | `a-f-A-M-H-Q`, `a-f-G-E-S`, `a-f-G-U-C` |
+| [USGS Earthquakes](usgs-earthquakes.md) | `earthquake.usgs.gov` GeoJSON | Point | `a-u-G` |
+| [NOAA Weather Alerts](noaa-weather.md) | `api.weather.gov` alerts | Polygon | `u-d-f` (drawing) |
+| [ADS-B Aircraft](adsb.md) | adsb.lol community feed | Point with altitude/speed/course | `a-n-A-C-F` |
+| [Generic Sensor Feed](generic-sensor.md) | any REST API (template) | Point (customizable) | user-defined |
 
-More coming. The patterns below apply to every flow in the library.
+## Available subflows
+
+| Subflow | Purpose |
+|---|---|
+| [GeoJSON to CoT](subflows/geojson-to-cot.md) | Convert a GeoJSON Feature/FeatureCollection into CoT XML. Used as a building block by every pipeline flow above. |
+
+The patterns below apply to every flow and subflow in the library.
 
 ---
 
@@ -74,40 +86,36 @@ depends on your deploy mode — typically `/nodered`).
 
 ### 2. Import the flow JSON
 
+Library flows are available directly in the editor — no file upload:
+
 1. Click the **☰** (hamburger) menu at the top right.
 2. Click **Import**.
-3. Click **select a file to import** and choose the JSON file from your
-   FastTAK checkout (e.g., `nodered/flows-library/dronesense.json`).
-    - Alternative: open the JSON file in any text editor, copy all of it,
-      paste it into the **clipboard** tab instead.
-4. Click **Import**. A new tab appears in Node-RED with the flow laid out.
+3. Switch to the **Local** tab.
+4. Expand the **fasttak** folder. Every library flow (dronesense,
+   usgs-earthquakes, noaa-weather, adsb, generic-sensor) appears here,
+   plus a **subflows** subfolder with reusable components.
+5. Click the flow you want to import. Its nodes fill the preview pane.
+6. Click **Import**. A new tab appears in Node-RED with the flow laid out.
 
-### 3. Point the flow's TLS config node at your service account
+> **Tip:** Pipeline flows (USGS, NOAA, ADS-B, Generic Sensor) use the
+> `GeoJSON to CoT` subflow. Import it first from **subflows →
+> geojson-to-cot**, otherwise the pipeline will load with an unresolved
+> subflow reference.
+
+### 3. Configure the TLS node
 
 Every library flow includes its **own** TLS config node (named for the flow,
-e.g., `DroneSense Server TLS`). This is where you pick which service account
-the flow uses.
+e.g., `DroneSense Server TLS`).
 
-1. Click the **☰** menu → **Configuration nodes**. A sidebar appears.
-2. Under **tls-config**, find your flow's TLS node (e.g.,
-   `DroneSense Server TLS`) and **double-click** it.
-3. **Check the box labeled "Use key or certificate from local file".**
-   Without this, the fields expect you to upload PEM content; with it
-   checked, they expect file paths.
-4. The Client Certificate and Client Key fields are pre-filled with a
-   template path:
-
-    ```
-    /data/certs/{svc_user}.cert.pem
-    /data/certs/{svc_user}.key.pem
-    ```
-
-    Replace `{svc_user}` with your account's username. For an account named
-    `svc_nodered`, the fields become `/data/certs/svc_nodered.cert.pem` and
-    `/data/certs/svc_nodered.key.pem`.
-
-    Leave **CA Certificate** at `/opt/tak/certs/ca.pem` (pre-filled).
-
+1. **☰** → **Configuration nodes** → double-click your flow's TLS node.
+2. Check **Use key or certificate from local file**.
+3. In **Client Certificate** and **Client Key**, replace `{svc_user}` with
+   your service account's username (e.g., `/data/certs/svc_nodered.cert.pem`).
+   Leave **CA Certificate** at `/opt/tak/certs/ca.pem`.
+4. Leave **Server Name** at `${SERVER_ADDRESS}` — Node-RED resolves
+   this from your `.env` on every flow load. The TLS layer asserts your
+   TAK Server's FQDN as the cert identity while the underlying TCP
+   connection still goes to `tak-server` on the Docker network.
 5. Click **Update**.
 
 ### 4. Fill in flow-specific config
@@ -120,17 +128,6 @@ own docs page shows exactly what to put where.
 
 Click the red **Deploy** button at the top right. The flow starts running
 immediately.
-
----
-
-## Using different certs for different library flows
-
-Each library flow has its own TLS node, so just repeat Step 3 per flow,
-pointing different flows at different `/data/certs/svc_*` paths. They stay
-isolated — CoT from each flow is scoped to its service account's groups.
-
-To share a cert between two flows, paste the same paths into both flows'
-TLS config nodes.
 
 ---
 
