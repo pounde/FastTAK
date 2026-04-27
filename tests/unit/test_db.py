@@ -75,39 +75,61 @@ class TestQuery:
             "postgresql://test:test@localhost/test", autocommit=True
         )
 
+    @patch("app.db.psycopg.connect")
+    def test_forwards_params_to_cursor(self, mock_connect, mock_settings, monkeypatch):
+        mock_settings.tak_db_url = "postgresql://x:y@h/cot"
+        monkeypatch.setattr("app.db.settings", mock_settings)
 
-def test_query_forwards_params_to_cursor(monkeypatch):
-    from unittest.mock import MagicMock
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [("a",)]
+        mock_cursor.description = [("col",)]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = mock_conn
 
-    import app.db as db
+        from app.db import query
 
-    fake_cursor = MagicMock()
-    fake_cursor.fetchall.return_value = [("a",)]
-    fake_conn = MagicMock()
-    fake_conn.__enter__.return_value = fake_conn
-    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+        rows = query("SELECT %s", ("a",))
+        assert rows == [("a",)]
+        mock_cursor.execute.assert_called_once_with("SELECT %s", ("a",))
 
-    monkeypatch.setattr(db.psycopg, "connect", lambda *a, **kw: fake_conn)
-    monkeypatch.setattr(db.settings, "tak_db_url", "postgresql://x:y@h/cot")
+    @patch("app.db.psycopg.connect")
+    def test_no_params_still_works(self, mock_connect, mock_settings, monkeypatch):
+        mock_settings.tak_db_url = "postgresql://x:y@h/cot"
+        monkeypatch.setattr("app.db.settings", mock_settings)
 
-    rows = db.query("SELECT %s", ("a",))
-    assert rows == [("a",)]
-    fake_cursor.execute.assert_called_once_with("SELECT %s", ("a",))
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.description = []
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = mock_conn
 
+        from app.db import query
 
-def test_query_no_params_still_works(monkeypatch):
-    from unittest.mock import MagicMock
+        query("SELECT 1")
+        mock_cursor.execute.assert_called_once_with("SELECT 1", ())
 
-    import app.db as db
+    @patch("app.db.psycopg.connect")
+    def test_execute_forwards_params_to_cursor(self, mock_connect, mock_settings, monkeypatch):
+        mock_settings.tak_db_url = "postgresql://x:y@h/cot"
+        monkeypatch.setattr("app.db.settings", mock_settings)
 
-    fake_cursor = MagicMock()
-    fake_cursor.fetchall.return_value = []
-    fake_conn = MagicMock()
-    fake_conn.__enter__.return_value = fake_conn
-    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = mock_conn
 
-    monkeypatch.setattr(db.psycopg, "connect", lambda *a, **kw: fake_conn)
-    monkeypatch.setattr(db.settings, "tak_db_url", "postgresql://x:y@h/cot")
+        from app.db import execute
 
-    db.query("SELECT 1")
-    fake_cursor.execute.assert_called_once_with("SELECT 1", ())
+        execute("DELETE FROM x WHERE id = %s", (1,))
+        mock_cursor.execute.assert_called_once_with("DELETE FROM x WHERE id = %s", (1,))
