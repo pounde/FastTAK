@@ -179,3 +179,29 @@ def test_audit_middleware_skips_failed_requests():
         client = TestClient(app)
         client.post("/api/users", json={})
     assert recorded == []
+
+
+def test_audit_middleware_does_not_break_request_when_db_fails():
+    """Negative path: a failing audit DB write must not propagate to the user.
+
+    Exercises the full middleware chain with a real AuditMiddleware on top of
+    a real route handler, with `execute` configured to raise. The mutation
+    should still succeed (200) and the response body should be intact.
+    """
+    from app.audit import AuditMiddleware
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_middleware(AuditMiddleware)
+
+    @app.post("/api/users")
+    def create_user():
+        return {"id": 42}
+
+    with patch("app.audit.execute", side_effect=RuntimeError("app-db unavailable")):
+        client = TestClient(app)
+        r = client.post("/api/users", json={"name": "alice"})
+
+    assert r.status_code == 200
+    assert r.json() == {"id": 42}

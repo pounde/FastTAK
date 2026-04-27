@@ -1,4 +1,15 @@
-"""Shared test fixtures for FastTAK monitor tests."""
+"""Shared test fixtures for FastTAK monitor tests.
+
+Mocking layer convention for fastak_events tests:
+- Mock `app.audit.execute` when asserting the SQL string or params (lowest layer
+  with observable contract — the actual psycopg call).
+- Mock `app.audit.record_event` when testing callers of the audit API
+  (engine.record_event, AuditMiddleware) — treats record_event as opaque.
+- Mock `app.fastak_db.fetch` when testing read paths (events router,
+  engine.get_activity_log).
+End-to-end wiring is exercised by `tests-integration/test_audit_persistence.py`,
+not duplicated here.
+"""
 
 import sys
 from pathlib import Path

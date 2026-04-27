@@ -75,10 +75,12 @@ enrichment (today `action` is `METHOD /path`; a future route → action
 map is straightforward to add).
 
 **Follow-ups not blocking ship:** every audit event opens a fresh psycopg
-connection on `app-db`; under burst load (bulk service-account creation
-plus concurrent scheduler health writes plus LLDAP/Node-RED traffic) the
-existing `max_connections=100` may feel tight. Introduce a small
-`psycopg_pool.ConnectionPool` if profiling shows pressure. `init_schema()`
+connection on `app-db`. Realistic worst case is roughly 50 writes/minute
+from a stack of ~10 services flapping on 30s state cycles plus normal
+API mutations — comfortably under the `max_connections=100` budget that
+also serves LLDAP and Node-RED. We deliberately ship without
+`psycopg_pool.ConnectionPool` and revisit only when `pg_stat_activity`
+or actual `connection refused` errors show pressure. `init_schema()`
 is idempotent but races on first-time bootstrap if the monitor ever runs
 multi-replica; replace with an advisory lock at that point.
 
