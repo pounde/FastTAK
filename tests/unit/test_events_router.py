@@ -52,3 +52,74 @@ def test_list_events_no_filters_omits_where_clause(app_client):
     sql = mock_fetch.call_args.args[0]
     assert "WHERE" not in sql
     assert "FROM fastak_events ORDER BY timestamp DESC" in sql
+
+
+def test_csv_export_emits_text_csv(app_client):
+    rows = [
+        {
+            "id": 1,
+            "timestamp": datetime(2026, 4, 27, 12, tzinfo=UTC),
+            "source": "audit",
+            "actor": "alice",
+            "action": "POST /api/users",
+            "target_type": "user",
+            "target_id": "42",
+            "detail": {"k": "v"},
+            "ip": "10.0.0.5",
+            "agency_id": None,
+        },
+    ]
+    with patch("app.api.events.router.fetch", return_value=rows):
+        r = app_client.get("/api/events.csv")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    body = r.text
+    assert "alice" in body
+    assert "POST /api/users" in body
+    # detail flattened to compact JSON; csv.writer escapes embedded quotes by doubling them
+    assert '"{""k"":""v""}"' in body
+
+
+def test_csv_export_empty_returns_header_only(app_client):
+    with patch("app.api.events.router.fetch", return_value=[]):
+        r = app_client.get("/api/events.csv")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    body = r.text.strip().splitlines()
+    assert len(body) == 1  # header row only, no data rows
+    assert body[0].split(",") == [
+        "id",
+        "timestamp",
+        "source",
+        "actor",
+        "action",
+        "target_type",
+        "target_id",
+        "detail",
+        "ip",
+        "agency_id",
+    ]
+
+
+def test_csv_export_nullable_columns_emit_empty_strings(app_client):
+    rows = [
+        {
+            "id": 1,
+            "timestamp": datetime(2026, 4, 27, 12, tzinfo=UTC),
+            "source": "audit",
+            "actor": "alice",
+            "action": "POST /api/users",
+            "target_type": None,
+            "target_id": None,
+            "detail": None,
+            "ip": None,
+            "agency_id": None,
+        },
+    ]
+    with patch("app.api.events.router.fetch", return_value=rows):
+        r = app_client.get("/api/events.csv")
+    assert r.status_code == 200
+    # Data row should have empty fields, not "None"
+    data_row = r.text.strip().splitlines()[1]
+    assert ",None," not in data_row
+    assert "None\r" not in data_row and not data_row.endswith("None")
