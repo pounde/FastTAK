@@ -103,6 +103,34 @@
         </div>
     </div>
 
+    <!-- Connected Clients -->
+    <div class="card">
+        <div class="card-title">
+            Connected Clients
+            <span class="htmx-indicator text-muted" id="clients-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/connected-clients"
+            hx-trigger="load, every 15s"
+            hx-indicator="#clients-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Recently Seen Contacts -->
+    <div class="card">
+        <div class="card-title">
+            Recently seen (last 24h)
+            <span class="htmx-indicator text-muted" id="recent-contacts-loading">loading...</span>
+        </div>
+        <div
+            hx-get="/ui/partials/recent-contacts?max_age=86400"
+            hx-trigger="load, every 60s"
+            hx-indicator="#recent-contacts-loading">
+            <span class="text-muted">Loading...</span>
+        </div>
+    </div>
+
     <!-- Config Drift Detection (full width) -->
     <div class="card col-span-2">
         <div class="card-title">
