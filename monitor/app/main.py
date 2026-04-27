@@ -6,6 +6,7 @@ This is the application entrypoint. It wires together:
 - Background scheduler — periodic health checks and alerting
 """
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
@@ -17,14 +18,21 @@ from app.api.ops.router import router as ops_router
 from app.api.service_accounts.router import router as service_accounts_router
 from app.api.tak.router import router as tak_router
 from app.api.users.router import router as users_router
+from app.audit import init_schema
 from app.dashboard.routes import router as dashboard_router
 from app.dashboard.routes import templates
 from app.scheduler import start_scheduler, stop_scheduler
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_config_hash()
+    try:
+        init_schema()
+    except Exception:
+        log.exception("Could not initialise fastak_events schema")
     start_scheduler()
     yield
     stop_scheduler()
