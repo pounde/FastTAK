@@ -15,6 +15,7 @@ from app.api.health.config_drift import init_config_hash
 from app.api.health.router import router as health_router
 from app.api.ops.router import router as ops_router
 from app.api.service_accounts.router import router as service_accounts_router
+from app.api.tak.router import router as tak_router
 from app.api.users.router import router as users_router
 from app.dashboard.routes import router as dashboard_router
 from app.dashboard.routes import templates
@@ -36,6 +37,7 @@ app.include_router(health_router)
 app.include_router(ops_router)
 app.include_router(users_router)
 app.include_router(service_accounts_router)
+app.include_router(tak_router)
 
 # Dashboard (HTML)
 app.include_router(dashboard_router)

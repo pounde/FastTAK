@@ -1,0 +1,40 @@
+"""TAK Server proxy router — exposes Marti API as HTTP-only endpoints.
+
+Each /api/tak/* endpoint accepts an optional ``?agency=<uuid>`` query
+parameter that is currently a no-op. It is reserved for the agency-scoping
+work in #21 and ignored until that lands.
+
+Request-free helpers (_build_*_response) are exposed for dashboard partials
+to consume without needing a FastAPI Request object. Route handlers call
+the helpers and add request-scoped concerns (eventually agency filtering).
+"""
+
+from fastapi import APIRouter, HTTPException, Query
+
+from app.api.users.router import _get_tak_server
+
+router = APIRouter(prefix="/api/tak", tags=["tak-proxy"])
+
+
+def _client():
+    """Resolve the TAK Server mTLS client or 503 if unavailable."""
+    c = _get_tak_server()
+    if c is None or c._client is None:
+        raise HTTPException(503, "TAK Server client not configured")
+    return c
+
+
+# --- Request-free helpers (used by dashboard partials and route handlers) ---
+
+
+def _build_groups_response() -> list[dict]:
+    return _client().list_groups()
+
+
+# --- Routes ---
+
+
+@router.get("/groups", summary="TAK Server group list")
+def list_groups(agency: str | None = Query(default=None)):
+    """Proxy /Marti/api/groups/all (cert-level group assignments)."""
+    return _build_groups_response()
