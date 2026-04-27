@@ -65,3 +65,31 @@ def test_get_recent_contacts_with_lkp_empty_input_skips_query():
         out = get_recent_contacts_with_lkp([])
     assert out == []
     mock_query.assert_not_called()
+
+
+def test_get_lkp_for_uids_decodes_bytes_columns():
+    """SQL_ASCII columns come back as bytes from psycopg; result must be str."""
+    from app.api.tak.positions import get_lkp_for_uids
+
+    fake_rows = [
+        (b"ANDROID-bytes", 38.8, -77.0, 100.0, "2026-04-27 12:00:00+00", b"a-f-G-U-C"),
+    ]
+    with patch("app.api.tak.positions.query", return_value=fake_rows):
+        out = get_lkp_for_uids(["ANDROID-bytes"])
+
+    assert "ANDROID-bytes" in out  # str key, not bytes
+    assert out["ANDROID-bytes"]["uid"] == "ANDROID-bytes"
+    assert out["ANDROID-bytes"]["cot_type"] == "a-f-G-U-C"
+
+
+def test_get_recent_contacts_with_lkp_decodes_bytes_columns():
+    from app.api.tak.positions import get_recent_contacts_with_lkp
+
+    fake_rows = [
+        (b"ANDROID-bytes", 38.8, -77.0, 100.0, "2026-04-27 12:00:00+00", b"a-f-G-U-C"),
+    ]
+    with patch("app.api.tak.positions.query", return_value=fake_rows):
+        out = get_recent_contacts_with_lkp(["ANDROID-bytes"])
+
+    assert out[0]["uid"] == "ANDROID-bytes"
+    assert out[0]["cot_type"] == "a-f-G-U-C"
