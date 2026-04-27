@@ -1,9 +1,13 @@
 """GET /api/events — query the fastak_events table."""
 
+import csv
+import io
+import json
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 
 from app.fastak_db import fetch
 
@@ -72,3 +76,65 @@ def list_events(
     sql, params = _build_query(source, actor, action, target_type, target_id, since, until, limit)
     rows = fetch(sql, params)
     return {"count": len(rows), "events": rows}
+
+
+def _flatten_detail(detail: Any | None) -> str:
+    if detail is None:
+        return ""
+    try:
+        return json.dumps(detail, separators=(",", ":"))
+    except Exception:
+        return str(detail)
+
+
+@router.get("/api/events.csv", summary="Export events as CSV")
+def export_csv(
+    source: str | None = Query(default=None),
+    actor: str | None = Query(default=None),
+    action: str | None = Query(default=None),
+    target_type: str | None = Query(default=None),
+    target_id: str | None = Query(default=None),
+    since: datetime | None = Query(default=None, description="ISO-8601 timestamp"),
+    until: datetime | None = Query(default=None, description="ISO-8601 timestamp"),
+    limit: int = Query(default=MAX_LIMIT, ge=1, le=MAX_LIMIT),
+):
+    sql, params = _build_query(source, actor, action, target_type, target_id, since, until, limit)
+    rows = fetch(sql, params)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "id",
+            "timestamp",
+            "source",
+            "actor",
+            "action",
+            "target_type",
+            "target_id",
+            "detail",
+            "ip",
+            "agency_id",
+        ]
+    )
+    for r in rows:
+        writer.writerow(
+            [
+                r["id"],
+                r["timestamp"].isoformat(),
+                r["source"],
+                r["actor"],
+                r["action"],
+                r["target_type"] or "",
+                r["target_id"] or "",
+                _flatten_detail(r["detail"]),
+                r["ip"] or "",
+                str(r["agency_id"] or ""),
+            ]
+        )
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="fastak_events.csv"'},
+    )
