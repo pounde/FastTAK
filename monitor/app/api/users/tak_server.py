@@ -196,3 +196,28 @@ class TakServerClient:
         except httpx.HTTPError:
             log.warning("Failed to query TAK Server groups")
             return []
+
+    def list_clients(self) -> list[dict]:
+        """List currently connected TAK clients (/Marti/api/subscriptions/all).
+
+        Each entry has callsign, uid (normalised from TAK Server's ``clientUid``),
+        group memberships (list of group dicts), team, last-report time, and
+        TAK client/version metadata. Returns ``[]`` on any HTTP failure.
+
+        Endpoint note: TAK Server 5.x removed ``/Marti/api/Subscription/GetAllRepeaters``;
+        ``subscriptions/all`` is its successor and returns the richest data set
+        (team, takClient, takVersion, structured group dicts) needed by the
+        Connected Clients dashboard and the upcoming agency filter (#21).
+        """
+        try:
+            data = self._get("/Marti/api/subscriptions/all")
+            entries = data.get("data", [])
+            # Normalise clientUid -> uid so callers don't need to special-case
+            # the TAK Server quirk. Mutate in place; entries are throw-away dicts.
+            for e in entries:
+                if "clientUid" in e and "uid" not in e:
+                    e["uid"] = e["clientUid"]
+            return entries
+        except httpx.HTTPError:
+            log.warning("Failed to query TAK Server clients")
+            return []
