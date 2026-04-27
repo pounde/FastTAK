@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
+from app.api.events.router import router as events_router
 from app.api.health.config_drift import init_config_hash
 from app.api.health.router import router as health_router
 from app.api.ops.router import router as ops_router
@@ -51,6 +52,7 @@ app.include_router(ops_router)
 app.include_router(users_router)
 app.include_router(service_accounts_router)
 app.include_router(tak_router)
+app.include_router(events_router)
 
 # Dashboard (HTML)
 app.include_router(dashboard_router)
