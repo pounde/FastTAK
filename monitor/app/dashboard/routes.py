@@ -221,3 +221,43 @@ def ui_database_health(request: Request):
             "av_status": av_status,
         },
     )
+
+
+@router.get("/ui/partials/connected-clients")
+def ui_connected_clients(request: Request):
+    from app.api.tak.router import _build_clients_response
+
+    try:
+        clients = _build_clients_response(include_lkp=True)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request,
+            "partials/connected_clients.html",
+            {"clients": [], "error": str(exc)[:200]},
+        )
+    return templates.TemplateResponse(
+        request,
+        "partials/connected_clients.html",
+        {"clients": clients, "error": None},
+    )
+
+
+@router.get("/ui/partials/recent-contacts")
+def ui_recent_contacts(request: Request):
+    from app.api.tak.router import _build_recent_contacts_response
+
+    max_age_param = request.query_params.get("max_age")
+    max_age = int(max_age_param) if max_age_param else None
+    try:
+        contacts = _build_recent_contacts_response(max_age=max_age)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request,
+            "partials/recent_contacts.html",
+            {"contacts": [], "error": str(exc)[:200], "max_age": max_age},
+        )
+    return templates.TemplateResponse(
+        request,
+        "partials/recent_contacts.html",
+        {"contacts": contacts, "error": None, "max_age": max_age},
+    )

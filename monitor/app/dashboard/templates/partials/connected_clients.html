@@ -1,0 +1,30 @@
+{% if error %}
+  <span class="text-muted">Connected clients unavailable: {{ error }}</span>
+{% elif clients %}
+<table style="width: 100%; font-size: 12px;">
+  <thead>
+    <tr style="text-align: left; color: #aaa;">
+      <th>Callsign</th><th>Team</th><th>UID</th><th>Last Position</th><th>When (server)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in clients %}
+    <tr>
+      <td>{{ c.callsign or '—' }}</td>
+      <td>{{ c.team or '—' }}</td>
+      <td style="font-family: monospace; font-size: 11px;">{{ c.uid }}</td>
+      <td>
+        {% if c.lkp and c.lkp.lat is not none %}
+          {{ "%.5f"|format(c.lkp.lat) }}, {{ "%.5f"|format(c.lkp.lon) }}
+        {% else %}
+          —
+        {% endif %}
+      </td>
+      <td>{{ c.lkp.servertime if c.lkp else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <span class="text-muted">No clients currently connected.</span>
+{% endif %}
