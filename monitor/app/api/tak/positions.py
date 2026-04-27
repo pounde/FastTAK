@@ -4,7 +4,10 @@ cot_router is TAK-Server-internal — the schema can shift between TAK Server
 versions. The queries here assume columns uid, point_hae, servertime,
 cot_type, and event_pt (PostGIS Point). Lat/lon are extracted with
 ST_Y(event_pt) / ST_X(event_pt). Confirmed against TAK 5.x as of 2026-04.
-If the schema changes, this module needs revisiting.
+
+The cot database is encoded as SQL_ASCII, so psycopg returns text columns
+as bytes; ``_decode`` on uid/cot_type normalises them to str. If the schema
+or encoding changes, this module needs revisiting.
 """
 
 from __future__ import annotations
@@ -17,15 +20,22 @@ from app.db import query
 log = logging.getLogger(__name__)
 
 
+def _decode(v):
+    """SQL_ASCII columns come back as bytes from psycopg; decode to str."""
+    if isinstance(v, bytes | bytearray):
+        return v.decode("utf-8", errors="replace")
+    return v
+
+
 def _row_to_position(row: tuple) -> dict:
     uid, lat, lon, hae, servertime, cot_type = row
     return {
-        "uid": uid,
+        "uid": _decode(uid),
         "lat": float(lat) if lat is not None else None,
         "lon": float(lon) if lon is not None else None,
         "hae": float(hae) if hae is not None else None,
         "servertime": servertime.isoformat() if hasattr(servertime, "isoformat") else servertime,
-        "cot_type": cot_type,
+        "cot_type": _decode(cot_type),
     }
 
 
@@ -54,7 +64,7 @@ def get_lkp_for_uids(uids: Iterable[str]) -> dict[str, dict]:
         log.warning("LKP query failed: %s", exc)
         return {}
 
-    return {row[0]: _row_to_position(row) for row in rows}
+    return {_decode(row[0]): _row_to_position(row) for row in rows}
 
 
 def get_recent_contacts_with_lkp(
