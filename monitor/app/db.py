@@ -28,18 +28,22 @@ def _build_dsn() -> str:
     return f"postgresql://martiuser:{password}@tak-database:5432/cot"
 
 
-def query(sql: str) -> list[tuple]:
-    """Execute a SQL query and return all rows."""
+def query(sql: str, params: tuple | None = None) -> list[tuple]:
+    """Execute a SQL query and return all rows.
+
+    Pass `%s` placeholders in `sql` and tuple values in `params`.
+    None means no params (equivalent to ()).
+    """
     dsn = _build_dsn()
     with psycopg.connect(dsn, autocommit=True) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, params or ())
             return cur.fetchall()
 
 
-def execute(sql: str) -> None:
+def execute(sql: str, params: tuple | None = None) -> None:
     """Execute a SQL statement with no return value (e.g., VACUUM)."""
     dsn = _build_dsn()
     with psycopg.connect(dsn, autocommit=True) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, params or ())
