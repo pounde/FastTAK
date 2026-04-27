@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     tak_db_password: str = ""
     tak_db_url: str = ""  # Override: postgresql://user:pass@host:port/db
 
+    # Audit/events database (uses app-db; see #13)
+    fastak_db_password: str = ""
+    fastak_db_url: str = ""  # Override: postgresql://user:pass@host:port/db
+    app_db_host: str = "app-db"
+    app_db_user: str = "fastak"  # matches docker-compose.yml POSTGRES_USER
+
     # Monitor settings
     update_check_interval: int = 21600  # 6 hours
 
