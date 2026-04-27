@@ -102,3 +102,59 @@ def test_list_contacts_proxies_to_tak_server(app_client):
     r = client.get("/api/tak/contacts")
     assert r.status_code == 200
     assert r.json()[0]["uid"] == "ANDROID-abc"
+
+
+def test_recent_contacts_combines_marti_with_lkp_no_default_age(app_client):
+    """Default behaviour: no max_age, so the LKP query has no time filter."""
+    client, fake = app_client
+    fake.list_contacts.return_value = [
+        {
+            "uid": "ANDROID-abc",
+            "callsign": "ALPHA-1",
+            "team": "Blue",
+            "lastReportTime": 1719500000000,
+        },
+        {
+            "uid": "ANDROID-xyz",
+            "callsign": "BRAVO-2",
+            "team": "Red",
+            "lastReportTime": 1719500000000,
+        },
+    ]
+    with patch(
+        "app.api.tak.router.get_recent_contacts_with_lkp",
+        return_value=[
+            {
+                "uid": "ANDROID-abc",
+                "lat": 38.8,
+                "lon": -77.0,
+                "hae": 100.0,
+                "servertime": "2026-04-27T12:00:00+00:00",
+                "cot_type": "a-f-G-U-C",
+            }
+        ],
+    ) as mock_lkp:
+        r = client.get("/api/tak/contacts/recent")
+    assert r.status_code == 200
+    # Confirm the helper was called WITHOUT max_age (relying on TAK retention)
+    _, kwargs = mock_lkp.call_args
+    assert kwargs.get("max_age_seconds") is None
+    body = r.json()
+    by_uid = {c["uid"]: c for c in body}
+    assert by_uid["ANDROID-abc"]["lkp"]["lat"] == 38.8
+    assert by_uid["ANDROID-xyz"]["lkp"] is None  # never reported a position
+
+
+def test_recent_contacts_passes_max_age_when_set(app_client):
+    client, fake = app_client
+    fake.list_contacts.return_value = [
+        {"uid": "ANDROID-abc", "callsign": "ALPHA-1", "team": "Blue"},
+    ]
+    with patch(
+        "app.api.tak.router.get_recent_contacts_with_lkp",
+        return_value=[],
+    ) as mock_lkp:
+        r = client.get("/api/tak/contacts/recent?max_age=3600")
+    assert r.status_code == 200
+    _, kwargs = mock_lkp.call_args
+    assert kwargs["max_age_seconds"] == 3600
