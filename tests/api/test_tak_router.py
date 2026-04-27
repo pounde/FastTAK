@@ -57,3 +57,38 @@ def test_list_clients_proxies_to_tak_server(app_client):
     assert len(body) == 1
     assert body[0]["callsign"] == "ALPHA-1"
     assert "lkp" not in body[0]  # not requested
+
+
+def test_list_clients_with_lkp_enriches_response(app_client):
+    client, fake = app_client
+    fake.list_clients.return_value = [
+        {"callsign": "ALPHA-1", "uid": "ANDROID-abc", "groups": ["Blue"]}
+    ]
+    with patch(
+        "app.api.tak.router.get_lkp_for_uids",
+        return_value={
+            "ANDROID-abc": {
+                "uid": "ANDROID-abc",
+                "lat": 38.8,
+                "lon": -77.0,
+                "hae": 100.0,
+                "servertime": "2026-04-27T12:00:00+00:00",
+                "cot_type": "a-f-G-U-C",
+            }
+        },
+    ):
+        r = client.get("/api/tak/clients?include=lkp")
+    assert r.status_code == 200
+    body = r.json()
+    assert body[0]["lkp"]["lat"] == 38.8
+
+
+def test_list_clients_with_lkp_null_when_no_position(app_client):
+    client, fake = app_client
+    fake.list_clients.return_value = [
+        {"callsign": "ALPHA-1", "uid": "ANDROID-abc", "groups": ["Blue"]}
+    ]
+    with patch("app.api.tak.router.get_lkp_for_uids", return_value={}):
+        r = client.get("/api/tak/clients?include=lkp")
+    body = r.json()
+    assert body[0]["lkp"] is None
