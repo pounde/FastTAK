@@ -221,3 +221,18 @@ class TakServerClient:
         except httpx.HTTPError:
             log.warning("Failed to query TAK Server clients")
             return []
+
+    def list_contacts(self) -> list[dict]:
+        """List the TAK Server contact roster (/Marti/api/contacts/all).
+
+        TAK versions differ on the response shape: some return a bare list,
+        others wrap in {"data": [...]}. Both are handled.
+        """
+        try:
+            data = self._get("/Marti/api/contacts/all")
+            if isinstance(data, list):
+                return data
+            return data.get("data", [])
+        except httpx.HTTPError:
+            log.warning("Failed to query TAK Server contacts")
+            return []

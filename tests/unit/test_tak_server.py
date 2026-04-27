@@ -250,3 +250,40 @@ class TestListClients:
 
         mock_http["get"].side_effect = httpx.HTTPError("boom")
         assert client.list_clients() == []
+
+
+class TestListContacts:
+    def test_returns_bare_list(self, client, mock_http):
+        # Matches /Marti/api/contacts/all on TAK Server 5.x: bare list, fields
+        # uid, callsign, team, role, takv, filterGroups (often null), notes.
+        # No lastReportTime field is returned by TAK Server.
+        mock_http["get"].return_value = [
+            {
+                "uid": "ANDROID-abc123",
+                "callsign": "ALPHA-1",
+                "team": "Blue",
+                "role": "Team Member",
+                "takv": "ATAK-CIV:5.4.0",
+                "filterGroups": None,
+                "notes": "alpha",
+            },
+        ]
+        contacts = client.list_contacts()
+        assert len(contacts) == 1
+        assert contacts[0]["uid"] == "ANDROID-abc123"
+
+    def test_handles_envelope_response(self, client, mock_http):
+        # Forward-compatible: some TAK versions wrap contacts/all in {"data": [...]}.
+        mock_http["get"].return_value = {
+            "version": "3",
+            "data": [{"uid": "X", "callsign": "X", "team": "Cyan"}],
+        }
+        contacts = client.list_contacts()
+        assert len(contacts) == 1
+        assert contacts[0]["uid"] == "X"
+
+    def test_returns_empty_on_http_error(self, client, mock_http):
+        import httpx
+
+        mock_http["get"].side_effect = httpx.HTTPError("boom")
+        assert client.list_contacts() == []
