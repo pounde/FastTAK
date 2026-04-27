@@ -43,6 +43,10 @@ def _build_clients_response(include_lkp: bool = False) -> list[dict]:
     return clients
 
 
+def _build_contacts_response() -> list[dict]:
+    return _client().list_contacts()
+
+
 # --- Routes ---
 
 
@@ -65,3 +69,9 @@ def list_clients(
     derived from cot_router.
     """
     return _build_clients_response(include_lkp=(include == "lkp"))
+
+
+@router.get("/contacts", summary="TAK Server contact roster")
+def list_contacts(agency: str | None = Query(default=None)):
+    """Proxy /Marti/api/contacts/all."""
+    return _build_contacts_response()
