@@ -15,7 +15,11 @@ Schema (fastak_events):
 
 from __future__ import annotations
 
+import json
 import logging
+from typing import Any
+
+import psycopg
 
 from app.fastak_db import execute
 
@@ -53,3 +57,33 @@ def init_schema() -> None:
     execute(SCHEMA_SQL)
     for sql in INDEX_SQL:
         execute(sql)
+
+
+def record_event(
+    source: str,
+    actor: str,
+    action: str,
+    target_type: str | None = None,
+    target_id: str | None = None,
+    detail: dict[str, Any] | None = None,
+    ip: str | None = None,
+    agency_id: str | None = None,  # UUID as string; psycopg casts to UUID column
+) -> None:
+    """Insert one row into fastak_events. Swallows DB errors.
+
+    Audit writes are best-effort; a failure here must not block the
+    user-facing request that triggered them.
+    """
+    sql = """
+        INSERT INTO fastak_events
+            (source, actor, action, target_type, target_id, detail, ip, agency_id)
+        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+    """
+    detail_json = json.dumps(detail) if detail is not None else None
+    try:
+        execute(
+            sql,
+            (source, actor, action, target_type, target_id, detail_json, ip, agency_id),
+        )
+    except psycopg.Error:
+        log.exception("Failed to record audit event %s/%s/%s", source, actor, action)
