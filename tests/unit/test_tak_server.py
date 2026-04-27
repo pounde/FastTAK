@@ -208,3 +208,45 @@ class TestRevokeAllUserCerts:
             ),
         ):
             assert client.revoke_all_user_certs("jsmith") is False
+
+
+class TestListClients:
+    def test_returns_connected_clients(self, client, mock_http):
+        # Fixture matches /Marti/api/subscriptions/all (TAK Server 5.x).
+        # The wrapper normalises clientUid -> uid; passes other fields through.
+        mock_http["get"].return_value = {
+            "version": "3",
+            "type": "SubscriptionInfo",
+            "data": [
+                {
+                    "callsign": "ALPHA-1",
+                    "clientUid": "ANDROID-abc123",
+                    "lastReportMilliseconds": 1719500000000,
+                    "takClient": "ATAK-CIV",
+                    "takVersion": "5.4.0",
+                    "username": "alpha",
+                    "groups": [
+                        {"name": "Blue", "direction": "IN", "active": True},
+                        {"name": "Blue", "direction": "OUT", "active": True},
+                    ],
+                    "role": "Team Lead",
+                    "team": "Blue",
+                    "protocol": "tls",
+                },
+            ],
+        }
+        clients = client.list_clients()
+        assert len(clients) == 1
+        assert clients[0]["callsign"] == "ALPHA-1"
+        assert clients[0]["uid"] == "ANDROID-abc123"  # normalised from clientUid
+        assert clients[0]["team"] == "Blue"
+        assert clients[0]["takVersion"] == "5.4.0"
+        # groups passed through as list of dicts (kept structured for #21 filtering)
+        assert any(g["name"] == "Blue" for g in clients[0]["groups"])
+        mock_http["get"].assert_called_once_with("/Marti/api/subscriptions/all")
+
+    def test_returns_empty_on_http_error(self, client, mock_http):
+        import httpx
+
+        mock_http["get"].side_effect = httpx.HTTPError("boom")
+        assert client.list_clients() == []
