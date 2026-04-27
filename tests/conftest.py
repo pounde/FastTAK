@@ -19,6 +19,12 @@ def mock_settings(monkeypatch):
         server_address="test.example.com",
         tak_db_password="testpass",
         tak_db_url="",
+        # ── new for #13 ───────────────────────────────
+        fastak_db_password="testpass",
+        fastak_db_url="",
+        app_db_host="app-db-test",
+        app_db_user="fastak",
+        # ──────────────────────────────────────────────
         lldap_url="http://lldap-test:17170",
         ldap_proxy_url="http://ldap-proxy-test:8080",
         ldap_admin_password="test-password",
