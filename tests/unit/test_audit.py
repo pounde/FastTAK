@@ -104,3 +104,78 @@ def test_auth_context_defaults_to_unknown_when_headers_missing():
     client = TestClient(app)
     r = client.get("/who")
     assert r.json()["user"] == "unknown"
+
+
+def test_audit_middleware_records_mutating_requests(monkeypatch):
+    from app.audit import AuditMiddleware, AuthContextMiddleware
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    recorded = []
+    monkeypatch.setattr("app.audit.record_event", lambda **kw: recorded.append(kw))
+
+    app = FastAPI()
+    app.add_middleware(AuditMiddleware)  # registered first → runs second
+    app.add_middleware(AuthContextMiddleware)  # registered second → runs first
+
+    @app.post("/api/users")
+    def create_user(request: Request):
+        return {"id": 42, "username": "alice"}
+
+    client = TestClient(app)
+    r = client.post(
+        "/api/users",
+        json={"username": "alice", "password": "secret"},
+        headers={"Remote-User": "operator"},
+    )
+    assert r.status_code == 200
+    assert len(recorded) == 1
+    ev = recorded[0]
+    assert ev["actor"] == "operator"
+    assert ev["action"] == "POST /api/users"
+    assert ev["source"] == "audit"
+    body_in_detail = ev["detail"].get("request_body", {})
+    assert body_in_detail.get("username") == "alice"
+    assert body_in_detail.get("password") in ("[redacted]", None)
+
+
+def test_audit_middleware_skips_reads():
+    from unittest.mock import patch as _patch
+
+    from app.audit import AuditMiddleware
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    recorded = []
+    with _patch("app.audit.record_event", lambda **kw: recorded.append(kw)):
+        app = FastAPI()
+        app.add_middleware(AuditMiddleware)
+
+        @app.get("/api/users")
+        def list_users():
+            return []
+
+        client = TestClient(app)
+        client.get("/api/users")
+    assert recorded == []
+
+
+def test_audit_middleware_skips_failed_requests():
+    from unittest.mock import patch as _patch
+
+    from app.audit import AuditMiddleware
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    recorded = []
+    with _patch("app.audit.record_event", lambda **kw: recorded.append(kw)):
+        app = FastAPI()
+        app.add_middleware(AuditMiddleware)
+
+        @app.post("/api/users")
+        def create_user():
+            raise HTTPException(400, "bad")
+
+        client = TestClient(app)
+        client.post("/api/users", json={})
+    assert recorded == []
