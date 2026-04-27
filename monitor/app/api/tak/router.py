@@ -11,6 +11,7 @@ the helpers and add request-scoped concerns (eventually agency filtering).
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.api.tak.positions import get_lkp_for_uids
 from app.api.users.router import _get_tak_server
 
 router = APIRouter(prefix="/api/tak", tags=["tak-proxy"])
@@ -31,6 +32,17 @@ def _build_groups_response() -> list[dict]:
     return _client().list_groups()
 
 
+def _build_clients_response(include_lkp: bool = False) -> list[dict]:
+    """Connected clients, optionally enriched with LKP from cot_router."""
+    clients = _client().list_clients()
+    if include_lkp:
+        uids = [c["uid"] for c in clients if c.get("uid")]
+        positions = get_lkp_for_uids(uids)
+        for c in clients:
+            c["lkp"] = positions.get(c.get("uid"))
+    return clients
+
+
 # --- Routes ---
 
 
@@ -38,3 +50,18 @@ def _build_groups_response() -> list[dict]:
 def list_groups(agency: str | None = Query(default=None)):
     """Proxy /Marti/api/groups/all (cert-level group assignments)."""
     return _build_groups_response()
+
+
+@router.get("/clients", summary="Connected TAK clients")
+def list_clients(
+    agency: str | None = Query(default=None),
+    include: str | None = Query(
+        default=None, description="Set to 'lkp' to include last known position"
+    ),
+):
+    """Proxy /Marti/api/subscriptions/all.
+
+    Pass ``?include=lkp`` to enrich each entry with a ``lkp`` field
+    derived from cot_router.
+    """
+    return _build_clients_response(include_lkp=(include == "lkp"))
