@@ -1,6 +1,7 @@
 """Tests for app.api.alerts.engine — state transitions and deduplication."""
 
 import time
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from app.api.alerts import engine
@@ -11,7 +12,6 @@ def _reset_engine():
     with engine._lock:
         engine._last_state.clear()
         engine._last_alert_time.clear()
-        engine._activity_log.clear()
 
 
 class TestRecordEvent:
@@ -19,27 +19,31 @@ class TestRecordEvent:
         _reset_engine()
 
     def test_records_event(self):
-        engine.record_event("test-svc", "critical", "something broke")
-        log = engine.get_activity_log()
-        assert len(log) == 1
-        assert log[0]["source"] == "test-svc"
-        assert log[0]["level"] == "critical"
+        with patch("app.audit.record_event") as mock_audit:
+            engine.record_event("test-svc", "critical", "something broke")
+        mock_audit.assert_called_once_with(
+            source="health",
+            actor="system",
+            action="critical",
+            target_type="service",
+            target_id="test-svc",
+            detail={"message": "something broke"},
+        )
 
-    def test_caps_at_max(self):
-        for i in range(engine.MAX_LOG_ENTRIES + 50):
-            engine.record_event("svc", "note", f"event {i}")
-        assert len(engine.get_activity_log(limit=1000)) == engine.MAX_LOG_ENTRIES
-
-    def test_newest_first(self):
-        engine.record_event("svc", "note", "first")
-        engine.record_event("svc", "note", "second")
-        log = engine.get_activity_log()
-        assert log[0]["message"] == "second"
-
-    def test_limit(self):
-        for i in range(10):
-            engine.record_event("svc", "note", f"event {i}")
-        assert len(engine.get_activity_log(limit=3)) == 3
+    def test_limit_passed_to_fetch(self):
+        fake_rows = [
+            {
+                "timestamp": datetime(2026, 4, 27, 12, tzinfo=UTC),
+                "source": "svc",
+                "level": "note",
+                "detail": {"message": f"event {i}"},
+            }
+            for i in range(3)
+        ]
+        with patch("app.fastak_db.fetch", return_value=fake_rows) as mock_fetch:
+            result = engine.get_activity_log(limit=3)
+        assert mock_fetch.call_args.args[1] == (3,)
+        assert len(result) == 3
 
 
 class TestCheckAndAlert:
@@ -80,31 +84,37 @@ class TestCheckAndAlert:
         mock_email.assert_called_once()
         mock_sms.assert_called_once()
 
+    @patch("app.audit.record_event")
     @patch("app.api.alerts.engine.send_alert_sms", return_value=True)
     @patch("app.api.alerts.engine.send_alert_email", return_value=True)
-    def test_recovery_logged_not_alerted(self, mock_email, mock_sms):
+    def test_recovery_logged_not_alerted(self, mock_email, mock_sms, mock_audit):
         engine.check_and_alert("svc", "critical")
         mock_email.reset_mock()
         mock_sms.reset_mock()
+        mock_audit.reset_mock()
 
         engine.check_and_alert("svc", "ok")
         mock_email.assert_not_called()
-        log = engine.get_activity_log()
-        assert any("recovered" in e["level"] for e in log)
+        # Recovery transition emits two audit calls: one for the new "ok" state,
+        # then one with action="recovered".
+        actions = [c.kwargs["action"] for c in mock_audit.call_args_list]
+        assert "recovered" in actions
 
+    @patch("app.audit.record_event")
     @patch("app.api.alerts.engine.send_alert_sms", return_value=True)
     @patch("app.api.alerts.engine.send_alert_email", return_value=True)
-    def test_recovery_no_alert_but_logged(self, mock_email, mock_sms):
+    def test_recovery_no_alert_but_logged(self, mock_email, mock_sms, mock_audit):
         """Recovery (elevated → ok) must not send alerts but must appear in the log."""
         engine.check_and_alert("svc", "critical", "went down")
         mock_email.reset_mock()
         mock_sms.reset_mock()
+        mock_audit.reset_mock()
 
         engine.check_and_alert("svc", "ok")
         mock_email.assert_not_called()
         mock_sms.assert_not_called()
-        log = engine.get_activity_log()
-        assert any("recovered" in e["level"] for e in log)
+        actions = [c.kwargs["action"] for c in mock_audit.call_args_list]
+        assert "recovered" in actions
 
     @patch("app.api.alerts.engine.send_alert_sms", return_value=True)
     @patch("app.api.alerts.engine.send_alert_email", return_value=True)

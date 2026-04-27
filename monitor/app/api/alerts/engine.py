@@ -4,12 +4,15 @@ Called from scheduler threads and potentially from API endpoints.
 All alert sending is synchronous (no async I/O).
 """
 
+import logging
 import threading
 import time
 from collections import defaultdict
 
 from app.api.alerts.email import send_alert_email
 from app.api.alerts.sms import send_alert_sms
+
+log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
@@ -20,23 +23,55 @@ _last_state: dict[str, str] = {}
 alert_cooldown: int = 300
 _last_alert_time: dict[str, float] = defaultdict(float)
 
-# Activity log (in-memory, capped)
-_activity_log: list[dict] = []
-MAX_LOG_ENTRIES = 500
-
 
 def record_event(source: str, level: str, message: str):
-    """Record an event to the activity log."""
-    entry = {"time": time.time(), "source": source, "level": level, "message": message}
-    with _lock:
-        _activity_log.insert(0, entry)
-        if len(_activity_log) > MAX_LOG_ENTRIES:
-            _activity_log.pop()
+    """Record a health-event entry to fastak_events.
+
+    Fire-and-forget: a DB hiccup never breaks the alerter (audit.record_event
+    swallows exceptions internally).
+    """
+    from app.audit import record_event as _audit_record
+
+    _audit_record(
+        source="health",
+        actor="system",
+        action=level,
+        target_type="service",
+        target_id=source,
+        detail={"message": message},
+    )
 
 
 def get_activity_log(limit: int = 50) -> list[dict]:
-    with _lock:
-        return _activity_log[:limit]
+    """Return recent health events from fastak_events.
+
+    Matches the prior shape: list of {time, source, level, message}.
+    """
+    from app.fastak_db import fetch
+
+    try:
+        rows = fetch(
+            """
+            SELECT timestamp, target_id AS source, action AS level, detail
+            FROM fastak_events
+            WHERE source = 'health'
+            ORDER BY timestamp DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+    except Exception:
+        log.exception("Failed to read health activity log from fastak_events")
+        return []
+    return [
+        {
+            "time": r["timestamp"].timestamp(),
+            "source": r["source"],
+            "level": r["level"],
+            "message": (r["detail"] or {}).get("message", ""),
+        }
+        for r in rows
+    ]
 
 
 def check_and_alert(service: str, new_state: str, detail: str = ""):
