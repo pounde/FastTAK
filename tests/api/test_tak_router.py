@@ -158,3 +158,11 @@ def test_recent_contacts_passes_max_age_when_set(app_client):
     assert r.status_code == 200
     _, kwargs = mock_lkp.call_args
     assert kwargs["max_age_seconds"] == 3600
+
+
+def test_list_missions_proxies_to_tak_server(app_client):
+    client, fake = app_client
+    fake.list_missions.return_value = [{"name": "ops-2026-04"}]
+    r = client.get("/api/tak/missions")
+    assert r.status_code == 200
+    assert r.json()[0]["name"] == "ops-2026-04"
