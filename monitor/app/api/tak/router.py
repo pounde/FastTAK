@@ -57,6 +57,10 @@ def _build_recent_contacts_response(max_age: int | None = None) -> list[dict]:
     return contacts
 
 
+def _build_missions_response() -> list[dict]:
+    return _client().list_missions()
+
+
 # --- Routes ---
 
 
@@ -85,6 +89,12 @@ def list_clients(
 def list_contacts(agency: str | None = Query(default=None)):
     """Proxy /Marti/api/contacts/all."""
     return _build_contacts_response()
+
+
+@router.get("/missions", summary="TAK Server missions")
+def list_missions(agency: str | None = Query(default=None)):
+    """Proxy /Marti/api/missions."""
+    return _build_missions_response()
 
 
 @router.get("/contacts/recent", summary="Recent contacts with LKP")
