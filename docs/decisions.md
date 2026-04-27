@@ -4,6 +4,58 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-039: TAK Server proxy endpoints in FastTAK API
+
+**Status:** Accepted
+
+**Decision:** FastTAK exposes a thin HTTP proxy over selected TAK Server
+`/Marti/api/*` endpoints (groups, contacts, clients, missions). Consumers
+do not need the mTLS client certificate — the FastTAK monitor uses
+`svc_fasttakapi.p12` internally and re-emits responses as plain HTTP
+behind Caddy's standard auth flow.
+
+**Why:** TAK Server's Marti REST API requires client-cert authentication,
+which is impractical for browser-based dashboards, CLIs, and integrations.
+Centralising the cert in the FastTAK API removes the credential-distribution
+problem and lets the dashboard consume the same data with normal LLDAP-backed
+auth. Mutating endpoints (mission CRUD, plugin endpoints) are intentionally
+out of scope until the audit middleware in #13 lands.
+
+**LKP source:** The connected-clients dashboard joins Marti contact/client
+lists with the most recent row per UID from TAK Server's `cot_router` table.
+We rely on TAK Server's persistence — FastTAK does not log CoT events itself.
+
+**Coupling:** This deepens our existing read coupling to TAK Server's
+`cot_router` schema (already coupled for autovacuum tuning). Acceptable
+for a Docker-Compose-bundled deployment; a future non-bundled deployment
+story would need a different LKP source. The schema is TAK-internal and
+may change between TAK Server versions — bumping the TAK Server image
+requires re-verifying that `uid`, `point_hae`, `servertime`, `cot_type`,
+and the `event_pt` PostGIS Point column still have the expected names
+and types. Lat/lon are extracted via `ST_Y(event_pt)` / `ST_X(event_pt)`;
+TAK Server does not store them as plain columns.
+
+**Required index:** TAK Server 5.x ships with `uid_servertime_idx` on
+`(uid, servertime)`, which a B-tree index scans in either direction so
+the LKP query's `ORDER BY uid, servertime DESC` is served efficiently
+without a separate FastTAK-installed index. If a future TAK Server
+version drops or renames this index, operators MUST install an
+equivalent manually; the verification step in the plan flags absence.
+
+**Default time bound:** `/api/tak/contacts/recent?max_age=<seconds>` does
+not apply a FastTAK-side default. When unset, the result is bounded by
+TAK Server's own contact retention. The dashboard cards pass `max_age`
+explicitly (24h on the Recently Seen card).
+
+**Endpoint provenance:** The connected-clients endpoint wraps `/Marti/api/subscriptions/all`
+(NOT `/Marti/api/Subscription/GetAllRepeaters`, which was removed in TAK
+Server 5.x). The FastTAK wrapper normalises TAK's `clientUid` field to
+`uid` so callers see a uniform identifier. The `cot` database is encoded
+as `SQL_ASCII`, so the LKP query layer decodes `bytes` → `str` for `uid`
+and `cot_type`; this is documented in `monitor/app/api/tak/positions.py`.
+
+---
+
 ## DD-038: Expose TAK Server 8446 Directly in Base Compose
 
 **Date:** 2026-04-19
