@@ -70,7 +70,44 @@ class TestQuery:
         from app.db import execute
 
         execute("VACUUM FULL ANALYZE")
-        mock_cursor.execute.assert_called_once_with("VACUUM FULL ANALYZE")
+        mock_cursor.execute.assert_called_once_with("VACUUM FULL ANALYZE", ())
         mock_connect.assert_called_once_with(
             "postgresql://test:test@localhost/test", autocommit=True
         )
+
+
+def test_query_forwards_params_to_cursor(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import app.db as db
+
+    fake_cursor = MagicMock()
+    fake_cursor.fetchall.return_value = [("a",)]
+    fake_conn = MagicMock()
+    fake_conn.__enter__.return_value = fake_conn
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+
+    monkeypatch.setattr(db.psycopg, "connect", lambda *a, **kw: fake_conn)
+    monkeypatch.setattr(db.settings, "tak_db_url", "postgresql://x:y@h/cot")
+
+    rows = db.query("SELECT %s", ("a",))
+    assert rows == [("a",)]
+    fake_cursor.execute.assert_called_once_with("SELECT %s", ("a",))
+
+
+def test_query_no_params_still_works(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import app.db as db
+
+    fake_cursor = MagicMock()
+    fake_cursor.fetchall.return_value = []
+    fake_conn = MagicMock()
+    fake_conn.__enter__.return_value = fake_conn
+    fake_conn.cursor.return_value.__enter__.return_value = fake_cursor
+
+    monkeypatch.setattr(db.psycopg, "connect", lambda *a, **kw: fake_conn)
+    monkeypatch.setattr(db.settings, "tak_db_url", "postgresql://x:y@h/cot")
+
+    db.query("SELECT 1")
+    fake_cursor.execute.assert_called_once_with("SELECT 1", ())
