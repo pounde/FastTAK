@@ -102,3 +102,76 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         request.state.groups = [g for g in (s.strip() for s in groups_header.split(",")) if g]
         request.state.client_ip = request.client.host if request.client else None
         return await call_next(request)
+
+
+# Body-field names whose values must be redacted before audit logging.
+REDACT_FIELDS = {"password", "token", "secret", "p12", "private_key"}
+
+MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _sanitise(payload):
+    if isinstance(payload, dict):
+        return {
+            k: ("[redacted]" if k.lower() in REDACT_FIELDS else _sanitise(v))
+            for k, v in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_sanitise(x) for x in payload]
+    return payload
+
+
+class AuditMiddleware(BaseHTTPMiddleware):
+    """Record one fastak_events row per successful mutating request.
+
+    Skips reads (GET/HEAD/OPTIONS) and failed requests (status >= 400).
+    Reads body bytes once, sanitises, attaches to detail.
+    """
+
+    async def dispatch(self, request, call_next):
+        method = request.method
+        if method not in MUTATING_METHODS:
+            return await call_next(request)
+
+        # Read body bytes once. await request.body() consumes the ASGI
+        # stream; replaying via request._receive lets the downstream
+        # handler still parse the body. (Known BaseHTTPMiddleware caveat
+        # — fine for small JSON bodies, shaky for streaming uploads.)
+        body_bytes = await request.body()
+
+        async def _replay():
+            return {"type": "http.request", "body": body_bytes, "more_body": False}
+
+        request._receive = _replay  # type: ignore[attr-defined]
+
+        response = await call_next(request)
+        if response.status_code >= 400:
+            return response
+
+        request_body = None
+        if body_bytes:
+            try:
+                request_body = _sanitise(json.loads(body_bytes))
+            except Exception:
+                request_body = "<non-json or binary>"
+
+        actor = getattr(request.state, "username", "unknown")
+        ip = getattr(request.state, "client_ip", None)
+        detail = {
+            "method": method,
+            "path": request.url.path,
+            "status": response.status_code,
+        }
+        if request_body is not None:
+            detail["request_body"] = request_body
+
+        record_event(
+            source="audit",
+            actor=actor,
+            action=f"{method} {request.url.path}",
+            target_type=None,  # populated by per-route enrichment later
+            target_id=None,
+            detail=detail,
+            ip=ip,
+        )
+        return response
