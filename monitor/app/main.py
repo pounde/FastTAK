@@ -18,7 +18,7 @@ from app.api.ops.router import router as ops_router
 from app.api.service_accounts.router import router as service_accounts_router
 from app.api.tak.router import router as tak_router
 from app.api.users.router import router as users_router
-from app.audit import init_schema
+from app.audit import AuthContextMiddleware, init_schema
 from app.dashboard.routes import router as dashboard_router
 from app.dashboard.routes import templates
 from app.scheduler import start_scheduler, stop_scheduler
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FastTAK Monitor", docs_url="/api/docs", lifespan=lifespan)
+app.add_middleware(AuthContextMiddleware)
 
 # API (JSON)
 app.include_router(health_router)

@@ -51,9 +51,56 @@ def test_record_event_inserts_row():
 
 
 def test_record_event_swallows_db_errors():
-    import psycopg
     from app.audit import record_event
 
-    with patch("app.audit.execute", side_effect=psycopg.OperationalError("db down")):
-        # Must NOT raise — audit writes never break user requests
+    with patch("app.audit.execute", side_effect=ValueError("FASTAK_DB_PASSWORD must be set")):
+        # Audit writes are best-effort: a config error here must NOT break the
+        # caller. Configuration problems surface via init_schema() at startup.
         record_event("audit", "alice", "user.create")
+
+
+def test_auth_context_middleware_extracts_user_and_groups():
+    from app.audit import AuthContextMiddleware
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_middleware(AuthContextMiddleware)
+
+    @app.get("/who")
+    def who(request: Request):
+        return {
+            "user": getattr(request.state, "username", None),
+            "groups": list(getattr(request.state, "groups", [])),
+        }
+
+    client = TestClient(app)
+    r = client.get(
+        "/who",
+        headers={
+            "Remote-User": "alice",
+            "Remote-Groups": "tak_Blue,agency_red",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user"] == "alice"
+    assert "tak_Blue" in body["groups"]
+    assert "agency_red" in body["groups"]
+
+
+def test_auth_context_defaults_to_unknown_when_headers_missing():
+    from app.audit import AuthContextMiddleware
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_middleware(AuthContextMiddleware)
+
+    @app.get("/who")
+    def who(request: Request):
+        return {"user": getattr(request.state, "username", None)}
+
+    client = TestClient(app)
+    r = client.get("/who")
+    assert r.json()["user"] == "unknown"

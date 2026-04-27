@@ -19,7 +19,7 @@ import json
 import logging
 from typing import Any
 
-import psycopg
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.fastak_db import execute
 
@@ -85,5 +85,20 @@ def record_event(
             sql,
             (source, actor, action, target_type, target_id, detail_json, ip, agency_id),
         )
-    except psycopg.Error:
+    except Exception:
         log.exception("Failed to record audit event %s/%s/%s", source, actor, action)
+
+
+class AuthContextMiddleware(BaseHTTPMiddleware):
+    """Pull Remote-User / Remote-Groups headers into request.state.
+
+    Caddy's forward_auth flow sets these headers (ldap-proxy generates them).
+    Local dev without Caddy in front falls through to 'unknown'.
+    """
+
+    async def dispatch(self, request, call_next):
+        request.state.username = request.headers.get("Remote-User") or "unknown"
+        groups_header = request.headers.get("Remote-Groups", "")
+        request.state.groups = [g for g in (s.strip() for s in groups_header.split(",")) if g]
+        request.state.client_ip = request.client.host if request.client else None
+        return await call_next(request)
