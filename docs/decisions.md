@@ -4,6 +4,86 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-040: Persistent event store for audit + health activity
+
+**Status:** Accepted
+
+**Decision:** A `fastak_events` table on a new `fastak` database in
+`app-db` serves as a unified store for (a) audit events from mutating
+API calls and (b) health activity events previously held in-memory in
+the alert engine. Two FastAPI middlewares (auth-context, then audit)
+wrap every mutating route; one row is written per successful 2xx
+mutation. The alert engine's `record_event` is rewired from a 500-entry
+in-memory list to the same table. Reads via `GET /api/events` (filtered
+JSON) and `GET /api/events.csv` (export).
+
+**Schema includes a nullable `agency_id` UUID column from day 1**, even
+though agency assignment is not implemented until issue #21. Adding the
+column on what will become the largest table in the system is free now;
+later it would be a real migration. `NULL` is meaningful — "this row was
+written before agencies existed" — and #21's agency filter will treat
+NULL as visible to non-superadmins so legacy events don't disappear.
+
+**Audit middleware order is significant.** Starlette executes middleware
+in reverse of registration: the last-registered runs first. The
+auth-context middleware (reads `Remote-User`/`Remote-Groups` from Caddy's
+forwarded headers) MUST run before the audit middleware so the latter
+can read `request.state.username`. Therefore in `main.py`: register
+`AuditMiddleware` first, `AuthContextMiddleware` second.
+
+**Why same DB instance, separate database:** The `cot` DB is owned by
+TAK Server — adding our schema there couples us to TAK Server's data
+lifecycle. The `app-db` Postgres already serves LLDAP and Node-RED;
+adding a third database alongside them is operationally cheap and keeps
+audit data under our control without standing up new infrastructure.
+
+**Caddyfile change:** `init-config/start.sh` now adds
+`copy_headers Remote-User Remote-Groups` to the monitor route's
+`forward_auth` block in both `direct` and `subdomain` deploy modes.
+Previously the monitor saw no actor identity; every action would have
+attributed to `"unknown"`. Node-RED's `forward_auth` block intentionally
+remains without `copy_headers` — Node-RED is not an audit consumer.
+
+**Best-effort writes:** `audit.record_event` catches all exceptions and
+logs via `log.exception(...)` rather than re-raising. Rationale: failing
+the user-facing request because the audit DB hiccupped is worse than a
+missing row. Misconfiguration (`ValueError` from `_build_dsn`) surfaces
+loudly at startup via `init_schema()`'s logged failure; the broad
+runtime catch keeps every subsequent mutation safe from the same root
+cause.
+
+**Body sanitisation:** The audit middleware redacts dictionary keys
+named `password`, `token`, `secret`, `p12`, or `private_key` (recursively,
+including nested dicts and lists) before persisting. Non-JSON request
+bodies are recorded as the literal string `"<non-json or binary>"`.
+
+**Why mutations only, not reads:** Audit volume on reads (every dashboard
+refresh, every poll) drowns the mutation events that actually matter for
+forensics. Reads can be added per-route later if a specific endpoint
+needs it.
+
+**`since`/`until` are typed as `datetime`, not `str`:** FastAPI parses and
+validates ISO-8601 at the HTTP boundary, so malformed inputs return 422
+instead of reaching Postgres as a 500. Same typing applied to the JSON
+endpoint and the CSV export.
+
+**Out of scope today (tracked as future work):** read auditing, container
+log aggregation (Loki), retention policy (operators may manually
+`DELETE FROM fastak_events WHERE timestamp < …` until the policy lands),
+agency-scoped query filter (added once #21 lands), per-route action
+enrichment (today `action` is `METHOD /path`; a future route → action
+map is straightforward to add).
+
+**Follow-ups not blocking ship:** every audit event opens a fresh psycopg
+connection on `app-db`; under burst load (bulk service-account creation
+plus concurrent scheduler health writes plus LLDAP/Node-RED traffic) the
+existing `max_connections=100` may feel tight. Introduce a small
+`psycopg_pool.ConnectionPool` if profiling shows pressure. `init_schema()`
+is idempotent but races on first-time bootstrap if the monitor ever runs
+multi-replica; replace with an advisory lock at that point.
+
+---
+
 ## DD-039: TAK Server proxy endpoints in FastTAK API
 
 **Status:** Accepted
