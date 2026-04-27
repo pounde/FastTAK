@@ -11,7 +11,7 @@ the helpers and add request-scoped concerns (eventually agency filtering).
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.api.tak.positions import get_lkp_for_uids
+from app.api.tak.positions import get_lkp_for_uids, get_recent_contacts_with_lkp
 from app.api.users.router import _get_tak_server
 
 router = APIRouter(prefix="/api/tak", tags=["tak-proxy"])
@@ -47,6 +47,16 @@ def _build_contacts_response() -> list[dict]:
     return _client().list_contacts()
 
 
+def _build_recent_contacts_response(max_age: int | None = None) -> list[dict]:
+    contacts = _client().list_contacts()
+    uids = [c["uid"] for c in contacts if c.get("uid")]
+    positions = get_recent_contacts_with_lkp(uids, max_age_seconds=max_age)
+    by_uid = {p["uid"]: p for p in positions}
+    for c in contacts:
+        c["lkp"] = by_uid.get(c.get("uid"))
+    return contacts
+
+
 # --- Routes ---
 
 
@@ -75,3 +85,23 @@ def list_clients(
 def list_contacts(agency: str | None = Query(default=None)):
     """Proxy /Marti/api/contacts/all."""
     return _build_contacts_response()
+
+
+@router.get("/contacts/recent", summary="Recent contacts with LKP")
+def recent_contacts(
+    agency: str | None = Query(default=None),
+    max_age: int | None = Query(
+        default=None,
+        description=(
+            "Seconds to look back. Omit (default) to rely on TAK Server's own "
+            "contact retention — no FastTAK-side filter is applied."
+        ),
+    ),
+):
+    """Contacts from Marti's roster joined with their last known position.
+
+    Time bound:
+      * max_age unset → no FastTAK-side filter; whatever is in /contacts/all is shown.
+      * max_age set   → only contacts whose latest cot_router row is within that window get an LKP.
+    """
+    return _build_recent_contacts_response(max_age=max_age)
