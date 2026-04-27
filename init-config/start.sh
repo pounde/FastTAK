@@ -367,6 +367,7 @@ https://${SERVER_ADDRESS}:${MONITOR_PORT} {
     route {
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
+            copy_headers ${COPY_HEADERS}
             trusted_proxies private_ranges
         }
         reverse_proxy monitor:8080
@@ -439,6 +440,7 @@ ${MONITOR_SUBDOMAIN}.${SERVER_ADDRESS} {
     route {
         forward_auth ldap-proxy:8080 {
             uri /auth/verify
+            copy_headers ${COPY_HEADERS}
             trusted_proxies private_ranges
         }
         reverse_proxy monitor:8080
