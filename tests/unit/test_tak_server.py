@@ -287,3 +287,31 @@ class TestListContacts:
 
         mock_http["get"].side_effect = httpx.HTTPError("boom")
         assert client.list_contacts() == []
+
+
+class TestListMissions:
+    def test_returns_mission_list(self, client, mock_http):
+        mock_http["get"].return_value = {
+            "version": "3",
+            "data": [
+                {
+                    "name": "ops-2026-04",
+                    "creatorUid": "abc",
+                    "createTime": "2026-04-01T00:00:00Z",
+                    "groupVector": "Blue",
+                    "uids": [],
+                    "contents": [],
+                    "expiration": -1,
+                    "passwordProtected": False,
+                },
+            ],
+        }
+        missions = client.list_missions()
+        assert len(missions) == 1
+        assert missions[0]["name"] == "ops-2026-04"
+
+    def test_returns_empty_on_http_error(self, client, mock_http):
+        import httpx
+
+        mock_http["get"].side_effect = httpx.HTTPError("boom")
+        assert client.list_missions() == []

@@ -236,3 +236,12 @@ class TakServerClient:
         except httpx.HTTPError:
             log.warning("Failed to query TAK Server contacts")
             return []
+
+    def list_missions(self) -> list[dict]:
+        """List TAK Server missions (/Marti/api/missions)."""
+        try:
+            data = self._get("/Marti/api/missions")
+            return data.get("data", [])
+        except httpx.HTTPError:
+            log.warning("Failed to query TAK Server missions")
+            return []
