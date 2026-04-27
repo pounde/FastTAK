@@ -1,5 +1,5 @@
 #!/bin/bash
-# App database entrypoint — PostgreSQL shared by LLDAP and Node-RED.
+# App database entrypoint — PostgreSQL shared by LLDAP, Node-RED, and the FastTAK audit store.
 #
 # On first boot: POSTGRES_DB creates the primary database (lldap).
 # This script creates the nodered database if it doesn't exist yet.
@@ -49,5 +49,12 @@ psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tc \
   grep -q 1 ||
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
     "CREATE DATABASE lldap;" >/dev/null 2>&1
+
+# Create fastak database for audit/events store (issue #13)
+psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tc \
+  "SELECT 1 FROM pg_database WHERE datname = 'fastak'" |
+  grep -q 1 ||
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+    "CREATE DATABASE fastak;" >/dev/null 2>&1
 
 wait $PG_PID
