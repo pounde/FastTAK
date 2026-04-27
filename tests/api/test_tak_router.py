@@ -92,3 +92,13 @@ def test_list_clients_with_lkp_null_when_no_position(app_client):
         r = client.get("/api/tak/clients?include=lkp")
     body = r.json()
     assert body[0]["lkp"] is None
+
+
+def test_list_contacts_proxies_to_tak_server(app_client):
+    client, fake = app_client
+    fake.list_contacts.return_value = [
+        {"uid": "ANDROID-abc", "callsign": "ALPHA-1", "lastReportTime": 1719500000000}
+    ]
+    r = client.get("/api/tak/contacts")
+    assert r.status_code == 200
+    assert r.json()[0]["uid"] == "ANDROID-abc"
