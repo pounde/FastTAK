@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.tak.positions import get_lkp_for_uids, get_recent_contacts_with_lkp
 from app.api.users.router import _get_tak_server
+from app.config import settings
 
 router = APIRouter(prefix="/api/tak", tags=["tak-proxy"])
 
@@ -25,6 +26,22 @@ def _client():
     return c
 
 
+def _hidden_prefixes() -> list[str]:
+    """Lowercase prefixes from USERS_HIDDEN_PREFIXES, parsed per-call.
+
+    Per-call rather than module-level so settings overrides in tests apply.
+    """
+    return [p.strip().lower() for p in settings.users_hidden_prefixes.split(",") if p.strip()]
+
+
+def _is_service_account(entry: dict) -> bool:
+    """True if the subscription's TAK Server username matches a hidden prefix."""
+    username = (entry.get("username") or "").lower()
+    if not username:
+        return False
+    return any(username.startswith(p) for p in _hidden_prefixes())
+
+
 # --- Request-free helpers (used by dashboard partials and route handlers) ---
 
 
@@ -32,9 +49,21 @@ def _build_groups_response() -> list[dict]:
     return _client().list_groups()
 
 
-def _build_clients_response(include_lkp: bool = False) -> list[dict]:
-    """Connected clients, optionally enriched with LKP from cot_router."""
+def _build_clients_response(
+    include_lkp: bool = False,
+    include_service: bool = False,
+) -> list[dict]:
+    """Connected clients, optionally enriched with LKP from cot_router.
+
+    By default, subscriptions belonging to service accounts (username
+    matches USERS_HIDDEN_PREFIXES) are filtered out — these are typically
+    integrations like svc_fasttakapi, svc_adsb, etc. that hold a TLS
+    session but never broadcast as contacts. Pass ``include_service=True``
+    to see the full subscription list.
+    """
     clients = _client().list_clients()
+    if not include_service:
+        clients = [c for c in clients if not _is_service_account(c)]
     if include_lkp:
         uids = [c["uid"] for c in clients if c.get("uid")]
         positions = get_lkp_for_uids(uids)
@@ -76,13 +105,24 @@ def list_clients(
     include: str | None = Query(
         default=None, description="Set to 'lkp' to include last known position"
     ),
+    include_service: bool = Query(
+        default=False,
+        description=(
+            "Include subscriptions whose username matches USERS_HIDDEN_PREFIXES "
+            "(service accounts like svc_fasttakapi). Off by default."
+        ),
+    ),
 ):
     """Proxy /Marti/api/subscriptions/all.
 
     Pass ``?include=lkp`` to enrich each entry with a ``lkp`` field
-    derived from cot_router.
+    derived from cot_router. Pass ``?include_service=true`` to see
+    service-account sessions that are hidden by default.
     """
-    return _build_clients_response(include_lkp=(include == "lkp"))
+    return _build_clients_response(
+        include_lkp=(include == "lkp"),
+        include_service=include_service,
+    )
 
 
 @router.get("/contacts", summary="TAK Server contact roster")

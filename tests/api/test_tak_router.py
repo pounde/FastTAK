@@ -94,6 +94,52 @@ def test_list_clients_with_lkp_null_when_no_position(app_client):
     assert body[0]["lkp"] is None
 
 
+def test_list_clients_filters_service_accounts_by_default(app_client):
+    """Subscriptions whose username matches USERS_HIDDEN_PREFIXES are dropped."""
+    client, fake = app_client
+    fake.list_clients.return_value = [
+        # Service accounts — should be filtered out
+        {"callsign": "tls:5", "uid": "", "username": "svc_nr2"},
+        {"callsign": "tls:3", "uid": "", "username": "svc_adsb"},
+        {"callsign": "tls:1", "uid": "", "username": "adm_console"},
+        {"callsign": "tls:2", "uid": "", "username": "ma-bridge"},
+        # Real user — should remain
+        {"callsign": "ALPHA-1", "uid": "ANDROID-abc", "username": "epound"},
+    ]
+    r = client.get("/api/tak/clients")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["callsign"] == "ALPHA-1"
+
+
+def test_list_clients_include_service_returns_full_list(app_client):
+    """Opt-in flag returns the full subscription list including service accounts."""
+    client, fake = app_client
+    fake.list_clients.return_value = [
+        {"callsign": "tls:5", "uid": "", "username": "svc_nr2"},
+        {"callsign": "ALPHA-1", "uid": "ANDROID-abc", "username": "epound"},
+    ]
+    r = client.get("/api/tak/clients?include_service=true")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 2
+    assert {c["callsign"] for c in body} == {"tls:5", "ALPHA-1"}
+
+
+def test_list_clients_keeps_entries_without_username(app_client):
+    """Subscriptions with no username field aren't dropped by the filter."""
+    client, fake = app_client
+    fake.list_clients.return_value = [
+        {"callsign": "ALPHA-1", "uid": "ANDROID-abc"},  # no username key
+        {"callsign": "BRAVO-2", "uid": "ANDROID-xyz", "username": ""},  # empty username
+    ]
+    r = client.get("/api/tak/clients")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 2
+
+
 def test_list_contacts_proxies_to_tak_server(app_client):
     client, fake = app_client
     fake.list_contacts.return_value = [
