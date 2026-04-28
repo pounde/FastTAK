@@ -40,11 +40,23 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FastTAK Monitor", docs_url="/api/docs", lifespan=lifespan)
-# Starlette runs middleware in reverse registration order: last-added wraps
-# everything and runs first. AuthContext must populate request.state before
-# Audit reads it, so register Audit first, AuthContext second.
-app.add_middleware(AuditMiddleware)  # registered first → runs second (records)
-app.add_middleware(AuthContextMiddleware)  # registered second → runs first (sets state)
+
+
+def _add_middleware_in_execution_order(app: FastAPI, *middlewares: type) -> None:
+    """Register middlewares so they run in the listed order at request time.
+
+    Starlette runs middleware in reverse-of-registration order: the last
+    `add_middleware` call wraps everything and runs first. This helper hides
+    that footgun — pass middlewares in the conceptual execution order
+    (outer-most first) and registration order is reversed for you.
+    """
+    for mw in reversed(middlewares):
+        app.add_middleware(mw)
+
+
+# Execution order: AuthContext sets request.state.username/groups/client_ip,
+# then Audit reads them to record the row, then the route handler runs.
+_add_middleware_in_execution_order(app, AuthContextMiddleware, AuditMiddleware)
 
 # API (JSON)
 app.include_router(health_router)

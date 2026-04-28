@@ -104,8 +104,12 @@ class AuthContextMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# Body-field names whose values must be redacted before audit logging.
-REDACT_FIELDS = {"password", "token", "secret", "p12", "private_key"}
+# Substrings of body-field names whose values must be redacted before audit
+# logging. Substring match is intentional: `smtp_password`, `auth_token`,
+# `bind_secret`, `p12_password`, `private_key_path` all need to be redacted.
+# Over-redaction (e.g. `password_strength_meter` → [redacted]) is acceptable
+# in an audit log; under-redaction is not.
+REDACT_FIELDS = {"password", "passcode", "token", "secret", "api_key", "p12", "private_key"}
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -113,7 +117,7 @@ MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 def _sanitise(payload):
     if isinstance(payload, dict):
         return {
-            k: ("[redacted]" if k.lower() in REDACT_FIELDS else _sanitise(v))
+            k: ("[redacted]" if any(s in k.lower() for s in REDACT_FIELDS) else _sanitise(v))
             for k, v in payload.items()
         }
     if isinstance(payload, list):
@@ -165,6 +169,9 @@ class AuditMiddleware(BaseHTTPMiddleware):
         if request_body is not None:
             detail["request_body"] = request_body
 
+        # TODO(#21): populate agency_id from request.state.agency_id once
+        # AgencyContextMiddleware lands. DD-040 commits to "NULL = visible
+        # to non-superadmins" so legacy rows stay queryable.
         record_event(
             source="audit",
             actor=actor,

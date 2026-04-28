@@ -51,6 +51,9 @@ def _build_query(
         where.append("timestamp <= %s")
         params.append(until)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    # When #21 adds agency-scoped filtering, the agency clause MUST treat
+    # `agency_id IS NULL` as visible to non-superadmins — see DD-040. Pre-#21
+    # rows have NULL agency_id and would otherwise disappear from view.
     sql = (
         "SELECT id, timestamp, source, actor, action, target_type, target_id, "
         "detail, ip::text AS ip, agency_id "

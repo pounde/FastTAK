@@ -181,6 +181,36 @@ def test_audit_middleware_skips_failed_requests():
     assert recorded == []
 
 
+def test_sanitise_redacts_substring_field_names():
+    """Substring match catches `smtp_password`, `auth_token`, etc."""
+    from app.audit import _sanitise
+
+    out = _sanitise(
+        {
+            "username": "alice",
+            "password": "p1",
+            "smtp_password": "p2",
+            "auth_token": "t1",
+            "api_key": "k1",
+            "p12_password": "p3",
+            "private_key_path": "/etc/k.pem",
+            "config": {"bind_secret": "s1", "label": "ok"},
+            "items": [{"passcode": "x"}, {"name": "y"}],
+        }
+    )
+    assert out["username"] == "alice"
+    assert out["password"] == "[redacted]"
+    assert out["smtp_password"] == "[redacted]"
+    assert out["auth_token"] == "[redacted]"
+    assert out["api_key"] == "[redacted]"
+    assert out["p12_password"] == "[redacted]"
+    assert out["private_key_path"] == "[redacted]"
+    assert out["config"]["bind_secret"] == "[redacted]"
+    assert out["config"]["label"] == "ok"
+    assert out["items"][0]["passcode"] == "[redacted]"
+    assert out["items"][1]["name"] == "y"
+
+
 def test_audit_middleware_does_not_break_request_when_db_fails():
     """Negative path: a failing audit DB write must not propagate to the user.
 
