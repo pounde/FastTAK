@@ -150,6 +150,35 @@ def test_list_contacts_proxies_to_tak_server(app_client):
     assert r.json()[0]["uid"] == "ANDROID-abc"
 
 
+def test_list_contacts_filters_service_accounts_by_default(app_client):
+    """Marti carries the actor in `notes` (often with leading whitespace)."""
+    client, fake = app_client
+    fake.list_contacts.return_value = [
+        # Service accounts — leading-space `notes` is TAK Server's quirk
+        {"uid": "", "callsign": "", "notes": " svc_wx"},
+        {"uid": "", "callsign": "", "notes": " svc_adsb"},
+        {"uid": "", "callsign": "", "notes": " adm_console"},
+        # Real user
+        {"uid": "ANDROID-abc", "callsign": "ALPHA-1", "notes": "epound"},
+    ]
+    r = client.get("/api/tak/contacts")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["callsign"] == "ALPHA-1"
+
+
+def test_list_contacts_include_service_returns_full_list(app_client):
+    client, fake = app_client
+    fake.list_contacts.return_value = [
+        {"uid": "", "callsign": "", "notes": " svc_wx"},
+        {"uid": "ANDROID-abc", "callsign": "ALPHA-1", "notes": "epound"},
+    ]
+    r = client.get("/api/tak/contacts?include_service=true")
+    assert r.status_code == 200
+    assert len(r.json()) == 2
+
+
 def test_recent_contacts_combines_marti_with_lkp_no_default_age(app_client):
     """Default behaviour: no max_age, so the LKP query has no time filter."""
     client, fake = app_client
@@ -204,6 +233,27 @@ def test_recent_contacts_passes_max_age_when_set(app_client):
     assert r.status_code == 200
     _, kwargs = mock_lkp.call_args
     assert kwargs["max_age_seconds"] == 3600
+
+
+def test_recent_contacts_filters_service_accounts_by_default(app_client):
+    """Service-account contacts (notes = svc_*) are dropped before LKP lookup."""
+    client, fake = app_client
+    fake.list_contacts.return_value = [
+        {"uid": "", "callsign": "", "notes": " svc_wx"},
+        {"uid": "ANDROID-abc", "callsign": "ALPHA-1", "notes": "epound"},
+    ]
+    with patch(
+        "app.api.tak.router.get_recent_contacts_with_lkp",
+        return_value=[],
+    ) as mock_lkp:
+        r = client.get("/api/tak/contacts/recent")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["callsign"] == "ALPHA-1"
+    # Only the real user's UID is passed to the LKP query
+    args, _ = mock_lkp.call_args
+    assert args[0] == ["ANDROID-abc"]
 
 
 def test_list_missions_proxies_to_tak_server(app_client):

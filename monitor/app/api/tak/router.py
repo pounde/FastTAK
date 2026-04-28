@@ -35,11 +35,18 @@ def _hidden_prefixes() -> list[str]:
 
 
 def _is_service_account(entry: dict) -> bool:
-    """True if the subscription's TAK Server username matches a hidden prefix."""
-    username = (entry.get("username") or "").lower()
-    if not username:
+    """True if the entry's actor identity matches a hidden prefix.
+
+    /Marti/api/subscriptions/all carries the actor in ``username``.
+    /Marti/api/contacts/all carries it in ``notes`` (often with a
+    leading space, e.g. ``" svc_wx"``). Strip whitespace and lowercase
+    before matching against USERS_HIDDEN_PREFIXES.
+    """
+    raw = entry.get("username") or entry.get("notes") or ""
+    actor = raw.strip().lower()
+    if not actor:
         return False
-    return any(username.startswith(p) for p in _hidden_prefixes())
+    return any(actor.startswith(p) for p in _hidden_prefixes())
 
 
 # --- Request-free helpers (used by dashboard partials and route handlers) ---
@@ -72,12 +79,20 @@ def _build_clients_response(
     return clients
 
 
-def _build_contacts_response() -> list[dict]:
-    return _client().list_contacts()
-
-
-def _build_recent_contacts_response(max_age: int | None = None) -> list[dict]:
+def _build_contacts_response(include_service: bool = False) -> list[dict]:
     contacts = _client().list_contacts()
+    if not include_service:
+        contacts = [c for c in contacts if not _is_service_account(c)]
+    return contacts
+
+
+def _build_recent_contacts_response(
+    max_age: int | None = None,
+    include_service: bool = False,
+) -> list[dict]:
+    contacts = _client().list_contacts()
+    if not include_service:
+        contacts = [c for c in contacts if not _is_service_account(c)]
     uids = [c["uid"] for c in contacts if c.get("uid")]
     positions = get_recent_contacts_with_lkp(uids, max_age_seconds=max_age)
     by_uid = {p["uid"]: p for p in positions}
@@ -126,9 +141,18 @@ def list_clients(
 
 
 @router.get("/contacts", summary="TAK Server contact roster")
-def list_contacts(agency: str | None = Query(default=None)):
+def list_contacts(
+    agency: str | None = Query(default=None),
+    include_service: bool = Query(
+        default=False,
+        description=(
+            "Include contacts whose notes field matches USERS_HIDDEN_PREFIXES "
+            "(service accounts). Off by default."
+        ),
+    ),
+):
     """Proxy /Marti/api/contacts/all."""
-    return _build_contacts_response()
+    return _build_contacts_response(include_service=include_service)
 
 
 @router.get("/missions", summary="TAK Server missions")
@@ -147,6 +171,13 @@ def recent_contacts(
             "contact retention — no FastTAK-side filter is applied."
         ),
     ),
+    include_service: bool = Query(
+        default=False,
+        description=(
+            "Include contacts whose notes field matches USERS_HIDDEN_PREFIXES "
+            "(service accounts). Off by default."
+        ),
+    ),
 ):
     """Contacts from Marti's roster joined with their last known position.
 
@@ -154,4 +185,4 @@ def recent_contacts(
       * max_age unset → no FastTAK-side filter; whatever is in /contacts/all is shown.
       * max_age set   → only contacts whose latest cot_router row is within that window get an LKP.
     """
-    return _build_recent_contacts_response(max_age=max_age)
+    return _build_recent_contacts_response(max_age=max_age, include_service=include_service)
