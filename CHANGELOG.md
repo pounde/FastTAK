@@ -2,6 +2,124 @@
 
 <!-- version list -->
 
+## v0.23.0 (2026-04-28)
+
+### Bug Fixes
+
+- **caddy**: Forward Remote-User/Remote-Groups to monitor route
+  ([`ff3190b`](https://github.com/pounde/FastTAK/commit/ff3190bacb92a9fda1494c92d23ed626b69fb0e8))
+
+- **tak**: Decode SQL_ASCII bytes from cot_router to str
+  ([`30066c7`](https://github.com/pounde/FastTAK/commit/30066c73600e513a3ab72792b8bcd6aa8600dc04))
+
+### Chores
+
+- Address full-branch review follow-ups
+  ([`2159d4b`](https://github.com/pounde/FastTAK/commit/2159d4b87a1b5756dcf974e0dd3cc33790c6565a))
+
+- **audit**: Address final-review follow-ups
+  ([`249bbc8`](https://github.com/pounde/FastTAK/commit/249bbc8be9ccf49d38e5752b5d7e330b1fe04cbe))
+
+### Documentation
+
+- **api**: Add Google-style docstrings for OpenAPI generation
+  ([`3657455`](https://github.com/pounde/FastTAK/commit/3657455243491164f980279fd4773ffb874fd5ad))
+
+- **decisions**: Record audit + persistent event store decision
+  ([`90f5d79`](https://github.com/pounde/FastTAK/commit/90f5d79e625a8fd40161309c7455344100700580))
+
+- **decisions**: Record TAK Server proxy endpoints decision
+  ([`6567a69`](https://github.com/pounde/FastTAK/commit/6567a69c98ce5491d42ac769aaab2416eb6d3c18))
+
+### Features
+
+- **api**: Add /api/events query endpoint
+  ([`5276b1c`](https://github.com/pounde/FastTAK/commit/5276b1c29c9a47ee2a8f253028743b6f336a6758))
+
+- **api**: Add /api/events.csv export
+  ([`0b1da8e`](https://github.com/pounde/FastTAK/commit/0b1da8e709582cdd0f76ceeecceb24494bffff42))
+
+- **api**: Add /api/tak router with /groups proxy endpoint
+  ([`d341cd7`](https://github.com/pounde/FastTAK/commit/d341cd7633f2910a5959bf37a40a750b19679390))
+
+- **api**: Add /api/tak/clients endpoint
+  ([`097d976`](https://github.com/pounde/FastTAK/commit/097d976f92d5f8660790c8f7bc7a700ee266091b))
+
+- **api**: Add /api/tak/contacts endpoint
+  ([`db67a5e`](https://github.com/pounde/FastTAK/commit/db67a5e3c871968b891f28d371581e6832c91250))
+
+- **api**: Add /api/tak/contacts/recent with optional max_age
+  ([`a01165f`](https://github.com/pounde/FastTAK/commit/a01165f3f5871f5dcb5a3065a6e90c44c2ee4b74))
+
+- **api**: Add /api/tak/missions endpoint
+  ([`93323c7`](https://github.com/pounde/FastTAK/commit/93323c73550c5adcde587b28dec09dc43bff2385))
+
+- **app-db**: Create fastak database for audit/events store
+  ([`6a47bbe`](https://github.com/pounde/FastTAK/commit/6a47bbe5ee6ae9f9caaeae23c10df8a06f02020c))
+
+- **audit**: Add record_event for fire-and-forget event inserts
+  ([`ce546fb`](https://github.com/pounde/FastTAK/commit/ce546fb30c0ddfff5f8d16ae33d5214a58a47f04))
+
+- **audit**: Create fastak_events table on monitor startup
+  ([`1a69768`](https://github.com/pounde/FastTAK/commit/1a697684bcc7ae0ede749ec303051cd3d4ae1934))
+
+- **audit**: Middleware records mutating API calls to fastak_events
+  ([`1a11211`](https://github.com/pounde/FastTAK/commit/1a112116808eecc75a76dbc29edf9e51ab97e776))
+
+- **dashboard**: Add connected-clients and recent-contacts cards
+  ([`af916df`](https://github.com/pounde/FastTAK/commit/af916dfa86a9079c38ef0d017c334c395c58754b))
+
+- **dashboard**: Connected-clients partial with LKP
+  ([`627a094`](https://github.com/pounde/FastTAK/commit/627a094c2e33a2782d4af975c5dae1e0b9c308ac))
+
+- **dashboard**: Recent-contacts partial with explicit max_age
+  ([`98bac2f`](https://github.com/pounde/FastTAK/commit/98bac2f88fff3fb0381bb4b2d131b39221e2ab38))
+
+- **db**: Query/execute accept params tuple for safe SQL
+  ([`bdd82cb`](https://github.com/pounde/FastTAK/commit/bdd82cbb108ddd3de72ff10f69313fa1de3f35ba))
+
+- **monitor**: Add fastak_db connection helper
+  ([`95cb137`](https://github.com/pounde/FastTAK/commit/95cb1376e35d2e2c986d76cc0d8e7c3d94fb9112))
+
+- **monitor**: Auth-context middleware exposes Remote-User/Remote-Groups
+  ([`7c6a42b`](https://github.com/pounde/FastTAK/commit/7c6a42b25cdd3058f70185171b7432955788934b))
+
+- **monitor**: Persist health activity log to fastak_events
+  ([`4350c43`](https://github.com/pounde/FastTAK/commit/4350c434227c306ce3b12e2e48dd177267d6a9fd))
+
+- **tak**: Add cot_router-backed LKP query helpers
+  ([`a4d37e7`](https://github.com/pounde/FastTAK/commit/a4d37e7963076c1d211c8b2149e068f638c60caf))
+
+- **tak**: Hide service-account contacts from /api/tak/contacts*
+  ([`29ddb10`](https://github.com/pounde/FastTAK/commit/29ddb10b4d41e80aec2c6aac15ab330bd74edbd4))
+
+- **tak**: Hide service-account subscriptions from /api/tak/clients
+  ([`3d23e1d`](https://github.com/pounde/FastTAK/commit/3d23e1d844c5b3b93f8ff27b0f2bd07d4a22f1b6))
+
+- **tak-client**: Add list_clients() wrapping subscriptions/all
+  ([`ad33f74`](https://github.com/pounde/FastTAK/commit/ad33f7437932f2529fee04edd50c325d309360c2))
+
+- **tak-client**: Add list_contacts() wrapping /Marti/api/contacts/all
+  ([`29f1173`](https://github.com/pounde/FastTAK/commit/29f117380f20ee50ee44846a6e927b3d130fa6ac))
+
+- **tak-client**: Add list_missions() wrapping /Marti/api/missions
+  ([`1429472`](https://github.com/pounde/FastTAK/commit/1429472380cd29bbb06836e698cfcb578a46d385))
+
+### Testing
+
+- **api**: Exercise /api/tak/clients?include=lkp enrichment
+  ([`369ed25`](https://github.com/pounde/FastTAK/commit/369ed25fd784d986e6436939f7dc7f562dae2f7b))
+
+- **db**: Align params tests with existing class-based style
+  ([`6cdf870`](https://github.com/pounde/FastTAK/commit/6cdf8707fb7d62604e3d477f3ff937d6f1f9fe03))
+
+- **integration**: /api/tak/* proxy endpoints
+  ([`5f38275`](https://github.com/pounde/FastTAK/commit/5f382755e85c28d910ca92a5e7fa35fb2f60b97c))
+
+- **integration**: Audit middleware persists to fastak_events
+  ([`561872b`](https://github.com/pounde/FastTAK/commit/561872bee8ef3cc690f05165906ff3bc40240445))
+
+
 ## v0.22.0 (2026-04-26)
 
 ### Features
