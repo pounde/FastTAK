@@ -41,6 +41,10 @@ def _is_service_account(entry: dict) -> bool:
     /Marti/api/contacts/all carries it in ``notes`` (often with a
     leading space, e.g. ``" svc_wx"``). Strip whitespace and lowercase
     before matching against USERS_HIDDEN_PREFIXES.
+
+    Fail-open: if both fields are missing or empty (e.g. TAK Server 5.7+
+    renames the field), return False so the entry is shown rather than
+    silently dropped. Visible noise is debuggable; silent emptiness isn't.
     """
     raw = entry.get("username") or entry.get("notes") or ""
     actor = raw.strip().lower()
@@ -74,6 +78,8 @@ def _build_clients_response(
     if include_lkp:
         uids = [c["uid"] for c in clients if c.get("uid")]
         positions = get_lkp_for_uids(uids)
+        # In-place mutation is safe because list_clients() returns fresh dicts
+        # on every call (no caching). Add a shallow copy here if anyone caches.
         for c in clients:
             c["lkp"] = positions.get(c.get("uid"))
     return clients
