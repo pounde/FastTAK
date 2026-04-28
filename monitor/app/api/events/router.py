@@ -76,6 +76,36 @@ def list_events(
     until: datetime | None = Query(default=None, description="ISO-8601 timestamp"),
     limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
+    """Query the `fastak_events` audit log with optional filters.
+
+    Returns events in reverse-chronological order. All filter parameters are
+    ANDed together; omit any to broaden the result set. See DD-040 for the
+    schema design and agency-scoping considerations.
+
+    Args:
+        source: One of `"audit"` (mutating API call) or `"health"` (container
+            state transition / alert / recovery).
+        actor: Username from `Remote-User`, or `"system"` for health events,
+            or `"unknown"` when no auth header was forwarded.
+        action: For audit rows, `"<METHOD> <path>"` (e.g. `"POST /api/users"`).
+            For health rows, the alert level (`"critical"`, `"warning"`,
+            `"recovered"`, etc.).
+        target_type: Resource category — typically `"user"`, `"group"`,
+            `"cert"`, or `"service"`. NULL for audit rows that haven't been
+            enriched per-route yet.
+        target_id: Specific resource identifier within `target_type` (e.g.
+            the service name for health rows).
+        since: Inclusive lower bound on `timestamp` (ISO-8601 on the wire,
+            parsed to `datetime`). Use with `until` to constrain a window.
+        until: Inclusive upper bound on `timestamp`.
+        limit: Maximum rows to return (1–500, default 50).
+
+    Returns:
+        JSON object with `count` (int) and `events` (list of event dicts),
+        each containing `id`, `timestamp`, `source`, `actor`, `action`,
+        `target_type`, `target_id`, `detail`, `ip`, and `agency_id`.
+        `agency_id` is NULL until issue #21 lands.
+    """
     sql, params = _build_query(source, actor, action, target_type, target_id, since, until, limit)
     rows = fetch(sql, params)
     return {"count": len(rows), "events": rows}
@@ -101,6 +131,28 @@ def export_csv(
     until: datetime | None = Query(default=None, description="ISO-8601 timestamp"),
     limit: int = Query(default=MAX_LIMIT, ge=1, le=MAX_LIMIT),
 ):
+    """Export the `fastak_events` audit log as a downloadable CSV file.
+
+    Accepts the same filter parameters as `GET /api/events`. The response is
+    streamed with `Content-Disposition: attachment` so browsers prompt a
+    file-save dialog. The `detail` column is JSON-minified into a single string
+    field to keep the CSV flat.
+
+    Args:
+        source: Filter by emitting subsystem.
+        actor: Filter by principal identity.
+        action: Filter by event verb.
+        target_type: Filter by resource category.
+        target_id: Filter by specific resource identifier.
+        since: Inclusive lower bound on `timestamp` (ISO-8601).
+        until: Inclusive upper bound on `timestamp` (ISO-8601).
+        limit: Maximum rows to include (1–500, default 500).
+
+    Returns:
+        `text/csv` stream with columns: `id`, `timestamp`, `source`, `actor`,
+        `action`, `target_type`, `target_id`, `detail`, `ip`, `agency_id`.
+        Filename is `fastak_events.csv`.
+    """
     sql, params = _build_query(source, actor, action, target_type, target_id, since, until, limit)
     rows = fetch(sql, params)
 

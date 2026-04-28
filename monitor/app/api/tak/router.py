@@ -116,7 +116,21 @@ def _build_missions_response() -> list[dict]:
 
 @router.get("/groups", summary="TAK Server group list")
 def list_groups(agency: str | None = Query(default=None)):
-    """Proxy /Marti/api/groups/all (cert-level group assignments)."""
+    """List all certificate-level group assignments from the TAK Server.
+
+    Proxies `GET /Marti/api/groups/all`. Returns every group known to the
+    Marti API regardless of whether any client is currently assigned to it.
+
+    Args:
+        agency: Reserved for agency-scoping (issue #21). Currently a no-op;
+            all groups are returned regardless of value.
+
+    Returns:
+        List of group dicts as returned by the Marti API.
+
+    Raises:
+        HTTPException(503): TAK Server client is not configured.
+    """
     return _build_groups_response()
 
 
@@ -134,11 +148,30 @@ def list_clients(
         ),
     ),
 ):
-    """Proxy /Marti/api/subscriptions/all.
+    """List active TLS subscriptions from the TAK Server.
 
-    Pass ``?include=lkp`` to enrich each entry with a ``lkp`` field
-    derived from cot_router. Pass ``?include_service=true`` to see
-    service-account sessions that are hidden by default.
+    Proxies `GET /Marti/api/subscriptions/all`. By default, subscriptions whose
+    `username` matches `USERS_HIDDEN_PREFIXES` (service accounts such as
+    `svc_fasttakapi`) are filtered out to keep the list focused on human clients.
+
+    Args:
+        agency: Reserved for agency-scoping (issue #21). Currently a no-op.
+        include: Pass `lkp` to attach a `lkp` field to each entry containing
+            the client's last known position drawn from cot_router. Omit to
+            skip the position lookup entirely.
+        include_service: When `True`, opts back in to service-account
+            subscriptions hidden by `USERS_HIDDEN_PREFIXES`.
+
+    Returns:
+        List of subscription dicts as returned by Marti, with `uid` normalised
+        from TAK Server's `clientUid`. Common fields include `callsign`,
+        `username`, `team`, `role`, `takClient`, `takVersion`, `groups` (list of
+        direction-aware group dicts), `ipAddress`, `protocol`, `subscriptionUid`,
+        and `lastReportMilliseconds`. When `include=lkp`, each entry gains an
+        `lkp` field (`null` if no CoT row exists for the UID).
+
+    Raises:
+        HTTPException(503): TAK Server client is not configured.
     """
     return _build_clients_response(
         include_lkp=(include == "lkp"),
@@ -157,13 +190,44 @@ def list_contacts(
         ),
     ),
 ):
-    """Proxy /Marti/api/contacts/all."""
+    """List all contacts from the TAK Server contact roster.
+
+    Proxies `GET /Marti/api/contacts/all`. Returns every contact the TAK Server
+    is aware of, which may include clients no longer connected. Service accounts
+    are filtered by default using the `notes` field (TAK Server stores the actor
+    identity there, often with a leading space).
+
+    Args:
+        agency: Reserved for agency-scoping (issue #21). Currently a no-op.
+        include_service: When `True`, opts back in to contacts whose `notes`
+            field matches `USERS_HIDDEN_PREFIXES`.
+
+    Returns:
+        List of contact dicts, each containing `uid`, `callsign`, `team`,
+        `role`, `takv`, `notes`, and `filterGroups` (typically `null`).
+
+    Raises:
+        HTTPException(503): TAK Server client is not configured.
+    """
     return _build_contacts_response(include_service=include_service)
 
 
 @router.get("/missions", summary="TAK Server missions")
 def list_missions(agency: str | None = Query(default=None)):
-    """Proxy /Marti/api/missions."""
+    """List all missions from the TAK Server.
+
+    Proxies `GET /Marti/api/missions`. Returns the full mission list as
+    provided by the Marti API with no server-side filtering applied.
+
+    Args:
+        agency: Reserved for agency-scoping (issue #21). Currently a no-op.
+
+    Returns:
+        List of mission dicts as returned by the Marti API.
+
+    Raises:
+        HTTPException(503): TAK Server client is not configured.
+    """
     return _build_missions_response()
 
 
@@ -185,10 +249,30 @@ def recent_contacts(
         ),
     ),
 ):
-    """Contacts from Marti's roster joined with their last known position.
+    """TAK Server contact roster joined with each contact's last known position.
 
-    Time bound:
-      * max_age unset → no FastTAK-side filter; whatever is in /contacts/all is shown.
-      * max_age set   → only contacts whose latest cot_router row is within that window get an LKP.
+    Combines `GET /Marti/api/contacts/all` with a cot_router lookup so every
+    contact entry carries an `lkp` field. The `max_age` parameter controls
+    how the position lookup is bounded:
+
+    - **Omitted** — no FastTAK-side time filter; whatever is in `/contacts/all`
+      is returned, with `lkp` populated from the most recent CoT row regardless
+      of age.
+    - **Set** — only CoT rows within the last `max_age` seconds are considered;
+      contacts with no recent row still appear but with `lkp: null`.
+
+    Args:
+        agency: Reserved for agency-scoping (issue #21). Currently a no-op.
+        max_age: Recency window in seconds for the cot_router position lookup.
+        include_service: When `True`, opts back in to contacts whose `notes`
+            field matches `USERS_HIDDEN_PREFIXES`.
+
+    Returns:
+        List of contact dicts containing `uid`, `callsign`, `team`, `role`,
+        `takv`, `notes`, `filterGroups`, and `lkp` (a position dict with
+        `uid`/`lat`/`lon`/`hae`/`servertime`/`cot_type`, or `null`).
+
+    Raises:
+        HTTPException(503): TAK Server client is not configured.
     """
     return _build_recent_contacts_response(max_age=max_age, include_service=include_service)
