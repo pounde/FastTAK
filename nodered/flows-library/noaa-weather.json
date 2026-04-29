@@ -4,7 +4,7 @@
     "type": "tab",
     "label": "NOAA Weather Alerts",
     "disabled": false,
-    "info": "Polls the NOAA National Weather Service active-alerts API and emits one CoT polygon per alert.\n\nAPI: https://api.weather.gov/alerts/active\n\nDefault filter: severity=Severe,Extreme (tornado warnings, severe thunderstorms, flash floods, etc.) — without a filter, the full US feed can exceed a thousand active alerts.\n\nTo scope by state: change the URL in the 'NOAA feed URL' node to `?area=TX` (or any US state/territory two-letter code).\nTo scope by point: use `?point=LAT,LON`.\nSee https://www.weather.gov/documentation/services-web-api for the full query vocabulary.\n\n## CoT type\n\nAlerts come back as GeoJSON Polygon features. The GeoJSON-to-CoT subflow emits each as a `u-d-f` TAK drawing — a generic `Map/Drawing/Polyline` shape — with the alert polygon vertices, a centroid marker, and the alert text in `<remarks>`. This shows the affected area on the map but uses a generic shape symbol regardless of the alert type.\n\nThe TAK CoT catalog has dedicated meteorological **point-marker** types (`a-n-X-i-m-*`) that render alert-specific symbols but don't carry a polygon shape:\n\n| NWS event | CoT type |\n|---|---|\n| Tornado Warning | `a-n-X-i-m-t` |\n| Severe Thunderstorm Warning | `a-n-X-i-m-u` |\n| Flash Flood / Flood Warning | `a-n-X-i-m-f` |\n| Winter Storm / Snow alerts | `a-n-X-i-m-s` |\n| Hail | `a-n-X-i-m-h` |\n| Tropical Cyclone / Hurricane | `a-n-X-i-m-c` |\n| (default / other) | `a-n-X-i-m` |\n\nTo emit incident-specific point markers in addition to (or instead of) the polygon shape, extend the `Transform` function to map `properties.event` → CoT type and either fan out a second message per alert, or change the subflow's `COT_TYPE` env to one of these values. The subflow currently applies one CoT type to all features in a batch — for per-feature types, the subflow itself needs to read `properties.cotType`."
+    "info": "Polls the NOAA National Weather Service active-alerts API and emits one CoT polygon per alert.\n\nAPI: https://api.weather.gov/alerts/active\n\nDefault filter: severity=Severe,Extreme (tornado warnings, severe thunderstorms, flash floods, etc.) — without a filter, the full US feed can exceed a thousand active alerts.\n\nTo scope by state: change the URL in the 'NOAA feed URL' node to `?area=TX` (or any US state/territory two-letter code).\nTo scope by point: use `?point=LAT,LON`.\nSee https://www.weather.gov/documentation/services-web-api for the full query vocabulary.\n\n## CoT type\n\nAlerts come back as GeoJSON Polygon features. The GeoJSON-to-CoT subflow emits each as a `u-d-f` TAK drawing — a generic `Map/Drawing/Polyline` shape — with the alert polygon vertices, a centroid marker, and the alert text in `<remarks>`. This shows the affected area on the map but uses a generic shape symbol regardless of the alert type.\n\nThe TAK CoT catalog has dedicated meteorological **point-marker** types (`a-n-X-i-m-*`) that render alert-specific symbols but don't carry a polygon shape:\n\n| NWS event | CoT type |\n|---|---|\n| Tornado Warning | `a-n-X-i-m-t` |\n| Severe Thunderstorm Warning | `a-n-X-i-m-u` |\n| Flash Flood / Flood Warning | `a-n-X-i-m-f` |\n| Winter Storm / Snow alerts | `a-n-X-i-m-s` |\n| Hail | `a-n-X-i-m-h` |\n| Tropical Cyclone / Hurricane | `a-n-X-i-m-c` |\n| (default / other) | `a-n-X-i-m` |\n\nTo emit incident-specific point markers in addition to (or instead of) the polygon shape, extend the `Transform` function to map `properties.event` → CoT type and either fan out a second message per alert, or change the subflow's `COT_TYPE` env to one of these values. The subflow currently applies one CoT type to all features in a batch — for per-feature types, the subflow itself needs to read `properties.cotType`.\n\n## Stale alert cleanup\n\nTAK clients (ATAK, WinTAK) do not auto-remove `u-d-*` drawing events when their stale time passes — that auto-purge only applies to marker events (`a-*`). To make canceled/expired alerts actually disappear, the **Track + Delete** node tracks the UIDs we've sent and emits explicit `t-x-d-d` delete CoTs (with `<__forcedelete/>`) when an alert drops out of NOAA's feed. UIDs are kept in flow context, in-memory only — see `docs/decisions.md` DD-041 for why persistence wasn't added."
   },
   {
     "id": "noaa-comment",
@@ -99,7 +99,22 @@
     "libs": [],
     "x": 670,
     "y": 120,
-    "wires": [["noaa-to-cot"]]
+    "wires": [["noaa-track"]]
+  },
+  {
+    "id": "noaa-track",
+    "type": "function",
+    "z": "noaa-tab",
+    "name": "Track + Delete",
+    "func": "// Diff current alert UIDs against the set we sent on the previous poll.\n// Anything that dropped out of NOAA's feed gets an explicit t-x-d-d delete\n// CoT with <__forcedelete/> — TAK clients do not stale-purge u-d-* drawings.\n// Tracking lives in flow context (in-memory). See docs/decisions.md DD-041\n// for why we don't persist this across Node-RED restarts.\n\nconst UID_PREFIX = 'noaa';\nconst SHAPE_TYPE = 'u-d-f';\nconst DELETE_STALE_MS = 60 * 1000;\n\nfunction uidFor(feature, idx) {\n    const id = feature.id != null\n        ? feature.id\n        : (feature.properties && feature.properties.id != null ? feature.properties.id : idx);\n    return `${UID_PREFIX}-${id}`;\n}\n\nfunction xmlEsc(s) {\n    return String(s == null ? '' : s).replace(/[<>&\"']/g, c => ({\n        '<': '&lt;', '>': '&gt;', '&': '&amp;', '\"': '&quot;', \"'\": '&apos;'\n    }[c]));\n}\n\nconst fc = msg.payload;\nconst features = (fc && fc.features) || [];\n\nconst currentUids = new Set();\nfor (let i = 0; i < features.length; i++) {\n    currentUids.add(uidFor(features[i], i));\n}\n\nconst previousUids = new Set(flow.get('noaaSeenUids') || []);\nconst removed = [];\nfor (const u of previousUids) {\n    if (!currentUids.has(u)) removed.push(u);\n}\n\nflow.set('noaaSeenUids', Array.from(currentUids));\n\nconst nowMs = Date.now();\nconst now = new Date(nowMs).toISOString();\nconst stale = new Date(nowMs + DELETE_STALE_MS).toISOString();\n\nconst deletes = removed.map(uid => {\n    const delUid = `${uid}-del-${nowMs}`;\n    const xml = `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\\n<event version=\"2.0\" uid=\"${xmlEsc(delUid)}\" type=\"t-x-d-d\" how=\"m-g\" time=\"${now}\" start=\"${now}\" stale=\"${stale}\"><point lat=\"0\" lon=\"0\" hae=\"0\" ce=\"9999999.0\" le=\"9999999.0\"/><detail><link uid=\"${xmlEsc(uid)}\" relation=\"p-p\" type=\"${SHAPE_TYPE}\"/><__forcedelete/></detail></event>`;\n    return { payload: xml, topic: delUid };\n});\n\nif (deletes.length > 0) {\n    node.log(`NOAA: emitting ${deletes.length} delete CoT(s) for canceled/expired alerts`);\n}\n\nreturn [msg, deletes];\n",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 850,
+    "y": 120,
+    "wires": [["noaa-to-cot"], ["noaa-tak-out"]]
   },
   {
     "id": "noaa-to-cot",
@@ -113,7 +128,7 @@
       { "name": "CALLSIGN_PROP", "value": "callsign", "type": "str" },
       { "name": "REMARKS_PROP", "value": "remarks", "type": "str" }
     ],
-    "x": 860,
+    "x": 1040,
     "y": 120,
     "wires": [["noaa-tak-out"]]
   },
@@ -128,7 +143,7 @@
     "base64": false,
     "end": false,
     "tls": "noaa-tls",
-    "x": 1060,
+    "x": 1240,
     "y": 120,
     "wires": []
   },

@@ -4,6 +4,76 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-041: Stale-alert cleanup in the NOAA Weather flow
+
+**Status:** Accepted
+
+**Decision:** The NOAA Weather Node-RED flow emits explicit `t-x-d-d`
+delete CoTs (with `<__forcedelete/>`) when an alert drops out of NOAA's
+active-alerts feed. UIDs we've previously sent are tracked in Node-RED
+flow context, **in-memory only** — we deliberately do not persist the
+set across Node-RED restarts.
+
+**Why explicit deletes:** Observed behavior is that polygon drawings
+(`u-d-f`) stick on the ATAK map indefinitely past their stale time.
+Web research confirms this is by design across the TAK client family:
+ATAK's `deleteStaleAfterMillis` auto-purge applies to **markers**
+(`a-*`) only, not to drawings (`u-d-*`). WinTAK appears to behave the
+same. The CoT `stale` attribute is therefore not a reliable cleanup
+mechanism for shape-type events. The canonical removal pattern,
+documented in Toyon's LearnATAK plugin examples, is a `t-x-d-d` event
+that includes both `<link uid="..." relation="p-p" type="..."/>` and
+`<__forcedelete/>` in `<detail>`. We adopt that pattern.
+
+**Why no persistence:** Persistent flow context would require enabling
+`contextStorage` in Node-RED's `settings.js`. That file currently lives
+only inside the `fasttak_nodered-data` named volume — the FastTAK repo
+does not own it. Adding persistence would mean either (a) bind-mounting
+a repo-managed `settings.js` (and now keeping it in sync with upstream
+Node-RED defaults), or (b) `sed`-patching the volume copy from
+`start.sh`. Neither is conceptually heavy, but both expand FastTAK's
+surface area for a narrow benefit:
+
+The orphan window from in-memory tracking is *bounded* in practice. NWS
+Severe/Extreme alerts typically have validity windows of 30–90 minutes,
+and the orphan case requires three things to align: (1) Node-RED
+restarts, (2) a specific alert is canceled or expires during that
+downtime so it's missing from the next poll, and (3) the alert's
+canceled state was not already covered by a delete we sent before the
+restart. The damage is a small subset of alerts hanging on connected
+clients past their actual end time, until clients are manually cleared
+or restarted. That is a worse experience than a clean cleanup, but it
+is not a system-integrity problem and it self-bounds rather than
+accumulating without limit.
+
+**What we don't do, and why:**
+
+- *Per-feature stale from `properties.expires`:* Would tighten the
+  NOAA-emitted stale times to the actual expiry NOAA reports, which is
+  more accurate than the flow's hard-coded 1-hour stale. Deferred — the
+  client-side stale-on-drawings behavior makes this a backstop only,
+  not a primary mechanism, and implementing it requires changing the
+  shared `geojson-to-cot` subflow (new optional `STALE_PROP` env). Not
+  worth the subflow change today; revisit if we find another flow that
+  needs it.
+- *Geographic / event-type filtering of the NOAA URL:* Orthogonal to
+  cleanup — addresses *volume*, not *staleness*. Operators can change
+  the URL in the `NOAA feed URL` change node when scoping their feed.
+- *Switch from `u-d-f` polygons to `a-n-X-i-m-*` point markers:*
+  Orthogonal. Point markers do auto-purge on stale, so a future flow
+  variant that emits points instead of (or alongside) shapes would
+  reduce dependence on explicit deletes — but that is a different CoT
+  product, not a fix to the polygon flow.
+
+**Operational caveat:** The first poll after a Node-RED deploy or
+restart starts with an empty `noaaSeenUids` set. If alerts were
+canceled during the downtime and clients still have their polygons
+displayed, the flow will not emit deletes for them — clients clear
+those manually or by restarting. This is the documented orphan path
+and is consistent with the in-memory-only choice above.
+
+---
+
 ## DD-040: Persistent event store for audit + health activity
 
 **Status:** Accepted
