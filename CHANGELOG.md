@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.24.1 (2026-04-30)
+
+### Bug Fixes
+
+- **nodered**: Update DS -> CoT urls
+  ([`4820f1d`](https://github.com/pounde/FastTAK/commit/4820f1d888081cf6b0ee6bf50007499f2aca7946))
+
+
 ## v0.24.0 (2026-04-29)
 
 ### Features
