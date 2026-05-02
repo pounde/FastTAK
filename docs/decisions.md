@@ -4,6 +4,70 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-042: Disable x509 EKU requirement for group cache
+
+**Status:** Accepted
+
+**Decision:** Set `x509useGroupCacheRequiresExtKeyUsage="false"` on the
+`<auth>` element in CoreConfig.xml so TAK Server's per-user channel filter
+(active group cache) works for every authenticated cert regardless of
+Extended Key Usage contents.
+
+**Why:** TAK Server 5.6 has an undocumented gate in
+`com.bbn.marti.groups.X509Authenticator.auth()`. The cache-based
+group filter is consulted only when a cert's EKU contains the OID
+`1.2.840.113549.1.9.7` (PKCS#9 ChallengePassword) — *or* when this
+attribute is `false`. Default is `true`. The OID is injected onto enrolled
+certs by `/Marti/api/tls/signClient/v2` only when the request includes a
+non-null `?version=` query parameter; the CSR's requested extensions are
+not read for this. Hard certs from `makeCert.sh` and any auto-enrollment
+that omits `?version=` produce certs without the OID, which silently
+disables channel toggles: PUT to `/Marti/api/groups/active` updates the
+cache, the broker re-auth runs (via
+`SubscriptionApi.doSetActiveGroups → GroupManager.authenticateCoreUsers`),
+but the file-groups path executes and overwrites `Group.neighbors` with
+the user's full static group set — undoing its own intended effect. Net
+result: cache writes look successful but the broker keeps forwarding
+filtered events.
+
+Setting this attribute false makes the cache path the default for all
+x509-authenticated users, which is the desired behavior for any
+deployment that wants channel toggles to work.
+
+**Why this is safe:** `x509useGroupCacheDefaultActive="true"` is already
+set on the same `<auth>` element. When a user has no cache rows yet (the
+case for any never-toggled identity, including service accounts like
+`svc_adsb`, `svc_nr2`, `svc_wx`), `assignGroupsCheckCache` defaults to
+"all groups active." Behavior change is opt-in via toggle; nothing breaks
+for users who have never called `setActiveGroups`.
+
+**Alternatives considered:**
+
+- *Per-client retrofit (each TAK client appends `?version=…` on
+  enrollment):* fixes the symptom only for newly-enrolled certs, requires
+  a code change in every TAK client implementation, and does nothing for
+  hard-cert users. Adopted in parallel by the Wistful Weasel client
+  (separate brief), but insufficient on its own.
+- *Patch the TAK Server WAR to always inject the OID at sign time:*
+  requires rebuilding the upstream `takserver.war` for every TAK Server
+  release we adopt. High maintenance burden for a config-equivalent
+  outcome.
+
+**Known edge case:** `tak.server.cache.ActiveGroupCacheHelper.assignGroupsCheckCache`
+contains a special case that force-sets `active=true` when a user's
+cached groups list has exactly two entries with the same name (a single
+channel as IN+OUT pair). Users with exactly one channel cannot toggle
+that channel off. Doesn't affect typical multi-channel deployments. Not
+patched here.
+
+**Reference:** verified in deployed `takserver-war-5.6-RELEASE-6.jar` —
+`com.bbn.marti.groups.X509Authenticator`,
+`tak.server.cache.ActiveGroupCacheHelper`,
+`com.bbn.marti.sync.api.SubscriptionApi`,
+`com.bbn.tak.tls.CertManager`. Schema at `tak/CoreConfig.xsd:279`.
+
+---
+
 ## DD-041: Stale-alert cleanup in the NOAA Weather flow
 
 **Status:** Accepted
