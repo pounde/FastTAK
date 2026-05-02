@@ -144,3 +144,63 @@ def get_recent_contacts_with_lkp(
         return []
 
     return [_row_to_position(row) for row in rows]
+
+
+def get_recent_lkp(
+    max_age_seconds: int,
+    cot_type_prefixes: list[str],
+) -> list[dict]:
+    """Latest position per UID from cot_router, filtered by age + cot_type.
+
+    Source-of-truth for the "Recently seen" dashboard card. Drives the UID
+    list itself (not just the position lookup), so entries persist across
+    TAK Server restarts that wipe the in-memory contact roster.
+
+    Args:
+        max_age_seconds: Window in seconds. Rows with servertime older than
+            NOW() - this value are excluded.
+        cot_type_prefixes: Lowercase prefixes matched via ILIKE. Empty list
+            short-circuits and returns [] without hitting the DB (defensive
+            against accidentally matching every CoT type).
+
+    Returns:
+        List of position dicts: uid, lat, lon, hae, servertime, cot_type,
+        detail (parsed dict from cot_router.detail XML; {} on missing/bad).
+
+    Does NOT swallow DB errors — they propagate so the caller can render an
+    error state. `get_recent_contacts_with_lkp` (the older sibling) DOES
+    swallow, which makes "DB broken" indistinguishable from "no data";
+    that's a known-bad pattern we explicitly reverse here.
+    """
+    if not cot_type_prefixes:
+        return []
+
+    like_patterns = [f"{p}%" for p in cot_type_prefixes]
+    sql = """
+        SELECT DISTINCT ON (uid)
+            uid, ST_Y(event_pt) AS lat, ST_X(event_pt) AS lon,
+            point_hae, servertime, cot_type, detail
+        FROM cot_router
+        WHERE servertime >= NOW() - make_interval(secs => %s)
+          AND cot_type ILIKE ANY(%s)
+        ORDER BY uid, servertime DESC
+    """
+    rows = query(sql, (max_age_seconds, like_patterns))
+
+    results = []
+    for row in rows:
+        uid, lat, lon, hae, servertime, cot_type, detail = row
+        results.append(
+            {
+                "uid": _decode(uid),
+                "lat": float(lat) if lat is not None else None,
+                "lon": float(lon) if lon is not None else None,
+                "hae": float(hae) if hae is not None else None,
+                "servertime": servertime.isoformat()
+                if hasattr(servertime, "isoformat")
+                else servertime,
+                "cot_type": _decode(cot_type),
+                "detail": _parse_detail(detail),
+            }
+        )
+    return results
