@@ -405,10 +405,20 @@ def test_ui_recent_contacts_honors_max_age_query_param(app_client):
     fake.list_contacts.return_value = []
     with patch("app.api.tak.router.get_recent_lkp", return_value=[]) as mock_lkp:
         r = client.get("/ui/partials/recent-contacts?max_age=604800")
+    assert r.status_code == 200
     args, _ = mock_lkp.call_args
     assert args[0] == 604800
-    # 1-week option marked selected, not 24h
-    assert 'value="604800"' in r.text
+    # 1-week option marked selected (regex tolerates Jinja's whitespace)
+    import re
+
+    snippet_start = max(0, r.text.find("604800") - 20)
+    snippet_end = r.text.find("604800") + 60
+    assert re.search(r'value="604800"\s+selected', r.text), (
+        f"Expected 1-week option to carry 'selected'; "
+        f"snippet: {r.text[snippet_start:snippet_end]!r}"
+    )
+    # And confirm 24h is NOT selected (sanity)
+    assert not re.search(r'value="86400"\s+selected', r.text)
 
 
 def test_ui_recent_contacts_renders_all_window_options(app_client):

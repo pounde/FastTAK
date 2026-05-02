@@ -1,4 +1,4 @@
-<form style="margin-bottom: 8px;">
+<div style="margin-bottom: 8px;">
   <label style="color: #aaa; font-size: 11px;">Window:
     <select name="max_age"
             hx-get="/ui/partials/recent-contacts"
@@ -11,7 +11,7 @@
       {% endfor %}
     </select>
   </label>
-</form>
+</div>
 
 {% if error %}
   <span class="text-muted">Recent contacts unavailable: {{ error }}</span>
