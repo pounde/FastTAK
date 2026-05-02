@@ -120,12 +120,13 @@
     <!-- Recently Seen Contacts -->
     <div class="card">
         <div class="card-title">
-            Recently seen (last 24h)
+            Recently seen
             <span class="htmx-indicator text-muted" id="recent-contacts-loading">loading...</span>
         </div>
         <div
-            hx-get="/ui/partials/recent-contacts?max_age=86400"
+            hx-get="/ui/partials/recent-contacts"
             hx-trigger="load, every 60s"
+            hx-include="[name='max_age']"
             hx-indicator="#recent-contacts-loading">
             <span class="text-muted">Loading...</span>
         </div>

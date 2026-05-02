@@ -16,6 +16,14 @@ from app.dashboard.services import get_service_links
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
+WINDOWS = [
+    (86400, "24h"),
+    (172800, "48h"),
+    (345600, "96h"),
+    (604800, "1 week"),
+    (2592000, "1 month"),
+]
+
 router = APIRouter(tags=["dashboard"])
 
 
@@ -247,17 +255,31 @@ def ui_recent_contacts(request: Request):
     from app.api.tak.router import _build_recent_contacts_response
 
     max_age_param = request.query_params.get("max_age")
-    max_age = int(max_age_param) if max_age_param else None
+    try:
+        max_age = int(max_age_param) if max_age_param else 86400
+    except ValueError:
+        max_age = 86400
+
     try:
         contacts = _build_recent_contacts_response(max_age=max_age)
     except Exception as exc:
         return templates.TemplateResponse(
             request,
             "partials/recent_contacts.html",
-            {"contacts": [], "error": str(exc)[:200], "max_age": max_age},
+            {
+                "contacts": [],
+                "error": str(exc)[:200],
+                "max_age": max_age,
+                "windows": WINDOWS,
+            },
         )
     return templates.TemplateResponse(
         request,
         "partials/recent_contacts.html",
-        {"contacts": contacts, "error": None, "max_age": max_age},
+        {
+            "contacts": contacts,
+            "error": None,
+            "max_age": max_age,
+            "windows": WINDOWS,
+        },
     )

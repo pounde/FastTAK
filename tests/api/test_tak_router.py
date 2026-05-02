@@ -381,3 +381,53 @@ def test_list_missions_proxies_to_tak_server(app_client):
     r = client.get("/api/tak/missions")
     assert r.status_code == 200
     assert r.json()[0]["name"] == "ops-2026-04"
+
+
+# --- Dashboard partial: /ui/partials/recent-contacts ---
+
+
+def test_ui_recent_contacts_default_window_is_24h(app_client):
+    client, fake = app_client
+    fake.list_contacts.return_value = []
+    with patch("app.api.tak.router.get_recent_lkp", return_value=[]) as mock_lkp:
+        r = client.get("/ui/partials/recent-contacts")
+    assert r.status_code == 200
+    # 86400 == 24h default
+    args, _ = mock_lkp.call_args
+    assert args[0] == 86400
+    # Dropdown rendered with 24h selected
+    assert "selected" in r.text
+    assert 'value="86400"' in r.text
+
+
+def test_ui_recent_contacts_honors_max_age_query_param(app_client):
+    client, fake = app_client
+    fake.list_contacts.return_value = []
+    with patch("app.api.tak.router.get_recent_lkp", return_value=[]) as mock_lkp:
+        r = client.get("/ui/partials/recent-contacts?max_age=604800")
+    args, _ = mock_lkp.call_args
+    assert args[0] == 604800
+    # 1-week option marked selected, not 24h
+    assert 'value="604800"' in r.text
+
+
+def test_ui_recent_contacts_renders_all_window_options(app_client):
+    client, fake = app_client
+    fake.list_contacts.return_value = []
+    with patch("app.api.tak.router.get_recent_lkp", return_value=[]):
+        r = client.get("/ui/partials/recent-contacts")
+    for label in ["24h", "48h", "96h", "1 week", "1 month"]:
+        assert label in r.text
+
+
+def test_ui_recent_contacts_renders_error_when_helper_raises(app_client):
+    client, fake = app_client
+    fake.list_contacts.return_value = []
+    with patch(
+        "app.api.tak.router.get_recent_lkp",
+        side_effect=RuntimeError("db down"),
+    ):
+        r = client.get("/ui/partials/recent-contacts")
+    # Error renders inside the partial, not a 500 — by design for graceful UI
+    assert r.status_code == 200
+    assert "unavailable" in r.text.lower() or "db down" in r.text

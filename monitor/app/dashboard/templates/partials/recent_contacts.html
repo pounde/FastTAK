@@ -1,13 +1,21 @@
+<form style="margin-bottom: 8px;">
+  <label style="color: #aaa; font-size: 11px;">Window:
+    <select name="max_age"
+            hx-get="/ui/partials/recent-contacts"
+            hx-trigger="change"
+            hx-target="closest [hx-get]"
+            hx-swap="innerHTML"
+            style="font-size: 11px;">
+      {% for secs, label in windows %}
+        <option value="{{ secs }}" {% if secs == max_age %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+
 {% if error %}
   <span class="text-muted">Recent contacts unavailable: {{ error }}</span>
 {% elif contacts %}
-<div style="margin-bottom: 6px; color: #aaa; font-size: 11px;">
-  {% if max_age %}
-    Window: last {{ max_age // 3600 }}h{% if (max_age % 3600) %} {{ (max_age % 3600) // 60 }}m{% endif %}
-  {% else %}
-    Window: TAK Server retention
-  {% endif %}
-</div>
 <table style="width: 100%; font-size: 12px;">
   <thead>
     <tr style="text-align: left; color: #aaa;">
@@ -32,5 +40,5 @@
   </tbody>
 </table>
 {% else %}
-  <span class="text-muted">No contacts in TAK Server's roster.</span>
+  <span class="text-muted">No recent contacts in window.</span>
 {% endif %}
