@@ -110,39 +110,23 @@ def _eku_oids(cert: x509.Certificate) -> list[str]:
 
 
 @pytest.fixture(scope="class")
-def channel_test_group(api, run_id):
-    """Group used by channel-filter test users. Self-cleans on teardown."""
-    name = f"CHANTST_{run_id}"
-    status, data = api("POST", "/api/groups", {"name": name})
-    assert status == 201, f"Failed to create group: {data}"
-    group_id = data["id"]
-    yield name
-    api("DELETE", f"/api/groups/{group_id}")
+def enrolled_user(api, webadmin_id):
+    """Yield (username, enrollment_token) for the bootstrap webadmin user.
 
+    Reusing webadmin (rather than creating a per-test user) avoids polluting
+    the LLDAP user list. The Monitor API does soft-delete on the DELETE
+    endpoint, so any test-created user lingers as deactivated and breaks
+    downstream tests that assert exact user-list membership (e.g.,
+    test_group_enforcement.py::TestBootstrapState).
 
-@pytest.fixture(scope="class")
-def enrolled_user(api, run_id, channel_test_group):
-    """Create a user, generate an enrollment token, yield (username, token).
-
-    Self-cleans on teardown — uses yield + DELETE rather than registering with
-    conftest.py's session-scoped cleanup_test_resources, which only knows about
-    a fixed set of resource keys.
+    The enrollment token is idempotent (``get_or_create_enrollment_token``
+    in monitor/app/api/users/router.py:338) and short-lived per the .env
+    TTL setting.
     """
-    username = f"chantst_{run_id}"
-    status, data = api(
-        "POST",
-        "/api/users",
-        {"username": username, "name": "Channel Test", "groups": [channel_test_group]},
-    )
-    assert status == 201, f"Failed to create user: {data}"
-    user_id = data["id"]
-
-    status, data = api("POST", f"/api/users/{user_id}/enroll", None)
+    status, data = api("POST", f"/api/users/{webadmin_id}/enroll", None)
     assert status == 200, f"Failed to generate enrollment URL: {data}"
     token = urllib.parse.parse_qs(urllib.parse.urlparse(data["enrollment_url"]).query)["token"][0]
-
-    yield username, token
-    api("DELETE", f"/api/users/{user_id}")
+    return "webadmin", token
 
 
 # ---------------------------------------------------------------------------
