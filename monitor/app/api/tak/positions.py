@@ -103,49 +103,6 @@ def get_lkp_for_uids(uids: Iterable[str]) -> dict[str, dict]:
     return {_decode(row[0]): _row_to_position(row) for row in rows}
 
 
-def get_recent_contacts_with_lkp(
-    contact_uids: Iterable[str],
-    max_age_seconds: int | None = None,
-) -> list[dict]:
-    """Return the latest position for any contact UID seen, optionally bounded.
-
-    When max_age_seconds is None, no FastTAK-side time filter is applied —
-    the caller relies on TAK Server's own contact retention to bound the
-    set of contact_uids passed in.
-
-    contact_uids should come from Marti's /contacts/all roster, which acts
-    as the implicit "humans only" filter (drone tracks, sensor pings, and
-    other non-human CoT never appear there).
-    """
-    contact_uids = list(contact_uids)
-    if not contact_uids:
-        return []
-
-    placeholders = ",".join(["%s"] * len(contact_uids))
-    params: list = list(contact_uids)
-    where_clauses = [f"uid IN ({placeholders})"]
-    if max_age_seconds is not None:
-        where_clauses.append("servertime >= NOW() - make_interval(secs => %s)")
-        params.append(int(max_age_seconds))
-    where_sql = " AND ".join(where_clauses)
-
-    sql = f"""
-        SELECT DISTINCT ON (uid)
-            uid, ST_Y(event_pt) AS lat, ST_X(event_pt) AS lon,
-            point_hae, servertime, cot_type
-        FROM cot_router
-        WHERE {where_sql}
-        ORDER BY uid, servertime DESC
-    """
-    try:
-        rows = query(sql, tuple(params))
-    except Exception as exc:
-        log.warning("recent-contacts LKP query failed: %s", exc)
-        return []
-
-    return [_row_to_position(row) for row in rows]
-
-
 def get_recent_lkp(
     max_age_seconds: int,
     cot_type_prefixes: list[str],

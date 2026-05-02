@@ -30,43 +30,6 @@ def test_get_lkp_for_uids_empty_input_skips_query():
     mock_query.assert_not_called()
 
 
-def test_get_recent_contacts_with_lkp_filters_by_uids_only_when_no_max_age():
-    from app.api.tak.positions import get_recent_contacts_with_lkp
-
-    fake_rows = [
-        ("ANDROID-abc", 38.8, -77.0, 100.0, "2026-04-27 12:00:00+00", "a-f-G-U-C"),
-    ]
-    with patch("app.api.tak.positions.query", return_value=fake_rows) as mock_query:
-        out = get_recent_contacts_with_lkp(["ANDROID-abc", "ANDROID-def"])
-
-    sql, params = mock_query.call_args.args
-    assert params == ("ANDROID-abc", "ANDROID-def")
-    assert "make_interval" not in sql
-    assert len(out) == 1
-    assert out[0]["uid"] == "ANDROID-abc"
-
-
-def test_get_recent_contacts_with_lkp_applies_max_age_when_set():
-    from app.api.tak.positions import get_recent_contacts_with_lkp
-
-    fake_rows = []
-    with patch("app.api.tak.positions.query", return_value=fake_rows) as mock_query:
-        get_recent_contacts_with_lkp(["ANDROID-abc"], max_age_seconds=3600)
-
-    sql, params = mock_query.call_args.args
-    assert params == ("ANDROID-abc", 3600)
-    assert "make_interval" in sql
-
-
-def test_get_recent_contacts_with_lkp_empty_input_skips_query():
-    from app.api.tak.positions import get_recent_contacts_with_lkp
-
-    with patch("app.api.tak.positions.query") as mock_query:
-        out = get_recent_contacts_with_lkp([])
-    assert out == []
-    mock_query.assert_not_called()
-
-
 def test_get_lkp_for_uids_decodes_bytes_columns():
     """SQL_ASCII columns come back as bytes from psycopg; result must be str."""
     from app.api.tak.positions import get_lkp_for_uids
@@ -80,19 +43,6 @@ def test_get_lkp_for_uids_decodes_bytes_columns():
     assert "ANDROID-bytes" in out  # str key, not bytes
     assert out["ANDROID-bytes"]["uid"] == "ANDROID-bytes"
     assert out["ANDROID-bytes"]["cot_type"] == "a-f-G-U-C"
-
-
-def test_get_recent_contacts_with_lkp_decodes_bytes_columns():
-    from app.api.tak.positions import get_recent_contacts_with_lkp
-
-    fake_rows = [
-        (b"ANDROID-bytes", 38.8, -77.0, 100.0, "2026-04-27 12:00:00+00", b"a-f-G-U-C"),
-    ]
-    with patch("app.api.tak.positions.query", return_value=fake_rows):
-        out = get_recent_contacts_with_lkp(["ANDROID-bytes"])
-
-    assert out[0]["uid"] == "ANDROID-bytes"
-    assert out[0]["cot_type"] == "a-f-G-U-C"
 
 
 def test_parse_detail_returns_empty_for_none_or_empty():

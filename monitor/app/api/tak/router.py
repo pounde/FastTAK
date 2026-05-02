@@ -9,11 +9,15 @@ to consume without needing a FastAPI Request object. Route handlers call
 the helpers and add request-scoped concerns (eventually agency filtering).
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 
-from app.api.tak.positions import get_lkp_for_uids, get_recent_contacts_with_lkp
+from app.api.tak.positions import get_lkp_for_uids, get_recent_lkp
 from app.api.users.router import _get_tak_server
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tak", tags=["tak-proxy"])
 
@@ -96,15 +100,67 @@ def _build_recent_contacts_response(
     max_age: int | None = None,
     include_service: bool = False,
 ) -> list[dict]:
-    contacts = _client().list_contacts()
-    if not include_service:
-        contacts = [c for c in contacts if not _is_service_account(c)]
-    uids = [c["uid"] for c in contacts if c.get("uid")]
-    positions = get_recent_contacts_with_lkp(uids, max_age_seconds=max_age)
-    by_uid = {p["uid"]: p for p in positions}
-    for c in contacts:
-        c["lkp"] = by_uid.get(c.get("uid"))
-    return contacts
+    """Recent CoT-track positions, sourced from cot_router with roster enrichment.
+
+    UIDs come from cot_router (durable, survives TAK Server restarts), so
+    entries that have aged off /contacts/all still appear. Roster fields
+    (callsign/team/role/takv/notes/filterGroups) enrich when available;
+    callsign/team/role can fall back to fields parsed from the row's
+    cot_router.detail XML; otherwise they are None.
+
+    Args:
+        max_age: Window in seconds. Defaults to 86400 (24h).
+        include_service: When False (default), drops UIDs whose roster
+            entry's `notes` field matches USERS_HIDDEN_PREFIXES. UIDs not
+            in the roster cannot be classified and are rendered (fail-open,
+            matches `_is_service_account`'s existing contract).
+    """
+    window = max_age if max_age is not None else 86400
+    positions = get_recent_lkp(window, settings.lkp_cot_type_prefixes_list)
+
+    contacts_by_uid: dict[str, dict] = {}
+    try:
+        for c in _client().list_contacts():
+            uid = c.get("uid")
+            if uid:
+                contacts_by_uid[uid] = c
+    except HTTPException as exc:
+        # TAK Server unreachable — degrade gracefully, render cot_router rows
+        # with detail-XML enrichment only.
+        log.info("recent_contacts: TAK Server unavailable for enrichment: %s", exc.detail)
+
+    service_uids = {uid for uid, c in contacts_by_uid.items() if _is_service_account(c)}
+
+    rows: list[dict] = []
+    for p in positions:
+        uid = p["uid"]
+        if not include_service and uid in service_uids:
+            continue
+        contact = contacts_by_uid.get(uid)
+        detail = p.get("detail") or {}
+        callsign = (contact and contact.get("callsign")) or detail.get("callsign")
+        team = (contact and contact.get("team")) or detail.get("team")
+        role = (contact and contact.get("role")) or detail.get("role")
+        rows.append(
+            {
+                "uid": uid,
+                "callsign": callsign,
+                "team": team,
+                "role": role,
+                "takv": (contact or {}).get("takv"),
+                "filterGroups": (contact or {}).get("filterGroups"),
+                "notes": (contact or {}).get("notes"),
+                "lkp": {
+                    "uid": uid,
+                    "lat": p["lat"],
+                    "lon": p["lon"],
+                    "hae": p["hae"],
+                    "servertime": p["servertime"],
+                    "cot_type": p["cot_type"],
+                },
+            }
+        )
+    return rows
 
 
 def _build_missions_response() -> list[dict]:
@@ -251,26 +307,24 @@ def recent_contacts(
 ):
     """TAK Server contact roster joined with each contact's last known position.
 
-    Combines `GET /Marti/api/contacts/all` with a cot_router lookup so every
-    contact entry carries an `lkp` field. The `max_age` parameter controls
-    how the position lookup is bounded:
-
-    - **Omitted** — no FastTAK-side time filter; whatever is in `/contacts/all`
-      is returned, with `lkp` populated from the most recent CoT row regardless
-      of age.
-    - **Set** — only CoT rows within the last `max_age` seconds are considered;
-      contacts with no recent row still appear but with `lkp: null`.
+    UIDs are sourced from the durable cot_router table, so entries persist
+    across TAK Server restarts that wipe the in-memory contact roster.
+    `/Marti/api/contacts/all` is consulted opportunistically to enrich each
+    entry with roster fields; detail XML from cot_router fills in when a UID
+    has aged off the roster.
 
     Args:
         agency: Reserved for agency-scoping (issue #21). Currently a no-op.
-        max_age: Recency window in seconds for the cot_router position lookup.
+        max_age: Recency window in seconds for the cot_router lookup. Omitted
+            defaults to 86400 (24h). Cot_router retains ~30 days, so larger
+            windows are valid for historical lookups.
         include_service: When `True`, opts back in to contacts whose `notes`
             field matches `USERS_HIDDEN_PREFIXES`.
 
     Returns:
-        List of contact dicts containing `uid`, `callsign`, `team`, `role`,
-        `takv`, `notes`, `filterGroups`, and `lkp` (a position dict with
-        `uid`/`lat`/`lon`/`hae`/`servertime`/`cot_type`, or `null`).
+        List of dicts shaped like {`uid`, `callsign`, `team`, `role`, `takv`,
+        `notes`, `filterGroups`, `lkp`}. UIDs come from cot_router; roster
+        fields can be `None` when the contact has aged off /Marti/api/contacts/all.
 
     Raises:
         HTTPException(503): TAK Server client is not configured.
