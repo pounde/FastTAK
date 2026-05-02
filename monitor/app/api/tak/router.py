@@ -293,8 +293,9 @@ def recent_contacts(
     max_age: int | None = Query(
         default=None,
         description=(
-            "Seconds to look back. Omit (default) to rely on TAK Server's own "
-            "contact retention — no FastTAK-side filter is applied."
+            "Recency window in seconds for the cot_router lookup. Omit "
+            "(default) for 24h. cot_router retains ~30 days, so larger "
+            "windows are valid for historical lookups."
         ),
     ),
     include_service: bool = Query(
