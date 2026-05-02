@@ -38,17 +38,11 @@ def _parse_detail(xml_data: str | bytes | None) -> dict:
     if not xml_data:
         return {}
     if isinstance(xml_data, bytes | bytearray):
-        try:
-            xml_data = xml_data.decode("utf-8", errors="replace")
-        except Exception:
-            return {}
+        xml_data = xml_data.decode("utf-8", errors="replace")
     try:
         root = ET.fromstring(xml_data)
     except ET.ParseError as exc:
         log.debug("parse_detail: malformed XML: %s", exc)
-        return {}
-    except Exception as exc:
-        log.debug("parse_detail: unexpected error: %s", exc)
         return {}
 
     out: dict = {}
