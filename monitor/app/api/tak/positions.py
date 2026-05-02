@@ -13,6 +13,7 @@ or encoding changes, this module needs revisiting.
 from __future__ import annotations
 
 import logging
+import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 
 from app.db import query
@@ -25,6 +26,47 @@ def _decode(v):
     if isinstance(v, bytes | bytearray):
         return v.decode("utf-8", errors="replace")
     return v
+
+
+def _parse_detail(xml_data: str | bytes | None) -> dict:
+    """Best-effort extraction of callsign/team/role from a CoT detail blob.
+
+    Returns {} on empty input, malformed XML, or any other failure. Logged
+    at DEBUG only — malformed CoT is common in the wild and warning-level
+    would flood logs.
+    """
+    if not xml_data:
+        return {}
+    if isinstance(xml_data, bytes | bytearray):
+        try:
+            xml_data = xml_data.decode("utf-8", errors="replace")
+        except Exception:
+            return {}
+    try:
+        root = ET.fromstring(xml_data)
+    except ET.ParseError as exc:
+        log.debug("parse_detail: malformed XML: %s", exc)
+        return {}
+    except Exception as exc:
+        log.debug("parse_detail: unexpected error: %s", exc)
+        return {}
+
+    out: dict = {}
+    # If the root itself is <contact>, treat it as the contact element.
+    contact = root if root.tag == "contact" else root.find(".//contact")
+    if contact is not None:
+        callsign = contact.get("callsign")
+        if callsign:
+            out["callsign"] = callsign
+    group = root if root.tag == "__group" else root.find(".//__group")
+    if group is not None:
+        team = group.get("name")
+        role = group.get("role")
+        if team:
+            out["team"] = team
+        if role:
+            out["role"] = role
+    return out
 
 
 def _row_to_position(row: tuple) -> dict:

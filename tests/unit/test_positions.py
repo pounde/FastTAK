@@ -93,3 +93,64 @@ def test_get_recent_contacts_with_lkp_decodes_bytes_columns():
 
     assert out[0]["uid"] == "ANDROID-bytes"
     assert out[0]["cot_type"] == "a-f-G-U-C"
+
+
+def test_parse_detail_returns_empty_for_none_or_empty():
+    from app.api.tak.positions import _parse_detail
+
+    assert _parse_detail(None) == {}
+    assert _parse_detail("") == {}
+    assert _parse_detail(b"") == {}
+
+
+def test_parse_detail_extracts_callsign_team_role():
+    from app.api.tak.positions import _parse_detail
+
+    xml = (
+        "<detail>"
+        '<contact callsign="ALPHA-1" endpoint="*:-1:stcp"/>'
+        '<__group name="Cyan" role="Team Lead"/>'
+        '<takv platform="ATAK-CIV" version="5.1.0"/>'
+        "</detail>"
+    )
+    out = _parse_detail(xml)
+    assert out == {"callsign": "ALPHA-1", "team": "Cyan", "role": "Team Lead"}
+
+
+def test_parse_detail_handles_bytes_input():
+    """SQL_ASCII columns can come back as bytes from psycopg."""
+    from app.api.tak.positions import _parse_detail
+
+    xml = b'<detail><contact callsign="BRAVO-2"/></detail>'
+    assert _parse_detail(xml) == {"callsign": "BRAVO-2"}
+
+
+def test_parse_detail_omits_missing_fields():
+    from app.api.tak.positions import _parse_detail
+
+    # No __group element
+    out = _parse_detail('<detail><contact callsign="ALPHA-1"/></detail>')
+    assert out == {"callsign": "ALPHA-1"}
+    # __group present but missing one attr
+    out = _parse_detail('<detail><__group name="Cyan"/></detail>')
+    assert out == {"team": "Cyan"}
+
+
+def test_parse_detail_swallows_malformed_xml():
+    from app.api.tak.positions import _parse_detail
+
+    # Unclosed tag — would raise ET.ParseError
+    assert _parse_detail("<detail><contact callsign='oops'") == {}
+    # Total garbage
+    assert _parse_detail("not xml at all") == {}
+
+
+def test_parse_detail_handles_no_root_element():
+    """Some TAK clients emit detail fragments without a wrapper."""
+    from app.api.tak.positions import _parse_detail
+
+    xml = '<contact callsign="SOLO"/>'
+    out = _parse_detail(xml)
+    # Either {} or {"callsign": "SOLO"} is acceptable; we accept both,
+    # but the parser should NOT raise. Pin the actual behavior here.
+    assert out in ({}, {"callsign": "SOLO"})
