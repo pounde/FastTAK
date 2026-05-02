@@ -7,6 +7,7 @@ connected during the test run).
 """
 
 import subprocess
+import sys
 import uuid
 
 import pytest
@@ -60,7 +61,13 @@ class TestTakProxies:
 
 
 def _psql(compose_cmd: list[str], sql: str) -> None:
-    """Run a SQL statement inside tak-database as the postgres OS user."""
+    """Run a SQL statement inside tak-database as the postgres OS user.
+
+    SQL must not contain double-quote characters; the statement is passed
+    to ``sh -c 'psql -d cot -c "<sql>"'`` and double-quotes in the SQL
+    will break shell parsing. Wrap PostgreSQL identifiers with backticks
+    or use unquoted forms instead.
+    """
     subprocess.run(
         [
             *compose_cmd,
@@ -106,8 +113,14 @@ def _delete_cot_rows(compose_cmd: list[str], uids: list[str]) -> None:
     quoted = ",".join(f"'{u}'" for u in uids)
     try:
         _psql(compose_cmd, f"DELETE FROM cot_router WHERE uid IN ({quoted});")
-    except subprocess.CalledProcessError:
-        pass  # best-effort cleanup
+    except subprocess.CalledProcessError as exc:
+        # best-effort cleanup; surface so orphaned rows don't accrete silently
+        stderr_text = (
+            exc.stderr.decode(errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        )
+        print(f"_delete_cot_rows cleanup failed (ignored): {stderr_text}", file=sys.stderr)
 
 
 class TestRecentContactsLkpPersistence:
