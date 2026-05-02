@@ -337,10 +337,12 @@ def test_recent_contacts_keeps_uid_not_in_roster_even_if_could_be_service(app_cl
     assert len(r.json()) == 1
 
 
-def test_recent_contacts_degrades_when_tak_http_fails(app_client):
-    """list_contacts returning [] is normal degraded mode — still render LKP rows."""
+def test_recent_contacts_degrades_when_tak_http_503s(app_client):
+    """list_contacts raising HTTPException(503) — cot_router rows still render."""
+    from fastapi import HTTPException
+
     client, fake = app_client
-    fake.list_contacts.return_value = []  # simulates TAK HTTP failure
+    fake.list_contacts.side_effect = HTTPException(503, "TAK offline")
     with patch(
         "app.api.tak.router.get_recent_lkp",
         return_value=[
@@ -357,6 +359,7 @@ def test_recent_contacts_degrades_when_tak_http_fails(app_client):
     ):
         r = client.get("/api/tak/contacts/recent")
     assert r.status_code == 200
+    assert len(r.json()) == 1
     assert r.json()[0]["callsign"] == "FROM-DETAIL"
 
 

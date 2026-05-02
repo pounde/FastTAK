@@ -141,15 +141,16 @@ def _build_recent_contacts_response(
         callsign = (contact and contact.get("callsign")) or detail.get("callsign")
         team = (contact and contact.get("team")) or detail.get("team")
         role = (contact and contact.get("role")) or detail.get("role")
+        c = contact or {}
         rows.append(
             {
                 "uid": uid,
                 "callsign": callsign,
                 "team": team,
                 "role": role,
-                "takv": (contact or {}).get("takv"),
-                "filterGroups": (contact or {}).get("filterGroups"),
-                "notes": (contact or {}).get("notes"),
+                "takv": c.get("takv"),
+                "filterGroups": c.get("filterGroups"),
+                "notes": c.get("notes"),
                 "lkp": {
                     "uid": uid,
                     "lat": p["lat"],
