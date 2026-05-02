@@ -189,7 +189,7 @@ if [ -n "${LDAP_BIND_PASSWORD}" ]; then
   if ! grep -q 'adm_ldapservice' "${CONFIG}" 2>/dev/null; then
     echo "[init] Adding LDAP auth block..."
 
-    AUTH_BLOCK='    <auth default="ldap" x509groups="true" x509addAnonymous="false" x509useGroupCache="true" x509useGroupCacheDefaultActive="true" x509checkRevocation="true">\
+    AUTH_BLOCK='    <auth default="ldap" x509groups="true" x509addAnonymous="false" x509useGroupCache="true" x509useGroupCacheDefaultActive="true" x509useGroupCacheRequiresExtKeyUsage="false" x509checkRevocation="true">\
         <ldap url="ldap://'"${LDAP_HOST}"':3389" userstring="uid={username},ou=people,'"${BASE_DN_LOWER}"'" updateinterval="30" groupprefix="cn=tak_" groupNameExtractorRegex="cn=tak_(.*?)(?:,|$)" serviceAccountDN="uid=adm_ldapservice,ou=people,'"${BASE_DN_LOWER}"'" serviceAccountCredential="'"${LDAP_BIND_PASSWORD}"'" groupBaseRDN="ou=groups,'"${BASE_DN_LOWER}"'" userBaseRDN="ou=people,'"${BASE_DN_LOWER}"'" dnAttributeName="DN" nameAttr="CN" adminGroup="ROLE_ADMIN"/>\
     </auth>'
 
