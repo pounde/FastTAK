@@ -77,7 +77,17 @@ class Settings(BaseSettings):
     enrollment_token_one_time: bool = False
     tak_enrollment_port: int = 8446
 
+    # CoT type allowlist for the "Recently seen" LKP card. Comma-separated
+    # case-insensitive prefixes matched against cot_router.cot_type via ILIKE.
+    # Default `a-` covers all atoms (ground/air/sea/etc.). Narrow via env if
+    # aircraft (`a-?-A-*`) telemetry overwhelms human tracks.
+    lkp_cot_type_prefixes: str = "a-"
+
     model_config = ConfigDict(extra="ignore")
+
+    @property
+    def lkp_cot_type_prefixes_list(self) -> list[str]:
+        return [p.strip().lower() for p in self.lkp_cot_type_prefixes.split(",") if p.strip()]
 
 
 settings = Settings()

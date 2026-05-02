@@ -46,3 +46,15 @@ class TestSettings:
         assert s.enrollment_token_ttl_minutes == 15
         assert s.enrollment_token_one_time is False
         assert s.tak_enrollment_port == 8446
+
+    def test_lkp_cot_type_prefixes_defaults_to_atoms(self):
+        s = Settings(tak_db_password="x")
+        assert s.lkp_cot_type_prefixes == "a-"
+
+    def test_lkp_cot_type_prefixes_list_splits_and_lowercases(self):
+        s = Settings(tak_db_password="x", lkp_cot_type_prefixes="A-F-G-, a-n-G- ,")
+        assert s.lkp_cot_type_prefixes_list == ["a-f-g-", "a-n-g-"]
+
+    def test_lkp_cot_type_prefixes_list_empty_string_returns_empty(self):
+        s = Settings(tak_db_password="x", lkp_cot_type_prefixes="")
+        assert s.lkp_cot_type_prefixes_list == []
