@@ -328,7 +328,12 @@ def recent_contacts(
         `notes`, `filterGroups`, `lkp`}. UIDs come from cot_router; roster
         fields can be `None` when the contact has aged off /Marti/api/contacts/all.
 
-    Raises:
-        HTTPException(503): TAK Server client is not configured.
+    Notes:
+        Unlike the other /api/tak/* endpoints, this route does NOT raise 503
+        when TAK Server is unreachable — cot_router (the durable source of
+        truth) is queried independently. Roster fields (callsign/team/role/
+        takv/notes/filterGroups) fall back to None when /Marti/api/contacts/all
+        can't be reached, but the response still renders cot_router rows with
+        detail-XML enrichment.
     """
     return _build_recent_contacts_response(max_age=max_age, include_service=include_service)

@@ -247,9 +247,11 @@ for a Docker-Compose-bundled deployment; a future non-bundled deployment
 story would need a different LKP source. The schema is TAK-internal and
 may change between TAK Server versions — bumping the TAK Server image
 requires re-verifying that `uid`, `point_hae`, `servertime`, `cot_type`,
-and the `event_pt` PostGIS Point column still have the expected names
+`detail`, and the `event_pt` PostGIS Point column still have the expected names
 and types. Lat/lon are extracted via `ST_Y(event_pt)` / `ST_X(event_pt)`;
-TAK Server does not store them as plain columns.
+TAK Server does not store them as plain columns. `_parse_detail` extracts
+`<contact callsign="…">` and `<__group name="…" role="…">` from the `detail`
+XML column to enrich roster fields when live contact data is unavailable.
 
 **Required index:** TAK Server 5.x ships with `uid_servertime_idx` on
 `(uid, servertime)`, which a B-tree index scans in either direction so
@@ -258,10 +260,11 @@ without a separate FastTAK-installed index. If a future TAK Server
 version drops or renames this index, operators MUST install an
 equivalent manually; the verification step in the plan flags absence.
 
-**Default time bound:** `/api/tak/contacts/recent?max_age=<seconds>` does
-not apply a FastTAK-side default. When unset, the result is bounded by
-TAK Server's own contact retention. The dashboard cards pass `max_age`
-explicitly (24h on the Recently Seen card).
+**Default time bound:** `/api/tak/contacts/recent?max_age=<seconds>` defaults
+to 86400 (24h) when omitted. The UID list is sourced from `cot_router` (the
+durable source of truth), which retains entries for approximately 30 days.
+Omitting `max_age` gives a recent snapshot equivalent to the dashboard's
+Recently Seen card; larger windows enable historical lookups if needed.
 
 **Endpoint provenance:** The connected-clients endpoint wraps `/Marti/api/subscriptions/all`
 (NOT `/Marti/api/Subscription/GetAllRepeaters`, which was removed in TAK

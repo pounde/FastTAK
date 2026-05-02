@@ -125,9 +125,9 @@ def get_recent_lkp(
         detail (parsed dict from cot_router.detail XML; {} on missing/bad).
 
     Does NOT swallow DB errors — they propagate so the caller can render an
-    error state. `get_recent_contacts_with_lkp` (the older sibling) DOES
-    swallow, which makes "DB broken" indistinguishable from "no data";
-    that's a known-bad pattern we explicitly reverse here.
+    error state. Silently returning [] on DB failure makes "broken DB"
+    indistinguishable from "no recent activity"; this function explicitly
+    reverses that pattern.
     """
     if not cot_type_prefixes:
         return []
