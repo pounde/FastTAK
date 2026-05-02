@@ -206,6 +206,15 @@ if [ -n "${LDAP_BIND_PASSWORD}" ]; then
       echo "[init] LDAP already configured"
     fi
   fi
+
+  # Backfill x509useGroupCacheRequiresExtKeyUsage="false" on existing
+  # deployments. See DD-042: TAK Server 5.6 silently disables channel
+  # toggles when this attribute is absent (defaults to true) and the
+  # client cert lacks an undocumented EKU OID.
+  if ! grep -q 'x509useGroupCacheRequiresExtKeyUsage' "${CONFIG}"; then
+    echo "[init] Backfilling x509useGroupCacheRequiresExtKeyUsage=\"false\" on auth element"
+    sed -i 's|<auth |<auth x509useGroupCacheRequiresExtKeyUsage="false" |' "${CONFIG}"
+  fi
 fi
 
 # ── 9. Template retention policy ────────────────────────────────────────────
