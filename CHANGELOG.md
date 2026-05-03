@@ -2,6 +2,56 @@
 
 <!-- version list -->
 
+## v0.25.0 (2026-05-03)
+
+### Documentation
+
+- Align route doc, decisions log, and orphaned reference
+  ([`c8b4aba`](https://github.com/pounde/FastTAK/commit/c8b4aba9119cfe65782525c231a7beef75ae4c50))
+
+- **tak**: Fix max_age Query description for new 24h default
+  ([`a812b91`](https://github.com/pounde/FastTAK/commit/a812b916e426db4b4d1231a0dca2e9c2bebc277f))
+
+### Features
+
+- **config**: Add LKP_COT_TYPE_PREFIXES setting
+  ([`c8b89e2`](https://github.com/pounde/FastTAK/commit/c8b89e21ff51329d19cddc7cb8c4bceb8b799e7a))
+
+- **dashboard**: Window dropdown on Recently seen card
+  ([`4393c24`](https://github.com/pounde/FastTAK/commit/4393c24ea961df4637c196cb3335eb124a342b8b))
+
+- **env**: Expose LKP_COT_TYPE_PREFIXES via .env and compose
+  ([`7f68c43`](https://github.com/pounde/FastTAK/commit/7f68c43b85a4716385e7f40fb64c62eb3d8aa766))
+
+- **tak**: _parse_detail extracts callsign/team/role from CoT XML
+  ([`95f2f37`](https://github.com/pounde/FastTAK/commit/95f2f37a0bcb4677e9eb4ddf3e875c32ccac0b93))
+
+- **tak**: Get_recent_lkp queries cot_router for window of UIDs
+  ([`721f1ec`](https://github.com/pounde/FastTAK/commit/721f1ec6e2363796df7cb499b3973eb424480f9e))
+
+### Refactoring
+
+- **dashboard**: Tighten window dropdown UX and test
+  ([`7a44f73`](https://github.com/pounde/FastTAK/commit/7a44f73f4ce841b40075916089a3e1ea3b3ac8b8))
+
+- **tak**: Drive recent-contacts from cot_router instead of /contacts/all
+  ([`7cdb6ce`](https://github.com/pounde/FastTAK/commit/7cdb6ceb07ef2af6f9b0250221cd51ddd9b2703e))
+
+- **tak**: Drop unreachable error handling in _parse_detail
+  ([`7508eef`](https://github.com/pounde/FastTAK/commit/7508eef35cc6b1f2ddf54c60322a344c0d4ef0ae))
+
+- **tak**: Tighten recent-contacts code and test for HTTP-503 path
+  ([`08603da`](https://github.com/pounde/FastTAK/commit/08603da4d9d9e72555de6b9df4786c7fd3dcf3a4))
+
+### Testing
+
+- **integration**: /api/tak/contacts/recent surfaces cot_router UIDs
+  ([`a3482be`](https://github.com/pounde/FastTAK/commit/a3482bea9c6406fb4eeae6a2d6733de9d60ccda2))
+
+- **integration**: Document _psql constraints and surface cleanup errors
+  ([`16bdef7`](https://github.com/pounde/FastTAK/commit/16bdef754c990f2245bab74e713da021f0bb3e81))
+
+
 ## v0.24.2 (2026-05-03)
 
 ### Bug Fixes
