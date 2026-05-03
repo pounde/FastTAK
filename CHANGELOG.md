@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v0.24.2 (2026-05-03)
+
+### Bug Fixes
+
+- **init-config**: Backfill x509useGroupCacheRequiresExtKeyUsage on existing auth
+  ([`7ae338d`](https://github.com/pounde/FastTAK/commit/7ae338d9fe664d687e35bc631b3fce5c694dfcb5))
+
+- **init-config**: Move backfill outside LDAP guard so it runs unconditionally
+  ([`5464140`](https://github.com/pounde/FastTAK/commit/54641400c02c1ad2cf2a4201c074dcce07a334c3))
+
+- **init-config**: Set x509useGroupCacheRequiresExtKeyUsage=false on fresh install
+  ([`3fa34c5`](https://github.com/pounde/FastTAK/commit/3fa34c55e53a9d0308dbbbbf20372ef02a77b6bc))
+
+### Documentation
+
+- **decisions**: Add DD-042 disabling x509 EKU requirement for group cache
+  ([`2b8f697`](https://github.com/pounde/FastTAK/commit/2b8f69744cd9dee0f6a71d6f14b95fd5cf43fc83))
+
+### Testing
+
+- **integration**: Add channel filter regression tests
+  ([`7dcdb4a`](https://github.com/pounde/FastTAK/commit/7dcdb4a50498f9e65f8a9ba709b386a086594cb1))
+
+- **integration**: Use webadmin in channel-filter tests to avoid soft-delete pollution
+  ([`86b9a9a`](https://github.com/pounde/FastTAK/commit/86b9a9ac59146c2ae3976252a13db5b4fdffdda2))
+
+
 ## v0.24.1 (2026-04-30)
 
 ### Bug Fixes
