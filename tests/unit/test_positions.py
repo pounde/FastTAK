@@ -64,7 +64,12 @@ def test_parse_detail_extracts_callsign_team_role():
         "</detail>"
     )
     out = _parse_detail(xml)
-    assert out == {"callsign": "ALPHA-1", "team": "Cyan", "role": "Team Lead"}
+    assert out == {
+        "callsign": "ALPHA-1",
+        "endpoint": "*:-1:stcp",
+        "team": "Cyan",
+        "role": "Team Lead",
+    }
 
 
 def test_parse_detail_handles_bytes_input():
@@ -104,6 +109,33 @@ def test_parse_detail_handles_no_root_element():
     # Either {} or {"callsign": "SOLO"} is acceptable; we accept both,
     # but the parser should NOT raise. Pin the actual behavior here.
     assert out in ({}, {"callsign": "SOLO"})
+
+
+def test_parse_detail_extracts_endpoint():
+    """<contact endpoint='...'> is the discriminator for real TAK clients."""
+    from app.api.tak.positions import _parse_detail
+
+    xml = '<detail><contact callsign="ALPHA-1" endpoint="*:-1:stcp"/></detail>'
+    out = _parse_detail(xml)
+    assert out == {"callsign": "ALPHA-1", "endpoint": "*:-1:stcp"}
+
+
+def test_parse_detail_endpoint_absent_when_attribute_missing():
+    """ADS-B feeds emit <contact callsign='...'/> without endpoint."""
+    from app.api.tak.positions import _parse_detail
+
+    xml = '<detail><contact callsign="JBU1169"/></detail>'
+    out = _parse_detail(xml)
+    assert "endpoint" not in out
+
+
+def test_parse_detail_omits_empty_endpoint():
+    """Empty endpoint attribute should be treated as missing (passive feed)."""
+    from app.api.tak.positions import _parse_detail
+
+    xml = '<detail><contact callsign="X" endpoint=""/></detail>'
+    out = _parse_detail(xml)
+    assert "endpoint" not in out
 
 
 def test_get_recent_lkp_runs_cot_router_query():

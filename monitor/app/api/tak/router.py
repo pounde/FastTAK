@@ -99,6 +99,7 @@ def _build_contacts_response(include_service: bool = False) -> list[dict]:
 def _build_recent_contacts_response(
     max_age: int | None = None,
     include_service: bool = False,
+    require_tak_client: bool | None = None,
 ) -> list[dict]:
     """Recent CoT-track positions, sourced from cot_router with roster enrichment.
 
@@ -114,8 +115,17 @@ def _build_recent_contacts_response(
             entry's `notes` field matches USERS_HIDDEN_PREFIXES. UIDs not
             in the roster cannot be classified and are rendered (fail-open,
             matches `_is_service_account`'s existing contract).
+        require_tak_client: When True (default, from
+            ``settings.lkp_require_tak_client``), drops rows whose detail XML
+            has no ``<contact endpoint="…">`` AND aren't in the live roster.
+            This mirrors ATAK's contact-registry gate and excludes passive
+            feeds (ADS-B, sensor tracks). Roster presence implies TAK Server
+            already applied the same gate server-side, so those rows pass
+            regardless of detail. Pass False to include passive feeds.
     """
     window = max_age if max_age is not None else 86400
+    if require_tak_client is None:
+        require_tak_client = settings.lkp_require_tak_client
     positions = get_recent_lkp(window, settings.lkp_cot_type_prefixes_list)
 
     contacts_by_uid: dict[str, dict] = {}
@@ -138,6 +148,8 @@ def _build_recent_contacts_response(
             continue
         contact = contacts_by_uid.get(uid)
         detail = p.get("detail") or {}
+        if require_tak_client and contact is None and not detail.get("endpoint"):
+            continue  # passive feed (ADS-B / sensor / drone w/o TAK plugin)
         callsign = (contact and contact.get("callsign")) or detail.get("callsign")
         team = (contact and contact.get("team")) or detail.get("team")
         role = (contact and contact.get("role")) or detail.get("role")
@@ -306,6 +318,15 @@ def recent_contacts(
             "(service accounts). Off by default."
         ),
     ),
+    include_feeds: bool = Query(
+        default=False,
+        description=(
+            "Include passive feeds (ADS-B, sensor tracks, drones without TAK "
+            "plugins) — tracks whose CoT detail has no <contact endpoint='…'> "
+            "and aren't on the live roster. Off by default; the LKP card is "
+            "meant to surface real TAK users."
+        ),
+    ),
 ):
     """TAK Server contact roster joined with each contact's last known position.
 
@@ -315,6 +336,11 @@ def recent_contacts(
     entry with roster fields; detail XML from cot_router fills in when a UID
     has aged off the roster.
 
+    By default, rows are gated on "is a real TAK client" — they must either
+    be in the live roster (which TAK Server populates server-side using the
+    same gate) or carry a `<contact endpoint="…">` in their detail XML. This
+    mirrors ATAK's contact-registry rule and excludes passive feeds.
+
     Args:
         agency: Reserved for agency-scoping (issue #21). Currently a no-op.
         max_age: Recency window in seconds for the cot_router lookup. Omitted
@@ -322,6 +348,10 @@ def recent_contacts(
             windows are valid for historical lookups.
         include_service: When `True`, opts back in to contacts whose `notes`
             field matches `USERS_HIDDEN_PREFIXES`.
+        include_feeds: When `True`, disables the TAK-client gate and returns
+            passive feeds (ADS-B, sensor tracks, etc.) alongside real users.
+            The default `False` is also overrideable globally via the
+            `LKP_REQUIRE_TAK_CLIENT` env var.
 
     Returns:
         List of dicts shaped like {`uid`, `callsign`, `team`, `role`, `takv`,
@@ -336,4 +366,9 @@ def recent_contacts(
         can't be reached, but the response still renders cot_router rows with
         detail-XML enrichment.
     """
-    return _build_recent_contacts_response(max_age=max_age, include_service=include_service)
+    require_tak_client = False if include_feeds else None  # None → use settings
+    return _build_recent_contacts_response(
+        max_age=max_age,
+        include_service=include_service,
+        require_tak_client=require_tak_client,
+    )

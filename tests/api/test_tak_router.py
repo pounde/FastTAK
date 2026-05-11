@@ -228,7 +228,7 @@ def test_recent_contacts_default_max_age_is_24h(app_client):
 
 
 def test_recent_contacts_falls_back_to_detail_xml_when_uid_not_in_roster(app_client):
-    """The whole point of this rewrite: UIDs aged off /contacts/all still render."""
+    """The whole point of the cot_router rewrite: UIDs aged off /contacts/all still render."""
     client, fake = app_client
     fake.list_contacts.return_value = []  # roster wiped (e.g. after TAK restart)
     with patch(
@@ -241,7 +241,12 @@ def test_recent_contacts_falls_back_to_detail_xml_when_uid_not_in_roster(app_cli
                 "hae": 100.0,
                 "servertime": "2026-05-01T12:00:00+00:00",
                 "cot_type": "a-f-G-U-C",
-                "detail": {"callsign": "DETAIL-CS", "team": "Cyan", "role": "Member"},
+                "detail": {
+                    "callsign": "DETAIL-CS",
+                    "endpoint": "*:-1:stcp",
+                    "team": "Cyan",
+                    "role": "Member",
+                },
             }
         ],
     ):
@@ -255,29 +260,78 @@ def test_recent_contacts_falls_back_to_detail_xml_when_uid_not_in_roster(app_cli
     assert body[0]["notes"] is None
 
 
-def test_recent_contacts_renders_uid_when_no_enrichment_at_all(app_client):
-    """No roster, no detail XML — still render the UID + LKP."""
+def test_recent_contacts_filters_passive_feed_without_endpoint(app_client):
+    """ADS-B / sensor tracks (callsign but no endpoint, not in roster) are dropped."""
     client, fake = app_client
     fake.list_contacts.return_value = []
     with patch(
         "app.api.tak.router.get_recent_lkp",
         return_value=[
             {
-                "uid": "ANDROID-naked",
+                "uid": "adsb-a6cb48",
                 "lat": 38.8,
                 "lon": -77.0,
-                "hae": None,
-                "servertime": "2026-05-01T12:00:00+00:00",
+                "hae": 3000.0,
+                "servertime": "2026-05-11T12:00:00+00:00",
+                "cot_type": "a-n-A-C-F",
+                "detail": {"callsign": "JBU1169"},  # no endpoint
+            }
+        ],
+    ):
+        r = client.get("/api/tak/contacts/recent")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_recent_contacts_keeps_roster_uid_even_without_detail_endpoint(app_client):
+    """Roster presence implies TAK Server already endpoint-gated server-side."""
+    client, fake = app_client
+    fake.list_contacts.return_value = [
+        {"uid": "ANDROID-roster-only", "callsign": "ROSTER-CS", "team": "Blue"},
+    ]
+    with patch(
+        "app.api.tak.router.get_recent_lkp",
+        return_value=[
+            {
+                "uid": "ANDROID-roster-only",
+                "lat": 38.8,
+                "lon": -77.0,
+                "hae": 100.0,
+                "servertime": "2026-05-11T12:00:00+00:00",
                 "cot_type": "a-f-G-U-C",
-                "detail": {},
+                "detail": {},  # no endpoint — but roster membership is sufficient
             }
         ],
     ):
         r = client.get("/api/tak/contacts/recent")
     body = r.json()
-    assert body[0]["uid"] == "ANDROID-naked"
-    assert body[0]["callsign"] is None
-    assert body[0]["lkp"]["lat"] == 38.8
+    assert len(body) == 1
+    assert body[0]["callsign"] == "ROSTER-CS"
+
+
+def test_recent_contacts_include_feeds_true_keeps_passive_feeds(app_client):
+    """?include_feeds=true opts back in to ADS-B / endpoint-less tracks."""
+    client, fake = app_client
+    fake.list_contacts.return_value = []
+    with patch(
+        "app.api.tak.router.get_recent_lkp",
+        return_value=[
+            {
+                "uid": "adsb-a6cb48",
+                "lat": 38.8,
+                "lon": -77.0,
+                "hae": 3000.0,
+                "servertime": "2026-05-11T12:00:00+00:00",
+                "cot_type": "a-n-A-C-F",
+                "detail": {"callsign": "JBU1169"},
+            }
+        ],
+    ):
+        r = client.get("/api/tak/contacts/recent?include_feeds=true")
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["uid"] == "adsb-a6cb48"
+    assert body[0]["callsign"] == "JBU1169"
 
 
 def test_recent_contacts_drops_service_accounts_when_in_roster(app_client):
@@ -316,7 +370,11 @@ def test_recent_contacts_drops_service_accounts_when_in_roster(app_client):
 
 
 def test_recent_contacts_keeps_uid_not_in_roster_even_if_could_be_service(app_client):
-    """Fail-open: UIDs not in /contacts/all can't be classified, so render them."""
+    """Fail-open: UIDs not in /contacts/all can't be classified, so render them.
+
+    Detail must carry endpoint to pass the TAK-client gate; this test's focus is
+    that service-account classification doesn't reach into cot_router-only rows.
+    """
     client, fake = app_client
     fake.list_contacts.return_value = []  # nothing in roster to classify against
     with patch(
@@ -329,7 +387,7 @@ def test_recent_contacts_keeps_uid_not_in_roster_even_if_could_be_service(app_cl
                 "hae": 0.0,
                 "servertime": "2026-05-01T12:00:00+00:00",
                 "cot_type": "a-f-G-U-C",
-                "detail": {},
+                "detail": {"endpoint": "*:-1:stcp"},
             },
         ],
     ):
@@ -353,7 +411,7 @@ def test_recent_contacts_degrades_when_tak_http_503s(app_client):
                 "hae": 100.0,
                 "servertime": "2026-05-01T12:00:00+00:00",
                 "cot_type": "a-f-G-U-C",
-                "detail": {"callsign": "FROM-DETAIL"},
+                "detail": {"callsign": "FROM-DETAIL", "endpoint": "*:-1:stcp"},
             },
         ],
     ):

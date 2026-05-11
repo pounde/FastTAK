@@ -52,6 +52,12 @@ def _parse_detail(xml_data: str | bytes | None) -> dict:
         callsign = contact.get("callsign")
         if callsign:
             out["callsign"] = callsign
+        # endpoint distinguishes real TAK clients (ATAK/iTAK/WinTAK) from
+        # passive feeds (ADS-B, sensor tracks). ATAK gates its contact
+        # registry on this attribute; see ContactListDetailHandler.java.
+        endpoint = contact.get("endpoint")
+        if endpoint:
+            out["endpoint"] = endpoint
     group = root if root.tag == "__group" else root.find(".//__group")
     if group is not None:
         team = group.get("name")

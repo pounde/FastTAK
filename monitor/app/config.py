@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # Default `a-` covers all atoms (ground/air/sea/etc.). Narrow via env if
     # aircraft (`a-?-A-*`) telemetry overwhelms human tracks.
     lkp_cot_type_prefixes: str = "a-"
+    # Require <contact endpoint="..."> in the CoT detail XML (or roster
+    # membership, which implies TAK Server applied the same gate) before
+    # rendering a row. Mirrors ATAK's own contact-registry rule and excludes
+    # passive feeds like ADS-B. Flip to false to include those feeds.
+    lkp_require_tak_client: bool = True
 
     model_config = ConfigDict(extra="ignore")
 

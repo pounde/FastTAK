@@ -58,3 +58,12 @@ class TestSettings:
     def test_lkp_cot_type_prefixes_list_empty_string_returns_empty(self):
         s = Settings(tak_db_password="x", lkp_cot_type_prefixes="")
         assert s.lkp_cot_type_prefixes_list == []
+
+    def test_lkp_require_tak_client_defaults_to_true(self):
+        s = Settings(tak_db_password="x")
+        assert s.lkp_require_tak_client is True
+
+    def test_lkp_require_tak_client_parses_false(self, monkeypatch):
+        monkeypatch.setenv("LKP_REQUIRE_TAK_CLIENT", "false")
+        s = Settings(tak_db_password="x")
+        assert s.lkp_require_tak_client is False
