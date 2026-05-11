@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v0.26.0 (2026-05-11)
+
+### Features
+
+- **env**: Expose LKP_REQUIRE_TAK_CLIENT via .env and compose
+  ([`537d07f`](https://github.com/pounde/FastTAK/commit/537d07fbd125e083be7c6e554888fec703c6924f))
+
+- **tak**: Filter passive feeds from recent contacts via endpoint gate
+  ([`aca551c`](https://github.com/pounde/FastTAK/commit/aca551c2f9b66b59410ad0ae02ddb0a9dc4406e9))
+
+
 ## v0.25.0 (2026-05-03)
 
 ### Documentation
