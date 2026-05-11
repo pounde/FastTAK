@@ -129,10 +129,11 @@ class TestRecentContactsLkpPersistence:
         ground_uid = f"FASTTAK-TEST-GROUND-{uuid.uuid4().hex[:8]}"
         sensor_uid = f"FASTTAK-TEST-SENSOR-{uuid.uuid4().hex[:8]}"
         # Use single quotes for XML attribute values to avoid shell-escaping
-        # inside the psql -c "..." string.
+        # inside the psql -c "..." string. The endpoint attribute is what
+        # qualifies this as a real TAK client (vs. a passive feed).
         ground_detail = (
             "<detail>"
-            "<contact callsign='TestUnit'/>"
+            "<contact callsign='TestUnit' endpoint='*:-1:stcp'/>"
             "<__group name='Cyan' role='Team Member'/>"
             "</detail>"
         )
@@ -166,3 +167,33 @@ class TestRecentContactsLkpPersistence:
 
         finally:
             _delete_cot_rows(compose_cmd, [ground_uid, sensor_uid])
+
+    def test_passive_feed_filtered_by_default_but_included_with_query_param(
+        self, api, compose_cmd
+    ):
+        """ADS-B-shaped track (callsign but no endpoint) is filtered by default;
+        ?include_feeds=true brings it back."""
+        feed_uid = f"adsb-fasttak-test-{uuid.uuid4().hex[:6]}"
+        # Mirror real ADS-B output: callsign but no endpoint, a-n-A-C-F type.
+        feed_detail = (
+            "<detail><contact callsign='JBU1169'/><track course='168.75' speed='6.79'/></detail>"
+        )
+        try:
+            _seed_cot_router(compose_cmd, [(feed_uid, "a-n-A-C-F", 38.8, -77.0, feed_detail)])
+
+            # Default: gate is on, ADS-B row should be filtered.
+            status, data = api("GET", "/api/tak/contacts/recent?max_age=86400")
+            assert status == 200
+            assert feed_uid not in {c["uid"] for c in data}
+
+            # Opt back in with ?include_feeds=true.
+            status, data = api("GET", "/api/tak/contacts/recent?max_age=86400&include_feeds=true")
+            assert status == 200
+            by_uid = {c["uid"]: c for c in data}
+            assert feed_uid in by_uid, (
+                f"Expected ADS-B row with ?include_feeds=true. UIDs: {list(by_uid)[:10]}"
+            )
+            assert by_uid[feed_uid]["callsign"] == "JBU1169"
+
+        finally:
+            _delete_cot_rows(compose_cmd, [feed_uid])

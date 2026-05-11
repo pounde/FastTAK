@@ -250,8 +250,9 @@ requires re-verifying that `uid`, `point_hae`, `servertime`, `cot_type`,
 `detail`, and the `event_pt` PostGIS Point column still have the expected names
 and types. Lat/lon are extracted via `ST_Y(event_pt)` / `ST_X(event_pt)`;
 TAK Server does not store them as plain columns. `_parse_detail` extracts
-`<contact callsign="…">` and `<__group name="…" role="…">` from the `detail`
-XML column to enrich roster fields when live contact data is unavailable.
+`<contact callsign="…" endpoint="…">` and `<__group name="…" role="…">` from
+the `detail` XML column. The `endpoint` attribute is load-bearing: it gates
+the "real TAK user" classification.
 
 **Required index:** TAK Server 5.x ships with `uid_servertime_idx` on
 `(uid, servertime)`, which a B-tree index scans in either direction so
@@ -272,6 +273,17 @@ Server 5.x). The FastTAK wrapper normalises TAK's `clientUid` field to
 `uid` so callers see a uniform identifier. The `cot` database is encoded
 as `SQL_ASCII`, so the LKP query layer decodes `bytes` → `str` for `uid`
 and `cot_type`; this is documented in `monitor/app/api/tak/positions.py`.
+
+**Real-TAK-user gate:** `/api/tak/contacts/recent` filters rows to "real
+TAK clients" by default: the row must either be in the live `/Marti/api/contacts/all`
+roster (which TAK Server populates using the same gate server-side) or
+carry a `<contact endpoint="…">` attribute in its `cot_router.detail` XML.
+This mirrors ATAK's own `ContactListDetailHandler.java` rule and excludes
+passive feeds (ADS-B, sensor tracks, drones without TAK plugins) that emit
+callsigns but no endpoint. Operators can globally disable the gate via
+`LKP_REQUIRE_TAK_CLIENT=false`, or opt back in to feeds per-request with
+`?include_feeds=true`. The endpoint value for TAK-Server-proxied clients
+is typically `*:-1:stcp`; local-network clients use `<ip>:<port>:tcp`.
 
 ---
 
