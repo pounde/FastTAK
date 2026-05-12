@@ -30,7 +30,10 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: integration tests requiring a running Docker stack"]
+markers = [
+    "integration: integration tests requiring a running Docker stack",
+    "slow: tests that take > 30s (e.g. full backup/restore cycle)",
+]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 

@@ -238,6 +238,7 @@ services:
       TAK_WEBADMIN_PASSWORD: ${TAK_WEBADMIN_PASSWORD}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       SERVER_ADDRESS: ${SERVER_ADDRESS}
+      BACKUP_ADMIN_GROUP: ${BACKUP_ADMIN_GROUP:-monitor_admin}
     volumes:
       - *tak-mount
 
@@ -382,6 +383,8 @@ services:
       context: ./monitor
       args:
         LLDAP_VERSION: ${LLDAP_VERSION}
+        FASTTAK_VERSION: ${FASTTAK_VERSION:-dev}
+        FASTTAK_COMMIT: ${FASTTAK_COMMIT:-unknown}
     restart: unless-stopped
     logging: *default-logging
     deploy:
@@ -437,7 +440,16 @@ services:
       LKP_COT_TYPE_PREFIXES: ${LKP_COT_TYPE_PREFIXES:-a-}
       LKP_REQUIRE_TAK_CLIENT: ${LKP_REQUIRE_TAK_CLIENT:-true}
       AUTOVACUUM_MIN_DEAD_TUPLES: ${AUTOVACUUM_MIN_DEAD_TUPLES:-1000}
+      # Backups (#20)
+      BACKUP_RETENTION_KEEP: ${BACKUP_RETENTION_KEEP:-14}
+      BACKUP_ADMIN_GROUP: ${BACKUP_ADMIN_GROUP:-monitor_admin}
+      BACKUP_PARTIAL_REAP_AGE_SECONDS: ${BACKUP_PARTIAL_REAP_AGE_SECONDS:-21600}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${TAK_HOST_PATH:-./tak}/certs:/opt/tak/certs:ro
       - .:/opt/fastak:ro  # For .env change detection (directory mount survives file rewrites)
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ${TAK_HOST_PATH:-./tak}/certs:/tak-certs:ro
+      - ${TAK_HOST_PATH:-./tak}:/tak-src:ro
+      - nodered-data:/nodered-data:ro
+      - ./.env:/host/.env:ro

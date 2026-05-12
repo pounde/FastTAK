@@ -46,6 +46,25 @@ services:
   monitor:
     ports:
       - "18180:8080"
+    # Override volumes so /host/.env points at the test .env (which lives under
+    # TEST_DIR, not the repo root). Without this, docker creates an empty .env
+    # directory in the repo for the missing bind source, breaking backup runs.
+    volumes: !override
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${TAK_HOST_PATH:-./tak}/certs:/opt/tak/certs:ro
+      - .:/opt/fastak:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ${TAK_HOST_PATH:-./tak}/certs:/tak-certs:ro
+      - ${TAK_HOST_PATH:-./tak}:/tak-src:ro
+      - nodered-data:/nodered-data:ro
+      # HOST_ENV_FILE is required here (no `:-` default). Defaulting to
+      # `./.env` would silently bind-mount the repo's .env into the test
+      # monitor — or, on a fresh worktree where .env doesn't exist yet,
+      # cause docker to create an empty `.env` directory at the repo
+      # root. The test harness sets HOST_ENV_FILE explicitly via
+      # test-setup.sh; failing fast here is the right behavior if the
+      # variable wasn't passed through.
+      - ${HOST_ENV_FILE}:/host/.env:ro
   ldap-proxy:
     # Tight limits so integration tests trigger lockout quickly and recover
     # between test runs without 15-minute waits.

@@ -18,14 +18,18 @@ teardown_stack() {
     name=$(basename "$dir")
     echo "=== Tearing down: ${name} ==="
 
-    # shellcheck disable=SC1090
-    if source "$state" 2>/dev/null; then
-        local compose="docker compose -p ${PROJECT} -f ${REPO_DIR}/docker-compose.yml -f ${REPO_DIR}/docker-compose.test.yml --env-file ${ENV_FILE}"
-        ${compose} down -v --remove-orphans 2>/dev/null || true
-    else
-        # State file unreadable — try to stop by project name from dir name
-        docker compose -p "${name}" down -v --remove-orphans 2>/dev/null || true
-    fi
+    # Subshell so the sourced state file can't leak PROJECT/REPO_DIR/ENV_FILE
+    # into successive teardowns. Tear down by project name only — the
+    # original compose files may no longer exist (e.g. stack was created
+    # from a since-deleted worktree).
+    (
+        project_name="${name}"
+        # shellcheck disable=SC1090
+        if source "$state" 2>/dev/null; then
+            project_name="${PROJECT:-${name}}"
+        fi
+        docker compose -p "${project_name}" down -v --remove-orphans 2>/dev/null || true
+    )
     rm -rf "$dir"
 }
 

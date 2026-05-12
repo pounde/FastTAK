@@ -3,6 +3,10 @@ FROM lldap/lldap:${LLDAP_VERSION} AS lldap
 
 FROM python:3.12-alpine
 
+ARG FASTTAK_VERSION=dev
+ARG FASTTAK_COMMIT=unknown
+ENV FASTTAK_VERSION=$FASTTAK_VERSION FASTTAK_COMMIT=$FASTTAK_COMMIT
+
 WORKDIR /app
 
 # LLDAP uses the OPAQUE protocol for passwords — this binary is the only way
@@ -10,7 +14,8 @@ WORKDIR /app
 COPY --from=lldap /app/lldap_set_password /usr/local/bin/lldap_set_password
 
 COPY requirements.txt .
-RUN apk add --no-cache openssl curl && pip install --no-cache-dir -r requirements.txt
+RUN apk add --no-cache openssl curl postgresql17-client age \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY config/ ./config/
 COPY app/ ./app/

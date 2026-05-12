@@ -1,0 +1,22 @@
+<div id="backup-status"
+     hx-get="/dashboard/backups/status"
+     hx-trigger="every 5s"
+     hx-swap="outerHTML">
+    {% if already_running %}
+        <div style="color: #ffb74d; margin-bottom: 4px;">
+            A backup is already in progress — your click was ignored.
+        </div>
+    {% endif %}
+    {% if last_run is none %}
+        <span style="color: #888;">No backups yet.</span>
+    {% elif last_run.status == "running" %}
+        <span class="badge badge-yellow">RUNNING</span>
+        Started {{ last_run.started_at }}.
+    {% elif last_run.status == "success" %}
+        <span class="badge badge-green">OK</span>
+        Last backup <code>{{ last_run.filename }}</code> succeeded at {{ last_run.finished_at }}.
+    {% elif last_run.status == "failed" %}
+        <span class="badge badge-red">FAILED</span>
+        {{ last_run.finished_at }}: <code>{{ last_run.error }}</code>
+    {% endif %}
+</div>

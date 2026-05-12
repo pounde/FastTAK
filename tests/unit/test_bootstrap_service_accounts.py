@@ -136,13 +136,25 @@ class TestServiceAccountsHaveNoPassword:
         monkeypatch.setattr(bootstrap, "set_password", MagicMock())
         monkeypatch.setenv("TAK_WEBADMIN_PASSWORD", "")  # No webadmin
 
-        # graphql call sequence: 4 attr schemas + ensure_group + ensure_user + set_user_attribute
+        # graphql call sequence: 4 attr schemas + 2 ensure_group (tak_ROLE_ADMIN
+        # + monitor_admin) + ensure_user + set_user_attribute
         mock_graphql.side_effect = [
             {"addUserAttribute": {"ok": True}},  # fastak_expires schema
             {"addUserAttribute": {"ok": True}},  # fastak_certs_revoked schema
             {"addUserAttribute": {"ok": True}},  # is_active schema
             {"addUserAttribute": {"ok": True}},  # fastak_user_type schema
-            {"groups": [{"id": 1, "displayName": "tak_ROLE_ADMIN"}]},  # ensure_group
+            {
+                "groups": [
+                    {"id": 1, "displayName": "tak_ROLE_ADMIN"},
+                    {"id": 2, "displayName": "monitor_admin"},
+                ]
+            },  # ensure_group tak_ROLE_ADMIN
+            {
+                "groups": [
+                    {"id": 1, "displayName": "tak_ROLE_ADMIN"},
+                    {"id": 2, "displayName": "monitor_admin"},
+                ]
+            },  # ensure_group monitor_admin
             {
                 "user": {"id": "svc_fasttakapi", "displayName": "svc_fasttakapi"}
             },  # ensure_user svc_fasttakapi

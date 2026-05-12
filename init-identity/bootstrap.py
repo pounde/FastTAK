@@ -33,7 +33,14 @@ BASE_DN = os.environ.get("LDAP_BASE_DN", "DC=takldap").strip() or "DC=takldap"
 WEBADMIN_PASS = os.environ.get("TAK_WEBADMIN_PASSWORD", "").strip()
 
 SERVICE_ACCOUNTS = ["svc_fasttakapi"]
-DEFAULT_GROUPS = ["tak_ROLE_ADMIN"]
+# Gate group for /api/backup/* and the dashboard backups page. Read from
+# env so an operator who renames it (via .env) gets the renamed group
+# bootstrapped and webadmin auto-joined, rather than hitting a 403 on the
+# first backup attempt.
+BACKUP_ADMIN_GROUP = (
+    os.environ.get("BACKUP_ADMIN_GROUP", "monitor_admin").strip() or "monitor_admin"
+)
+DEFAULT_GROUPS = ["tak_ROLE_ADMIN", BACKUP_ADMIN_GROUP]
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +287,7 @@ def main():
         webadmin_id = ensure_user(LLDAP_URL, token, "webadmin", "Web Admin")
         set_password(LLDAP_URL, token, "webadmin", WEBADMIN_PASS)
         add_to_group(LLDAP_URL, token, webadmin_id, group_ids["tak_ROLE_ADMIN"])
+        add_to_group(LLDAP_URL, token, webadmin_id, group_ids[BACKUP_ADMIN_GROUP])
         set_user_attribute(LLDAP_URL, token, "webadmin", "fastak_user_type", "user")
     else:
         log.info("No TAK_WEBADMIN_PASSWORD set, skipping webadmin user")

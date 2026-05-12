@@ -1,0 +1,29 @@
+<div id="backup-list"
+     hx-get="/dashboard/backups/list"
+     hx-trigger="every 30s"
+     hx-swap="outerHTML">
+    {% if not backups %}
+        <span style="color: #888;">No backups on disk.</span>
+    {% else %}
+    <table>
+        <thead><tr><th>Filename</th><th>Size</th><th>Age</th><th></th></tr></thead>
+        <tbody>
+        {% for b in backups %}
+            <tr>
+                <td><code>{{ b.filename }}</code></td>
+                <td>{{ (b.size_bytes / 1024 / 1024) | round(2) }} MB</td>
+                <td>{{ (b.age_seconds / 60) | round(0) | int }} min</td>
+                <td>
+                    <a class="btn" href="/api/backup/files/{{ b.filename }}">Download</a>
+                    <button class="btn-danger"
+                            hx-delete="/api/backup/files/{{ b.filename }}"
+                            hx-confirm="Delete {{ b.filename }}?"
+                            hx-target="#backup-list"
+                            hx-swap="outerHTML">Delete</button>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>

@@ -31,13 +31,25 @@ class StackInfo:
     env_file: str
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def stack_info() -> StackInfo:
-    """Discover a running test stack from /tmp/fastak-test-*/.test-state."""
+    """Discover the currently-running test stack from /tmp/fastak-test-*/.test-state.
+
+    Function-scoped on purpose: `test_backup_restore` tears the original
+    stack down and brings up a fresh one mid-session, so any session-scoped
+    cache here goes stale and either (silently) skips downstream tests or
+    points docker compose at a project that no longer exists. The glob
+    cost per test is negligible and the resilience is worth more than the
+    cache hit.
+    """
     project = os.environ.get("FASTAK_TEST_PROJECT")
-    if project:
+    state_file: str | None = None
+    if project and Path(f"/tmp/{project}/.test-state").exists():
         state_file = f"/tmp/{project}/.test-state"
     else:
+        # Fall back to globbing — picks up a stack created by `--no-up`
+        # mid-session even when FASTAK_TEST_PROJECT points at one that's
+        # been torn down.
         candidates = sorted(glob("/tmp/fastak-test-*/.test-state"), reverse=True)
         state_file = candidates[0] if candidates else None
 
@@ -68,7 +80,7 @@ def stack_info() -> StackInfo:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def compose_cmd(stack_info) -> list[str]:
     """Return the base docker compose command for this test stack."""
     return [
@@ -85,7 +97,7 @@ def compose_cmd(stack_info) -> list[str]:
     ]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def compose_exec(compose_cmd):
     """Run a command inside a container. Returns subprocess.CompletedProcess.
 
@@ -209,7 +221,7 @@ def webadmin_id(api):
     return results[0]["id"]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def ldap_admin_password(stack_info):
     """Read LDAP admin password from test .env."""
     for line in Path(stack_info.env_file).read_text().splitlines():

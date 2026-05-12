@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
+from app.api.backup.router import router as backup_router
 from app.api.events.router import router as events_router
 from app.api.health.config_drift import init_config_hash
 from app.api.health.router import router as health_router
@@ -34,6 +35,14 @@ async def lifespan(app: FastAPI):
         init_schema()
     except Exception:
         log.exception("Could not initialise fastak_events schema")
+    try:
+        from app.backup.config import ensure_backup_dir
+        from app.backup.runner import log_postgres_version_skew
+
+        ensure_backup_dir()
+        log_postgres_version_skew()
+    except Exception:
+        log.exception("Backup startup checks failed")
     start_scheduler()
     yield
     stop_scheduler()
@@ -65,6 +74,7 @@ app.include_router(users_router)
 app.include_router(service_accounts_router)
 app.include_router(tak_router)
 app.include_router(events_router)
+app.include_router(backup_router)
 
 # Dashboard (HTML)
 app.include_router(dashboard_router)

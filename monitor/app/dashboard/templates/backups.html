@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Backups · FastTAK Monitor{% endblock %}
+
+{% block content %}
+<h1>Backups</h1>
+
+{% if banner_active %}
+<div class="card" style="border-color: #5a5a2d; background: #2a2a1a; margin-bottom: 16px;">
+    <strong style="color: #ffb74d;">Backup key not yet downloaded.</strong>
+    Backups are useless without the decryption key.
+    <a href="/api/backup/key">Download key now</a>.
+    Save it somewhere off this host — a password manager, a thumb drive, or a separate machine.
+</div>
+{% endif %}
+
+<div style="display: flex; gap: 12px; margin-bottom: 16px;">
+    <button hx-post="/dashboard/backups/run"
+            hx-target="#backup-status"
+            hx-swap="outerHTML">
+        Run backup now
+    </button>
+    <a class="btn" href="/api/backup/key">Download backup key</a>
+</div>
+
+<div class="card">
+    <div class="card-title">Status</div>
+    <div id="backup-status"
+         hx-get="/dashboard/backups/status"
+         hx-trigger="load, every 5s"
+         hx-swap="outerHTML">
+        {% include "_backups_status.html" %}
+    </div>
+</div>
+
+<div class="card" style="margin-top: 16px;">
+    <div class="card-title">Backups on disk</div>
+    <div id="backup-list"
+         hx-get="/dashboard/backups/list"
+         hx-trigger="load, every 30s"
+         hx-swap="outerHTML">
+        {% include "_backups_list.html" %}
+    </div>
+</div>
+{% endblock %}

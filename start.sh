@@ -120,6 +120,22 @@ if [ "$DEPLOY_MODE" = "direct" ]; then
   export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
 fi
 
+# Surface FastTAK version + commit to the monitor image build.
+if [ -f pyproject.toml ]; then
+    FASTTAK_VERSION="$(awk -F'"' '/^version *=/{print $2; exit}' pyproject.toml 2>/dev/null || true)"
+fi
+if [ -z "${FASTTAK_VERSION:-}" ] && command -v git >/dev/null 2>&1; then
+    FASTTAK_VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
+fi
+FASTTAK_VERSION="${FASTTAK_VERSION:-dev}"
+
+if command -v git >/dev/null 2>&1; then
+    FASTTAK_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+else
+    FASTTAK_COMMIT="unknown"
+fi
+export FASTTAK_VERSION FASTTAK_COMMIT
+
 if ! $TEST; then
   echo ""
   echo "╔══════════════════════════════════════════╗"

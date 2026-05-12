@@ -5,13 +5,24 @@ in-memory store populated by the scheduler, rather than calling health
 functions directly. This avoids double-work on every page load.
 """
 
+import logging
+import os
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app import store
+from app.api.auth_deps import require_group
+from app.api.backup.router import run_backup_preflight
+from app.backup import state as backup_state
+from app.backup.config import admin_group_default, backup_dir
+from app.backup.exceptions import BackupAlreadyRunning
+from app.backup.runner import run as run_backup
 from app.dashboard.services import get_service_links
+
+log = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -26,10 +37,34 @@ WINDOWS = [
 
 router = APIRouter(tags=["dashboard"])
 
+_require_backup_admin = require_group("BACKUP_ADMIN_GROUP", default=admin_group_default())
+
 
 def _page_context(**extra) -> dict:
     """Common template context for all pages."""
-    return {"service_links": get_service_links(), **extra}
+    # Read BACKUP_ADMIN_GROUP at request time (not module load) so an
+    # operator's .env override is honored — matches what require_group()
+    # does for the route-level auth check. Without this, the nav link
+    # would be hidden from real admins whenever the group is renamed.
+    return {
+        "service_links": get_service_links(),
+        "backup_admin_group": os.environ.get("BACKUP_ADMIN_GROUP", admin_group_default()),
+        **extra,
+    }
+
+
+def _backup_view_models(paths):
+    import time
+
+    now = time.time()
+    return [
+        {
+            "filename": p.name,
+            "size_bytes": p.stat().st_size,
+            "age_seconds": int(now - p.stat().st_mtime),
+        }
+        for p in paths
+    ]
 
 
 # --- Page routes ---
@@ -62,6 +97,91 @@ async def users_page(request: Request):
 @router.get("/service-accounts")
 async def service_accounts_page(request: Request):
     return templates.TemplateResponse(request, "service_accounts.html", _page_context())
+
+
+@router.get(
+    "/dashboard/backups",
+    response_class=HTMLResponse,
+    dependencies=[Depends(_require_backup_admin)],
+)
+def backups_page(request: Request):
+    s = backup_state.read()
+    backups = sorted(
+        backup_dir().glob("fasttak-backup-*.age"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    banner_active = s["key_downloaded_at"] is None and bool(backups)
+    return templates.TemplateResponse(
+        request,
+        "backups.html",
+        _page_context(
+            banner_active=banner_active,
+            last_run=s["last_run"],
+            backups=_backup_view_models(backups),
+        ),
+    )
+
+
+@router.post(
+    "/dashboard/backups/run",
+    response_class=HTMLResponse,
+    dependencies=[Depends(_require_backup_admin)],
+)
+def backups_run(request: Request, background_tasks: BackgroundTasks):
+    actor = getattr(request.state, "username", "unknown")
+    client_ip = getattr(request.state, "client_ip", None)
+
+    try:
+        run_backup_preflight()
+        will_kick = True
+    except BackupAlreadyRunning:
+        will_kick = False
+
+    if will_kick:
+
+        def _bg():
+            try:
+                run_backup(actor=actor, client_ip=client_ip)
+            except Exception:
+                # State + audit already record the failure inside runner.run;
+                # log here too so container stderr shows unexpected runner crashes.
+                log.exception("dashboard-triggered backup.run failed")
+
+        background_tasks.add_task(_bg)
+
+    s = backup_state.read()
+    return templates.TemplateResponse(
+        request,
+        "_backups_status.html",
+        {"last_run": s["last_run"], "already_running": not will_kick},
+    )
+
+
+@router.get(
+    "/dashboard/backups/status",
+    response_class=HTMLResponse,
+    dependencies=[Depends(_require_backup_admin)],
+)
+def backups_status_partial(request: Request):
+    s = backup_state.read()
+    return templates.TemplateResponse(request, "_backups_status.html", {"last_run": s["last_run"]})
+
+
+@router.get(
+    "/dashboard/backups/list",
+    response_class=HTMLResponse,
+    dependencies=[Depends(_require_backup_admin)],
+)
+def backups_list_partial(request: Request):
+    backups = sorted(
+        backup_dir().glob("fasttak-backup-*.age"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return templates.TemplateResponse(
+        request, "_backups_list.html", {"backups": _backup_view_models(backups)}
+    )
 
 
 # --- UI Partials (HTMX fragments) ---

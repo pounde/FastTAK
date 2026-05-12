@@ -14,6 +14,14 @@
 *.zip
 
 # =============================================================================
+# Backups (encrypted tarballs + age identity live here at runtime).
+# The directory itself is tracked (via .gitkeep) so first-time `just up`
+# has a bind-mount target — otherwise docker creates it as root-owned.
+# =============================================================================
+/backups/*
+!/backups/.gitkeep
+
+# =============================================================================
 # Plans (local working docs, not shipped)
 # =============================================================================
 docs/plans/
