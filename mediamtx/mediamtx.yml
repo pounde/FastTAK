@@ -55,6 +55,13 @@ authInternalUsers:
 pathDefaults:
   rtspTransport: tcp
 
+  # Recording — off by default. `record` and `recordDeleteAfter` come from
+  # .env via MTX_PATHDEFAULTS_*, so YAML and env stay in sync.
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4        # fMP4: HLS-compatible, mid-stream playback
+  recordPartDuration: 1s    # makes partial segments playable mid-recording
+  recordSegmentDuration: 10m
+
 # Wildcard path — allows any publish/read path without pre-registration.
 # DroneSense proxy paths are also added dynamically via the API by Node-RED.
 paths:

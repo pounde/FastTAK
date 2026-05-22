@@ -98,3 +98,11 @@ Desktop.ini
 # mkdocs build output
 # =============================================================================
 site/
+
+# =============================================================================
+# MediaMTX recordings (video segments written here at runtime).
+# Directory tracked via .gitkeep so the bind mount has a host-owned target
+# on first `just up`. Override the host path with MEDIAMTX_RECORDINGS_DIR.
+# =============================================================================
+/recordings/*
+!/recordings/.gitkeep

@@ -318,8 +318,14 @@ services:
           memory: 512M
     # No healthcheck — scratch-based image has no shell/tools.
     # Monitor checks via Docker API container status instead.
+    environment:
+      # Recording toggle + retention — overrides pathDefaults in mediamtx.yml.
+      # Default off; opt in via .env (MEDIAMTX_RECORD=true).
+      MTX_PATHDEFAULTS_RECORD: ${MEDIAMTX_RECORD:-false}
+      MTX_PATHDEFAULTS_RECORDDELETEAFTER: ${MEDIAMTX_RECORD_RETENTION:-168h}
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ${MEDIAMTX_RECORDINGS_DIR:-./recordings}:/recordings
     ports:
       - "8554:8554"   # RTSP
       - "1935:1935"   # RTMP

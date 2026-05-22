@@ -8,7 +8,7 @@ A Docker Compose stack for deploying and managing the TAK ecosystem:
 
 - **TAK Server** — Official tak.gov Docker images (messaging, CA, web admin)
 - **Caddy** — Automatic Let's Encrypt TLS and reverse proxy
-- **MediaMTX** — RTSP/RTMP/HLS video streaming
+- **MediaMTX** — RTSP/RTMP/HLS video streaming with optional recording ([guide](docs/video-recording.md))
 - **LLDAP + ldap-proxy** — Lightweight LDAP authentication and user management
 - **TAK Portal** — User management, certificate enrollment via QR
 - **Node-RED** — Flow-based automation engine with pre-configured PostgreSQL and TAK Server connections

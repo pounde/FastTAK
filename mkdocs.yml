@@ -23,6 +23,7 @@ nav:
     - Node-RED: nodered.md
     - Configuration: configuration.md
     - Database Management: database-management.md
+    - Video Recording: video-recording.md
   - Flows:
     - Overview: flows/index.md
     - DroneSense: flows/dronesense.md

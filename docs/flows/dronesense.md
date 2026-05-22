@@ -41,6 +41,8 @@ DroneSense RTSPS → MediaMTX proxy → rtsp://<your-server>:8554/ds/<sensor-id>
 
 TLS fingerprints are fetched on first contact with each DroneSense video server and cached in Node-RED flow context — no manual fingerprint configuration required.
 
+DroneSense streams inherit MediaMTX's `pathDefaults`, so enabling [video recording](../video-recording.md) captures them automatically. Files land under `recordings/ds/<sensor-id>/`.
+
 ## Stream start/stop semantics
 
 There is **no separate stream-stop CoT**. When a sensor's `rtsp_url` disappears from the DroneSense response, the next platform frame emits `<__video/>` empty. WinTAK diffs frame-to-frame and tears down its player accordingly.
