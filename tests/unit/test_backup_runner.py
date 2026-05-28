@@ -31,6 +31,9 @@ def _stub_workers(monkeypatch):
     def _fake_stream(staging, out, recipient):
         out.write_bytes(b"")
 
+    monkeypatch.setattr(
+        runner, "load_or_create", MagicMock(return_value=("AGE-SECRET-KEY-1FAKE", "age1fake"))
+    )
     monkeypatch.setattr(runner, "_dump_postgres", MagicMock())
     monkeypatch.setattr(runner, "_tar_certs", MagicMock())
     monkeypatch.setattr(runner, "_tar_tak_config", MagicMock())
