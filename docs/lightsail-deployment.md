@@ -74,7 +74,7 @@ TAK-specific ports.
 | Custom      | TCP      | 8089 | Anywhere                                                           |
 
 Port 8443 is TAK Server's HTTPS endpoint. Port 8446 is the enrollment port
-(`TAK_ENROLLMENT_PORT` in `.env`) — the portal's generated enrollment URLs
+(`TAK_ENROLLMENT_PORT` in `.env`) — the monitor's generated enrollment URLs
 target this port directly, so it must be publicly reachable in addition to
 being bound on the Docker host (see step 8). Port 8089 is the CoT streaming
 endpoint (mTLS). All three require a valid client certificate issued by your
@@ -107,7 +107,6 @@ If wildcards aren't an option:
 
 ```
 tak.example.com             A   <static-ip>
-portal.tak.example.com      A   <static-ip>
 monitor.tak.example.com     A   <static-ip>
 nodered.tak.example.com     A   <static-ip>
 takserver.tak.example.com   A   <static-ip>
@@ -127,7 +126,7 @@ Before proceeding, confirm DNS has propagated:
 
 ```bash
 dig +short tak.example.com
-dig +short portal.tak.example.com
+dig +short monitor.tak.example.com
 ```
 
 Both should return your static IP. If they don't, wait a few minutes and
@@ -230,7 +229,7 @@ cat > ~/FastTAK/docker-compose.local.yml <<'EOF'
 #
 # - Binds tak-server's 8446 (enrollment) to the host. In subdomain mode the
 #   base compose file only routes 8446 through Caddy internally, but the
-#   portal generates enrollment URLs that target SERVER_ADDRESS:8446
+#   monitor generates enrollment URLs that target SERVER_ADDRESS:8446
 #   directly. Without the host binding, enrollment connections fail.
 # - Removes MediaMTX's public port bindings so video ingress/egress is
 #   reachable only from inside the Docker network (and, if installed,
@@ -326,26 +325,24 @@ docker compose logs init-config   # first-boot bootstrapping
 
 From your local machine (not the instance):
 
-1. **Portal access:**
+1. **Monitor access:**
 
    ```bash
-   curl -I https://portal.tak.example.com
+   curl -I https://monitor.tak.example.com
    ```
 
    Should return `200 OK` or `302` with a valid Let's Encrypt cert. If you
    get a cert warning, DNS hasn't propagated yet — wait and retry.
 
-2. **Browser login:** open `https://portal.tak.example.com` in a browser. Log
-   in as `webadmin` with the password from `.env`.
+2. **Browser login:** open `https://monitor.tak.example.com` in a browser. Log
+   in as `webadmin` with the password from `.env`. The health grid should show
+   all services healthy.
 
 3. **Enroll a test user:**
-   - From the portal, create a user
-   - Generate an enrollment QR
+   - From the monitor Users page, create a user (New User)
+   - Click Enroll to generate an enrollment QR (and `tak://` URL)
    - Scan with an ATAK client on your phone
    - Watch the client appear in the TAK Server admin UI
-
-4. **Monitor dashboard:** `https://monitor.tak.example.com` — should show all
-   services healthy.
 
 ## 13. [Optional] Install Tailscale
 
@@ -491,12 +488,13 @@ real "certificate signed by unknown CA" error.
 
 Fix:
 
-1. In the portal, delete the enrollment token for that user.
-2. Generate a fresh QR — this packages the current TAK CA.
+1. In the monitor, delete the enrollment token for that user (revoke/delete
+   from the Users page).
+2. Generate a fresh QR via Enroll — this packages the current TAK CA.
 3. On the ATAK device, delete any partial/incomplete server entry for this
    FastTAK instance before scanning the new QR.
 
-To verify the portal is handing out the current CA:
+To verify the monitor's enrollment output carries the current CA:
 
 ```bash
 # CA that TAK Server presents on 8446
@@ -504,15 +502,15 @@ openssl s_client -connect localhost:8446 -showcerts </dev/null 2>/dev/null \
   | awk '/-----BEGIN CERT/,/-----END CERT/' \
   | openssl x509 -noout -issuer -fingerprint -sha256 | tail -2
 
-# CA the portal packages into QRs
+# CA packaged into the monitor's enrollment QRs
 openssl x509 -in tak/certs/files/ca.pem -noout -subject -fingerprint -sha256
 ```
 
-Both fingerprints should match. If they don't, restart `tak-portal` so it
-picks up the current CA:
+Both fingerprints should match. If they don't, restart `monitor` so it
+re-reads the current CA before regenerating the QR:
 
 ```bash
-docker compose restart tak-portal
+docker compose restart monitor
 ```
 
 ### Accidentally locked out of /auth/verify
@@ -540,8 +538,7 @@ If you enabled Ubuntu's UFW firewall and forgot to allow port 22:
 ## What you've built
 
 - Public, mTLS-authenticated TAK Server on ports 8443 (enrollment) and 8089 (CoT)
-- LDAP-authenticated admin portal at `https://portal.tak.example.com`
-- Monitor dashboard at `https://monitor.tak.example.com`
+- LDAP-authenticated monitor dashboard at `https://monitor.tak.example.com`
 - Node-RED flow engine at `https://nodered.tak.example.com`
 - Automatic Let's Encrypt TLS for all subdomains
 - Rate-limited authentication (DD-035)

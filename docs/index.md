@@ -9,7 +9,7 @@ all configured and running with a single `docker compose up`.
 ## Quick Links
 
 - [Getting Started](quickstart-walkthrough.md) — end-to-end setup walkthrough
-- [Authentication](authentication.md) — how LDAP authentication and TAK Portal work together
+- [Authentication](authentication.md) — how LDAP authentication works across the stack
 - [Certificates](certificates.md) — cert management and enrollment
 
 ## Requirements

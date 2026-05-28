@@ -21,11 +21,11 @@ def test_direct_mode_links():
         links = get_service_links()
 
     urls = {link["name"]: link["url"] for link in links}
-    assert urls["TAK Portal"] == "https://192.168.1.50"
     assert urls["TAK Server"] == "https://192.168.1.50:8446"
     assert urls["Node-RED"] == "https://192.168.1.50:1880"
     assert urls["Monitor"] == "https://192.168.1.50:8180"
     assert urls["MediaMTX"] == "https://192.168.1.50:8888"
+    assert "TAK Portal" not in urls
     assert "Authentik" not in urls
 
 
@@ -36,7 +36,6 @@ def test_subdomain_mode_links():
         "server_address": "tak.example.com",
         "takserver_subdomain": "takserver",
         "mediamtx_subdomain": "stream",
-        "takportal_subdomain": "portal",
         "nodered_subdomain": "nodered",
         "monitor_subdomain": "monitor",
     }
@@ -50,6 +49,7 @@ def test_subdomain_mode_links():
         links = get_service_links()
 
     urls = {link["name"]: link["url"] for link in links}
-    assert urls["TAK Portal"] == "https://portal.tak.example.com"
     assert urls["TAK Server"] == "https://takserver.tak.example.com"
+    assert urls["Monitor"] == "https://monitor.tak.example.com"
+    assert "TAK Portal" not in urls
     assert "Authentik" not in urls

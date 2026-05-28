@@ -28,7 +28,6 @@ class TestCheckUpdates:
         mock_settings.lldap_version = "0.6.1"
         mock_settings.mediamtx_version = "1.15.5"
         mock_settings.nodered_version = "4.1"
-        mock_settings.tak_portal_version = "1.2.53"
 
         from app.api.health import updates
 

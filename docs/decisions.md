@@ -4,6 +4,17 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-043: Remove TAK Portal
+
+**Date:** 2026-05-28
+**Status:** Decided
+
+**Decision:** TAK Portal is removed from the stack. User, group, and certificate-enrollment management is handled by the FastTAK Monitor dashboard (Users page: create users, manage `tak_` groups, per-user QR / `tak://` enrollment with a TTL'd token). In direct mode the bare `https://<SERVER_ADDRESS>` redirects to the monitor (`:8180`); in subdomain mode the `portal.` subdomain is gone (no `TAKPORTAL_SUBDOMAIN`). The `TAK_PORTAL_VERSION` pin, the `tak-portal` service/container, and the `tak/portal/` data directory are removed.
+
+**Why:** TAK Portal depended on Authentik, which was already removed in favor of LLDAP + ldap-proxy (see DD-031). With Authentik gone the portal was incompatible and unauthenticated, and the monitor dashboard already provides equivalent user/group/cert management and QR enrollment. Removing the portal eliminates a redundant Node.js service and a dead dependency.
+
+---
+
 ## DD-042: Disable x509 EKU requirement for group cache
 
 **Status:** Accepted

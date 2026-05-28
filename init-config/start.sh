@@ -337,25 +337,10 @@ https://${SERVER_ADDRESS}:${MEDIAMTX_PORT} {
     reverse_proxy mediamtx:8888
 }
 
-# TAK Portal with forward auth
+# Bare root → FastTAK Monitor (TAK Portal removed; the monitor is the management UI)
 https://${SERVER_ADDRESS} {
     tls internal
-    route {
-        @public {
-            path /request-access* /lookup* /styles.css /favicon.ico /branding/* /public/*
-        }
-        handle @public {
-            reverse_proxy tak-portal:3000
-        }
-
-        forward_auth ldap-proxy:8080 {
-            uri /auth/verify
-            copy_headers ${COPY_HEADERS}
-            trusted_proxies private_ranges
-        }
-
-        reverse_proxy tak-portal:3000
-    }
+    redir https://${SERVER_ADDRESS}:${MONITOR_PORT}{uri}
 }
 
 # Node-RED with forward auth
@@ -388,7 +373,6 @@ else
   # subdomain mode — reproduces the original static Caddyfile structure
   TAKSERVER_SUBDOMAIN="${TAKSERVER_SUBDOMAIN:-takserver}"
   MEDIAMTX_SUBDOMAIN="${MEDIAMTX_SUBDOMAIN:-stream}"
-  TAKPORTAL_SUBDOMAIN="${TAKPORTAL_SUBDOMAIN:-portal}"
   NODERED_SUBDOMAIN="${NODERED_SUBDOMAIN:-nodered}"
   MONITOR_SUBDOMAIN="${MONITOR_SUBDOMAIN:-monitor}"
 
@@ -411,26 +395,6 @@ ${TAKSERVER_SUBDOMAIN}.${SERVER_ADDRESS} {
 # MediaMTX streaming
 ${MEDIAMTX_SUBDOMAIN}.${SERVER_ADDRESS} {
     reverse_proxy mediamtx:8888
-}
-
-# TAK Portal with forward auth
-${TAKPORTAL_SUBDOMAIN}.${SERVER_ADDRESS} {
-    route {
-        @public {
-            path /request-access* /lookup* /styles.css /favicon.ico /branding/* /public/*
-        }
-        handle @public {
-            reverse_proxy tak-portal:3000
-        }
-
-        forward_auth ldap-proxy:8080 {
-            uri /auth/verify
-            copy_headers ${COPY_HEADERS}
-            trusted_proxies private_ranges
-        }
-
-        reverse_proxy tak-portal:3000
-    }
 }
 
 # Node-RED with forward auth

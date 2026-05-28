@@ -201,9 +201,6 @@ assert "$LLDAP_STATUS" "healthy" "LLDAP healthy"
 PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
 assert "$PROXY_STATE" "running" "ldap-proxy running"
 
-PORTAL_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q tak-portal 2>/dev/null)" 2>/dev/null)
-assert "$PORTAL_STATE" "running" "TAK Portal running"
-
 log ""
 log "Config"
 log "──────"
@@ -270,22 +267,6 @@ SEC_COUNT=$(docker exec "$(docker compose ps -q tak-server)" grep -c "Security s
 SEC_COUNT="${SEC_COUNT:-0}"
 if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Multiple starts ($SEC_COUNT)"; fi
 
-log ""
-log "Portal"
-log "──────"
-
-assert_file "tak/portal/settings.json" "Portal settings.json"
-assert_file "tak/portal/certs/tak-ca.pem" "Portal CA cert"
-assert_file "tak/portal/certs/svc_fasttakapi.p12" "Portal API service cert"
-
-PORTAL_HTTP="000"
-for _ in $(seq 1 12); do
-  PORTAL_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:3000 2>/dev/null)
-  if [ "$PORTAL_HTTP" != "000" ]; then break; fi
-  sleep 5
-done
-assert_not "$PORTAL_HTTP" "000" "Portal HTTP ($PORTAL_HTTP)"
-
 # ═══════════════════════════════════════════════════════════════════════════
 # TEARDOWN (test mode only)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -337,11 +318,13 @@ echo ""
 echo "  TAK Server:  https://${SERVER_ADDRESS}:${TAKSERVER_ADMIN_PORT}"
 echo "               webadmin / ${WA_MASKED}"
 if [ "$DEPLOY_MODE" = "direct" ]; then
-  echo "  TAK Portal:  https://${SERVER_ADDRESS}"
+  MONITOR_PORT_OUT=$(grep '^MONITOR_PORT=' .env | cut -d= -f2)
+  MONITOR_PORT_OUT="${MONITOR_PORT_OUT:-8180}"
+  echo "  Monitor:     https://${SERVER_ADDRESS}:${MONITOR_PORT_OUT}"
 else
-  PORTAL_SUB=$(grep '^TAKPORTAL_SUBDOMAIN=' .env | cut -d= -f2)
-  PORTAL_SUB="${PORTAL_SUB:-portal}"
-  echo "  TAK Portal:  https://${PORTAL_SUB}.${SERVER_ADDRESS}"
+  MONITOR_SUB=$(grep '^MONITOR_SUBDOMAIN=' .env | cut -d= -f2)
+  MONITOR_SUB="${MONITOR_SUB:-monitor}"
+  echo "  Monitor:     https://${MONITOR_SUB}.${SERVER_ADDRESS}"
 fi
 echo ""
 echo "  Passwords:   cat .env"

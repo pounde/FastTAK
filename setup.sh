@@ -72,14 +72,14 @@ if [ -d "$TARGET_DIR/tak" ]; then
   echo "▸ Upgrading tak/ directory (preserving certs, config, logs)..."
 
   PRESERVE_DIR=$(mktemp -d)
-  for item in certs CoreConfig.xml CoreConfig.example.xml UserAuthenticationFile.xml logs portal; do
+  for item in certs CoreConfig.xml CoreConfig.example.xml UserAuthenticationFile.xml logs; do
     [ -e "$TARGET_DIR/tak/$item" ] && cp -a "$TARGET_DIR/tak/$item" "$PRESERVE_DIR/"
   done
 
   rm -rf "$TARGET_DIR/tak"
   cp -a "$RELEASE_DIR/tak" "$TARGET_DIR/tak"
 
-  for item in certs CoreConfig.xml CoreConfig.example.xml UserAuthenticationFile.xml logs portal; do
+  for item in certs CoreConfig.xml CoreConfig.example.xml UserAuthenticationFile.xml logs; do
     [ -e "$PRESERVE_DIR/$item" ] && cp -a "$PRESERVE_DIR/$item" "$TARGET_DIR/tak/"
   done
   rm -rf "$PRESERVE_DIR"
@@ -168,7 +168,7 @@ echo "  │ BEFORE YOU START:                                   │"
 echo "  │                                                     │"
 echo "  │   vim .env ← set SERVER_ADDRESS and DEPLOY_MODE    │"
 echo "  │                                                     │"
-echo "  │ Admin login (TAK Server + TAK Portal):               │"
+echo "  │ Admin login (TAK Server):                           │"
 echo "  │   User: webadmin                                    │"
 echo "  │   Password: in .env as TAK_WEBADMIN_PASSWORD        │"
 echo "  │                                                     │"

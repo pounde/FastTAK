@@ -23,11 +23,11 @@ just setup-dev
 ## Development
 
 ```bash
-just dev-up      # Start with direct-access ports (3000, 1880, 8180)
+just dev-up      # Start with direct-access ports (1880, 8180)
 just dev-down    # Stop
 ```
 
-The dev stack exposes TAK Portal, Node-RED, and Monitor directly on the host
+The dev stack exposes Node-RED and Monitor directly on the host
 for convenience. These ports bypass Caddy + LDAP authentication.
 
 ## Testing
@@ -49,8 +49,8 @@ just down   # Stop
 ```
 
 Production exposes only protocol endpoints: TAK Server (8089, 8446),
-Caddy (80, 443), and MediaMTX (8554, 1935, 8888). TAK Portal, Node-RED,
-and Monitor are only reachable through Caddy + LDAP authentication.
+Caddy (80, 443), and MediaMTX (8554, 1935, 8888). Node-RED and Monitor
+are only reachable through Caddy + LDAP authentication.
 
 ## All Commands
 

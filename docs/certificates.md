@@ -139,7 +139,7 @@ FastTAK runs **two independent certificate systems** that don't interact:
 
 | System         | What it secures                         | Who manages it                       | Where                    |
 | -------------- | --------------------------------------- | ------------------------------------ | ------------------------ |
-| **Caddy TLS**  | Web browser HTTPS (admin UI, portal)    | Automatic — Caddy handles everything | Caddy's internal storage |
+| **Caddy TLS**  | Web browser HTTPS (admin UI, monitor)   | Automatic — Caddy handles everything | Caddy's internal storage |
 | **TAK Server CA** | Device connections (ATAK, iTAK, WinTAK) | You, via dashboard or `./certs.sh`   | `./tak/certs/files/`     |
 
 In **subdomain mode**, Caddy obtains trusted certificates from Let's Encrypt (ACME). In **direct mode**, Caddy generates self-signed certificates using its built-in internal CA — browsers will show a certificate warning on first visit (see [Self-signed certificate warnings](#self-signed-certificate-warnings) below).

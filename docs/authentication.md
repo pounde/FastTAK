@@ -6,7 +6,7 @@ FastTAK supports two authentication modes:
 
 1. **Certificate-only** — users authenticate with client certificates (.p12). No passwords, no LDAP. Simple but no centralized user management.
 
-2. **LDAP via LLDAP** — users authenticate with username/password against LLDAP, a lightweight LDAP server. Certificates still required for TAK client connections, but web admin and portal access use password-based login.
+2. **LDAP via LLDAP** — users authenticate with username/password against LLDAP, a lightweight LDAP server. Certificates still required for TAK client connections, but web admin and monitor dashboard access use password-based login.
 
 ## How LDAP Authentication Works
 
@@ -24,7 +24,6 @@ TAK Server ←→ ldap-proxy ←→ LLDAP ←→ PostgreSQL (app-db)
    - Creates `webadmin` user with password from `TAK_WEBADMIN_PASSWORD` (generated per-install by `setup.sh`; find it with `grep TAK_WEBADMIN_PASSWORD .env`)
    - Creates `tak_ROLE_ADMIN` group
    - Configures custom attribute schemas
-   - Generates TAK Portal `settings.json`
    - Exits
 3. **ldap-proxy starts** — listens on port 3389 (internal), proxies LDAP binds to LLDAP and provides `/auth/verify` for Caddy forward auth
 4. **TAK Server reads CoreConfig.xml** — connects to ldap-proxy for auth
@@ -62,7 +61,7 @@ When a new user is created or group membership changes, TAK Server's LDAP cache 
 | `tak_team1` | `team1` | Users in group |
 | `tak_fires` | `fires` | Users in group |
 
-Only groups with the `tak_` prefix appear as TAK channels. Create groups in LLDAP (or TAK Portal), then assign users.
+Only groups with the `tak_` prefix appear as TAK channels. Create groups in the Monitor dashboard (or directly in LLDAP), then assign users.
 
 ### Key components
 

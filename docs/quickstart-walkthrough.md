@@ -52,10 +52,9 @@ Or manually: `docker compose up -d --build`
 4. **init-identity** runs after LLDAP is healthy:
    - Bootstraps LDAP users, groups, and custom attribute schemas via GraphQL
    - Creates `webadmin` user and `tak_ROLE_ADMIN` group
-   - Generates TAK Portal settings.json
    - Exits
 5. **tak-server** starts (~4 minutes to become healthy) — all config is already applied, no restart needed
-6. **ldap-proxy**, **tak-portal**, **caddy**, **mediamtx**, and **nodered** start
+6. **ldap-proxy**, **caddy**, **mediamtx**, and **nodered** start
 
 ## Step 4: Verify
 
@@ -74,20 +73,23 @@ Log in with: `webadmin` / value of `TAK_WEBADMIN_PASSWORD` from `.env`
 
 ## Step 6: Create a user and enroll their device
 
-TAK Portal is available at `http://localhost:3000`.
+The FastTAK Monitor dashboard is served at `https://<your-fqdn>:8180` (direct
+mode) or `https://monitor.<your-fqdn>` (subdomain mode) — use the same
+`SERVER_ADDRESS` value clients use to reach the server, not `localhost`. Log in
+as `webadmin` (value of `TAK_WEBADMIN_PASSWORD`) at the HTTP Basic prompt.
 
 ### Create the user
 
-1. In TAK Portal, create an **Agency** (e.g., your organization name)
-2. Create a **Group** with the `tak_` prefix (e.g., `tak_team1`) — see "Understanding groups" below
-3. Go to **Users** → **Create**
-4. Fill in: username, name, assign to the agency and group
+1. Go to the **Users** page
+2. (If needed) create a **Group** with the `tak_` prefix (e.g., `tak_team1`) on the same page — the `tak_` prefix is what makes it a TAK channel; see "Understanding groups" below
+3. Click **New User**
+4. Fill in: username, full name, and assign at least one `tak_`-prefixed group
 5. Click **Create**
 
 ### Enroll their device
 
-1. In TAK Portal's user list, click the **QR** button next to the user
-2. A QR code appears with a 15-minute enrollment token
+1. In the user list, click the **Enroll** button next to the user
+2. A QR code (and a `tak://` enrollment URL) appears with a ~15-minute enrollment token
 3. User scans the QR code with ATAK, iTAK, or TAK Aware
 4. The TAK client connects to TAK Server on port 8446, authenticates, and receives its certificate
 5. The client auto-configures and connects — no manual setup needed
@@ -118,7 +120,7 @@ Only groups prefixed with `tak_` are visible to TAK Server. The prefix is stripp
 
 Groups without the `tak_` prefix are invisible to TAK Server.
 
-Create groups in TAK Portal under the **Groups** page.
+Create groups in the Monitor dashboard on the **Users/Groups** page.
 
 **LDAP cache delay:** When you create a user or change groups, TAK Server takes up to 30 seconds to refresh. The user can connect immediately but may see "No channels found" — disconnect and reconnect after 30 seconds.
 
@@ -137,8 +139,8 @@ Create groups in TAK Portal under the **Groups** page.
 
 ### View a stream
 
-- **HLS:** `http://<server-ip>:8888/live/<stream-name>`
-- **Via Caddy:** `https://stream.<FQDN>/live/<stream-name>`
+- **HLS (direct mode):** `https://<server-ip>:8888/live/<stream-name>` — served through Caddy with its internal TLS cert; MediaMTX's port 8888 is not published to the host directly.
+- **HLS (subdomain mode):** `https://stream.<FQDN>/live/<stream-name>`
 - **In TAK:** share the RTSP URL as a CoT video feed
 
 ## Clean teardown
@@ -178,4 +180,4 @@ docker compose logs init-identity
 **No channels in TAK client?**
 
 - LDAP cache delay — wait 30 seconds, disconnect, reconnect
-- Verify user has groups with `tak_` prefix in TAK Portal
+- Verify user has groups with `tak_` prefix in the Monitor dashboard

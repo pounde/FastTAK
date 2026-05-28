@@ -34,13 +34,13 @@ SERVER_ADDRESS=tak.example.com
 **Use when:** you have a public FQDN with DNS that Let's Encrypt can resolve.
 
 - Caddy terminates HTTPS using Let's Encrypt certificates (automatic)
-- Services are routed by subdomain (e.g., `tak.example.com`, `portal.example.com`)
+- Services are routed by subdomain (e.g., `tak.example.com`, `monitor.example.com`)
 - Requires DNS records pointing to the host running FastTAK
 - The subdomain variables in `.env` (e.g., `TAKSERVER_SUBDOMAIN`, `MONITOR_SUBDOMAIN`) are only used in this mode
 
 ### Port variables (direct mode only)
 
-These control which host ports Caddy exposes for each service. Defaults are used if not set. Portal is always on 443 (Caddy's default HTTPS port). These variables are ignored in subdomain mode.
+These control which host ports Caddy exposes for each service. Defaults are used if not set. In direct mode, the bare `https://<SERVER_ADDRESS>` (port 443) redirects to the Monitor dashboard. These variables are ignored in subdomain mode.
 
 | Variable | Default | Service |
 |---|---|---|

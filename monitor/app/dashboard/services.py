@@ -3,9 +3,7 @@
 from app.config import settings
 
 # Service definitions: (name, subdomain_attr, port_attr)
-# portal has no dedicated port — it's on Caddy's default 443
 _SERVICES = [
-    ("TAK Portal", "takportal_subdomain", None),
     ("TAK Server", "takserver_subdomain", "takserver_admin_port"),
     ("Node-RED", "nodered_subdomain", "nodered_port"),
     ("Monitor", "monitor_subdomain", "monitor_port"),

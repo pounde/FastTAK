@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     lldap_version: str = ""
     mediamtx_version: str = ""
     nodered_version: str = ""
-    tak_portal_version: str = ""
 
     # Deployment
     server_address: str = "localhost"
@@ -19,7 +18,6 @@ class Settings(BaseSettings):
     # Subdomains (subdomain mode)
     takserver_subdomain: str = "takserver"
     mediamtx_subdomain: str = "stream"
-    takportal_subdomain: str = "portal"
     nodered_subdomain: str = "nodered"
     monitor_subdomain: str = "monitor"
 

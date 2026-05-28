@@ -156,8 +156,8 @@ services:
       retries: 5
       start_period: 10s
 
-  # ── Identity (LLDAP, LDAP Proxy, TAK Portal) ──────────────────────────
-  # Start order: app-db → lldap → ldap-proxy → init-identity → tak-portal
+  # ── Identity (LLDAP, LDAP Proxy) ──────────────────────────────────────
+  # Start order: app-db → lldap → ldap-proxy → init-identity
 
   lldap:
     image: lldap/lldap:${LLDAP_VERSION}
@@ -264,30 +264,6 @@ services:
       LDAP_HOST: ${LDAP_HOST:-ldap-proxy}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
-
-  tak-portal:
-    build: https://github.com/AdventureSeeker423/TAK-Portal.git#${TAK_PORTAL_VERSION:-main}
-    restart: unless-stopped
-    logging: *default-logging
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "node", "-e", "const h=require('http');h.get('http://localhost:3000',r=>{process.exit(r.statusCode<400?0:1)}).on('error',()=>process.exit(1))"]
-      interval: 30s
-      retries: 3
-      start_period: 30s
-    depends_on:
-      init-identity:
-        condition: service_completed_successfully
-    volumes:
-      - *tak-mount
-      - ./tak-portal/start.sh:/usr/src/app/start.sh:ro
-    environment:
-      SERVER_ADDRESS: ${SERVER_ADDRESS}
-      DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
-    entrypoint: ["/bin/sh", "/usr/src/app/start.sh"]
 
   # ── Networking (reverse proxy + SSL) ───────────────────────────────────
   caddy:
@@ -403,11 +379,9 @@ services:
       LLDAP_VERSION: ${LLDAP_VERSION}
       MEDIAMTX_VERSION: ${MEDIAMTX_VERSION}
       NODERED_VERSION: ${NODERED_VERSION}
-      TAK_PORTAL_VERSION: ${TAK_PORTAL_VERSION}
       SERVER_ADDRESS: ${SERVER_ADDRESS}
       TAKSERVER_SUBDOMAIN: ${TAKSERVER_SUBDOMAIN}
       MEDIAMTX_SUBDOMAIN: ${MEDIAMTX_SUBDOMAIN}
-      TAKPORTAL_SUBDOMAIN: ${TAKPORTAL_SUBDOMAIN}
       NODERED_SUBDOMAIN: ${NODERED_SUBDOMAIN}
       MONITOR_SUBDOMAIN: ${MONITOR_SUBDOMAIN:-monitor}
       DEPLOY_MODE: ${DEPLOY_MODE:-subdomain}
