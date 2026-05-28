@@ -54,7 +54,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 6G
     environment:
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
       PG_AUTOVACUUM_SCALE_FACTOR: ${PG_AUTOVACUUM_SCALE_FACTOR:-}
@@ -108,7 +108,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 14G
     depends_on:
       tak-database:
         condition: service_healthy
