@@ -44,23 +44,42 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check if release-worthy files changed
+      - name: Check if a release is warranted
         id: check
         run: |
-          # Use push range; fall back to assuming release-worthy on first push / force push
+          # Two independent signals make a push release-worthy:
+          #   (1) this push changed a non-excluded file, or
+          #   (2) bump-worthy commits sit unreleased since the last tag.
+          # (2) is the safety net: a feature push that fails CI followed by a
+          # test/doc-only recovery push would otherwise never trigger a release,
+          # since (1) only inspects the files in the current push.
           RELEASE_WORTHY=false
+
+          # (1) Files in this push. Fall back to release-worthy if the range is
+          # unavailable (first push / force push / shallow history).
           CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} 2>/dev/null) || RELEASE_WORTHY=true
           echo "Changed files:"
           echo "$CHANGED"
+          if [ "$RELEASE_WORTHY" != "true" ] && [ -n "$CHANGED" ]; then
+            while IFS= read -r file; do
+              case "$file" in
+                tests/*|docs/*|.github/*|*.md) ;;  # excluded
+                *) RELEASE_WORTHY=true; break ;;
+              esac
+            done <<< "$CHANGED"
+          fi
 
-          # Check if ALL changed files are in excluded paths
+          # (2) Unreleased bump-worthy commits since the last tag. Mirrors
+          # semantic-release defaults: feat/fix/perf bump, and any `type!:` or
+          # `BREAKING CHANGE:` footer bumps. (refactor/chore/docs alone do not.)
           if [ "$RELEASE_WORTHY" != "true" ]; then
-          while IFS= read -r file; do
-            case "$file" in
-              tests/*|docs/*|.github/*|*.md) ;;  # excluded
-              *) RELEASE_WORTHY=true; break ;;
-            esac
-          done <<< "$CHANGED"
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+            echo "Last tag: ${LAST_TAG:-<none>}"
+            if git log ${LAST_TAG:+$LAST_TAG..HEAD} --format='%s%n%b' \
+                | grep -qE '^([a-z]+)(\([^)]+\))?!:|^(feat|fix|perf)(\([^)]+\))?:|^BREAKING CHANGE:'; then
+              echo "Found unreleased bump-worthy commits since ${LAST_TAG:-<root>}"
+              RELEASE_WORTHY=true
+            fi
           fi
 
           echo "release_worthy=$RELEASE_WORTHY" >> "$GITHUB_OUTPUT"
