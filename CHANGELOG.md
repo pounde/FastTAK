@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v0.27.0 (2026-05-28)
+
+### Bug Fixes
+
+- **ci**: Gate release on unreleased commits, not just pushed files
+  ([`1db5a0f`](https://github.com/pounde/FastTAK/commit/1db5a0faaa256894c452cd3b029bd385f4ffaa8a))
+
+- **test**: Stub age-keygen in backup runner unit tests
+  ([`5fddb12`](https://github.com/pounde/FastTAK/commit/5fddb12743fe1e9d12aa4f5c0f4819fe7a4d11b2))
+
+### Features
+
+- Backup and restore
+  ([`fbb8208`](https://github.com/pounde/FastTAK/commit/fbb82081a919efdad21dd8511b512503b0aab506))
+
+- Optional MediaMTX stream recording
+  ([`1e6e245`](https://github.com/pounde/FastTAK/commit/1e6e2451389d2316333852957aec8317cb50be8b))
+
+### Refactoring
+
+- Remove TAK Portal
+  ([`cd53982`](https://github.com/pounde/FastTAK/commit/cd539822e33659e4eb3031565cdfc0f79d438bab))
+
+
 ## v0.26.0 (2026-05-11)
 
 ### Features
