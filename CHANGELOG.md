@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.27.1 (2026-05-28)
+
+### Bug Fixes
+
+- Increase takserver and tak-database resources to prevent crashes
+  ([`83dffeb`](https://github.com/pounde/FastTAK/commit/83dffeb534223e331fbd5dc1675ddcf5e289ad59))
+
+
 ## v0.27.0 (2026-05-28)
 
 ### Bug Fixes
