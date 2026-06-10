@@ -41,6 +41,10 @@ DroneSense RTSPS → MediaMTX proxy → rtsp://<your-server>:8554/ds/<sensor-id>
 
 TLS fingerprints are fetched on first contact with each DroneSense video server and cached in Node-RED flow context — no manual fingerprint configuration required.
 
+The flow continuously reconciles these proxy paths against the DroneSense API: because
+DroneSense rotates each stream's relay endpoint per session, the flow updates the
+MediaMTX source when it changes and removes the path when the sensor goes offline.
+
 DroneSense streams inherit MediaMTX's `pathDefaults`, so enabling [video recording](../video-recording.md) captures them automatically. Files land under `recordings/ds/<sensor-id>/`.
 
 ## Stream start/stop semantics
@@ -115,13 +119,17 @@ Poll interval is the **Inject** node's `repeat` value (default 5s). Edit the nod
 
 ## Verify
 
-After deploy, watch:
+After deploy, watch the reconcile activity:
 
 ```bash
-docker compose logs -f nodered | grep -iE 'ds-|fingerprint'
+docker compose logs -f nodered | grep 'ds:'
 ```
 
-You should see fingerprint-cache log lines on first stream, then silence. In WinTAK, drones appear with their callsign; when a sensor starts streaming, the `<__video>` populates and a video button becomes available on the marker.
+You should see `ds: registered ds/<id>` when a sensor starts streaming, `ds: replaced
+(endpoint rotated) ds/<id>` when DroneSense issues a new session endpoint, and `ds:
+deleted ds/<id> (offline)` when it stops. In WinTAK, drones appear with their callsign;
+when a sensor starts streaming, the `<__video>` populates and a video button becomes
+available on the marker.
 
 ## Files
 

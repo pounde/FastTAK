@@ -4,6 +4,26 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-044: DroneSense MediaMTX proxy paths are reconciled, not add-once
+
+**Decision:** The DroneSense flow reconciles MediaMTX `ds/*` proxy paths against the live
+MediaMTX config every 5 s (add / replace-on-change / delete-orphan), on a timer decoupled
+from the per-mission poll fan-out.
+
+**Why:** DroneSense relay endpoints are ephemeral and rotate per streaming session (new
+host/port/credentials/TLS cert). The original `paths/add`-once registration froze each
+path to its first endpoint; `add` rejects updates (`path already exists`), so rotated
+sensors silently stopped ingesting — recording and live playback failed intermittently.
+Reconciling against MediaMTX's actual state also self-heals after a MediaMTX restart and
+reaps orphaned paths.
+
+**Alternatives considered:** Tracking registered paths only in Node-RED flow context (no
+GET) — rejected: desyncs on MediaMTX restart and leaves orphans. Driving reconcile off the
+Build CoT output — rejected: the per-mission fan-out means a single invocation sees only
+one mission and would delete other missions' paths.
+
+---
+
 ## DD-043: Remove TAK Portal
 
 **Date:** 2026-05-28
@@ -27,7 +47,7 @@ Extended Key Usage contents.
 **Why:** TAK Server 5.6 has an undocumented gate in
 `com.bbn.marti.groups.X509Authenticator.auth()`. The cache-based
 group filter is consulted only when a cert's EKU contains the OID
-`1.2.840.113549.1.9.7` (PKCS#9 ChallengePassword) — *or* when this
+`1.2.840.113549.1.9.7` (PKCS#9 ChallengePassword) — _or_ when this
 attribute is `false`. Default is `true`. The OID is injected onto enrolled
 certs by `/Marti/api/tls/signClient/v2` only when the request includes a
 non-null `?version=` query parameter; the CSR's requested extensions are
@@ -54,12 +74,12 @@ for users who have never called `setActiveGroups`.
 
 **Alternatives considered:**
 
-- *Per-client retrofit (each TAK client appends `?version=…` on
-  enrollment):* fixes the symptom only for newly-enrolled certs, requires
+- _Per-client retrofit (each TAK client appends `?version=…` on
+  enrollment):_ fixes the symptom only for newly-enrolled certs, requires
   a code change in every TAK client implementation, and does nothing for
   hard-cert users. Adopted in parallel by the Wistful Weasel client
   (separate brief), but insufficient on its own.
-- *Patch the TAK Server WAR to always inject the OID at sign time:*
+- _Patch the TAK Server WAR to always inject the OID at sign time:_
   requires rebuilding the upstream `takserver.war` for every TAK Server
   release we adopt. High maintenance burden for a config-equivalent
   outcome.
@@ -109,7 +129,7 @@ Node-RED defaults), or (b) `sed`-patching the volume copy from
 `start.sh`. Neither is conceptually heavy, but both expand FastTAK's
 surface area for a narrow benefit:
 
-The orphan window from in-memory tracking is *bounded* in practice. NWS
+The orphan window from in-memory tracking is _bounded_ in practice. NWS
 Severe/Extreme alerts typically have validity windows of 30–90 minutes,
 and the orphan case requires three things to align: (1) Node-RED
 restarts, (2) a specific alert is canceled or expires during that
@@ -123,7 +143,7 @@ accumulating without limit.
 
 **What we don't do, and why:**
 
-- *Per-feature stale from `properties.expires`:* Would tighten the
+- _Per-feature stale from `properties.expires`:_ Would tighten the
   NOAA-emitted stale times to the actual expiry NOAA reports, which is
   more accurate than the flow's hard-coded 1-hour stale. Deferred — the
   client-side stale-on-drawings behavior makes this a backstop only,
@@ -131,10 +151,10 @@ accumulating without limit.
   shared `geojson-to-cot` subflow (new optional `STALE_PROP` env). Not
   worth the subflow change today; revisit if we find another flow that
   needs it.
-- *Geographic / event-type filtering of the NOAA URL:* Orthogonal to
-  cleanup — addresses *volume*, not *staleness*. Operators can change
+- _Geographic / event-type filtering of the NOAA URL:_ Orthogonal to
+  cleanup — addresses _volume_, not _staleness_. Operators can change
   the URL in the `NOAA feed URL` change node when scoping their feed.
-- *Switch from `u-d-f` polygons to `a-n-X-i-m-*` point markers:*
+- _Switch from `u-d-f` polygons to `a-n-X-i-m-_` point markers:\*
   Orthogonal. Point markers do auto-purge on stale, so a future flow
   variant that emits points instead of (or alongside) shapes would
   reduce dependence on explicit deletes — but that is a different CoT
