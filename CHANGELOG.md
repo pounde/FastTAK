@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.27.2 (2026-06-10)
+
+### Bug Fixes
+
+- **dronesense**: Reconcile MediaMTX proxy paths instead of add-once
+  ([`006c96f`](https://github.com/pounde/FastTAK/commit/006c96fc21898d6b13de406601eb25721ec79e45))
+
+### Chores
+
+- Fix formatting of .env.example
+  ([`3028bce`](https://github.com/pounde/FastTAK/commit/3028bce535600c910f5a7d6df8808d8286dbb349))
+
+- Sync stale uv.lock to 0.27.1
+  ([`57acd72`](https://github.com/pounde/FastTAK/commit/57acd729b2d22a30bac6d883dc7774b64d781bb3))
+
+
 ## v0.27.1 (2026-05-28)
 
 ### Bug Fixes
