@@ -124,12 +124,18 @@ def _check_user_expiry(
                 ak.deactivate_user(user_id)
                 log.info("TTL expired: deactivated user %s (id=%d)", username, user_id)
 
-            if tak:
-                all_revoked = tak.revoke_all_user_certs(username)
-            else:
-                all_revoked = True
-
-            if all_revoked:
+            if tak is None:
+                # No TAK client configured: certs cannot be revoked. Do NOT mark
+                # the user revoked, or get_users_pending_expiry() would filter
+                # them out forever, leaving a valid cert on TAK Server. Leave the
+                # flag unset so a later tick retries once TAK is available (#55).
+                log.warning(
+                    "TTL expired: no TAK client available, deferring cert "
+                    "revocation for %s (id=%d)",
+                    username,
+                    user_id,
+                )
+            elif tak.revoke_all_user_certs(username):
                 ak.mark_certs_revoked(user_id)
                 log.info("TTL expired: revoked certs for %s (id=%d)", username, user_id)
             else:

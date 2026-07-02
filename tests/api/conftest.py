@@ -16,5 +16,8 @@ def client():
     ):
         from app.main import app
 
-        with TestClient(app) as c:
+        # Default to an authenticated admin request. Admin-gated routers (issue
+        # #52) require a group; tests exercising rejection supply their own
+        # client/headers instead of using this fixture.
+        with TestClient(app, headers={"Remote-Groups": "monitor_admin"}) as c:
             yield c

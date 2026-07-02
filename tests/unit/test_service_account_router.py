@@ -6,7 +6,8 @@ import pytest
 from app.main import app
 from fastapi.testclient import TestClient
 
-client = TestClient(app)
+# service_accounts_router is admin-gated (issue #52); send an admin group on every request.
+client = TestClient(app, headers={"Remote-Groups": "monitor_admin"})
 
 
 @pytest.fixture(autouse=True)

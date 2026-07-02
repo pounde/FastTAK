@@ -113,6 +113,34 @@ class TestTtlEnforcement:
         mock_tak.revoke_all_user_certs.assert_called_with("ok_user")
         mock_ak.mark_certs_revoked.assert_called_once_with(5)
 
+    def test_defers_revocation_when_tak_unavailable(self):
+        """When no TAK client is configured, certs cannot be revoked — the user
+        must NOT be marked revoked, so a later tick retries once TAK is available
+        (issue #55). The account is still deactivated in LLDAP."""
+        from unittest.mock import patch
+
+        from app.scheduler import _check_user_expiry
+
+        mock_ak = MagicMock()
+        mock_ak.get_users_pending_expiry.return_value = [
+            {
+                "id": 6,
+                "username": "orphan",
+                "is_active": True,
+                "attributes": {
+                    "fastak_expires": int(time.time()) - 60,
+                    "fastak_certs_revoked": False,
+                },
+            },
+        ]
+
+        # tak=None arg makes the function resolve the scheduler singleton; force it None.
+        with patch("app.scheduler._get_scheduler_tak", return_value=None):
+            _check_user_expiry(mock_ak, None)
+
+        mock_ak.deactivate_user.assert_called_once_with(6)
+        mock_ak.mark_certs_revoked.assert_not_called()
+
     def test_noop_when_no_expired_users(self):
         from app.scheduler import _check_user_expiry
 
