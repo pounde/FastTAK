@@ -37,3 +37,14 @@ def require_group(env_var: str, *, default: str) -> Callable[[Request], None]:
             )
 
     return _dep
+
+
+# Default admin group for the general admin APIs (users, service accounts, ops).
+# Kept equal to the backup default so a single group governs all admin surfaces
+# unless an operator splits them via the env vars.
+ADMIN_GROUP_DEFAULT = "monitor_admin"
+
+
+def require_admin() -> Callable[[Request], None]:
+    """Dependency gating a route on membership in the admin group (`ADMIN_GROUP`)."""
+    return require_group("ADMIN_GROUP", default=ADMIN_GROUP_DEFAULT)

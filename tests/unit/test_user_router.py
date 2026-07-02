@@ -7,7 +7,8 @@ import pytest
 from app.main import app
 from fastapi.testclient import TestClient
 
-client = TestClient(app)
+# users_router is admin-gated (issue #52); send an admin group on every request.
+client = TestClient(app, headers={"Remote-Groups": "monitor_admin"})
 
 
 def _make_test_ca_pem() -> bytes:

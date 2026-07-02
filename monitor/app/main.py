@@ -10,8 +10,9 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from app.api.auth_deps import require_admin
 from app.api.backup.router import router as backup_router
 from app.api.events.router import router as events_router
 from app.api.health.config_drift import init_config_hash
@@ -68,10 +69,15 @@ def _add_middleware_in_execution_order(app: FastAPI, *middlewares: type) -> None
 _add_middleware_in_execution_order(app, AuthContextMiddleware, AuditMiddleware)
 
 # API (JSON)
+# Admin-gated surfaces: users/service-accounts issue and revoke certs (privilege
+# escalation path) and ops runs destructive DB operations. Gated here at include
+# time so the whole router is protected regardless of per-route decorators.
+# backup_router carries its own require_group dependency internally.
+_admin = [Depends(require_admin())]
 app.include_router(health_router)
-app.include_router(ops_router)
-app.include_router(users_router)
-app.include_router(service_accounts_router)
+app.include_router(ops_router, dependencies=_admin)
+app.include_router(users_router, dependencies=_admin)
+app.include_router(service_accounts_router, dependencies=_admin)
 app.include_router(tak_router)
 app.include_router(events_router)
 app.include_router(backup_router)
