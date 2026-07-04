@@ -43,10 +43,12 @@ class IdentityClient:
         proxy_url: str,
         admin_password: str,
         hidden_prefixes: list[str],
+        proxy_secret: str = "",
     ):
         self.lldap_url = lldap_url.rstrip("/")
         self.proxy_url = proxy_url.rstrip("/")
         self._admin_password = admin_password
+        self._proxy_secret = proxy_secret
         self.hidden_prefixes = [p.lower() for p in hidden_prefixes]
         self._client = httpx.Client(timeout=_TIMEOUT)
         self._jwt: str | None = None
@@ -119,6 +121,9 @@ class IdentityClient:
         """Execute an HTTP request against the ldap-proxy REST API."""
         url = f"{self.proxy_url}/{path.lstrip('/')}"
         kwargs.setdefault("timeout", _TIMEOUT)
+        if self._proxy_secret:
+            headers = kwargs.setdefault("headers", {})
+            headers.setdefault("Authorization", f"Bearer {self._proxy_secret}")
         for attempt in range(1, _RETRIES + 1):
             try:
                 r = self._client.request(method, url, **kwargs)

@@ -125,3 +125,6 @@ site/
 !/captures/.gitkeep
 /capture/*
 !/capture/.gitkeep
+
+# Go build output from local `go build ./...` in ldap-proxy (image build is in-container)
+/ldap-proxy/fastak-ldap-proxy

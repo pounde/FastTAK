@@ -59,6 +59,14 @@ func main() {
 		log.Fatal("LDAP_BIND_PASSWORD is required but not set")
 	}
 
+	// Shared secret authenticating the internal /tokens API. Required — an
+	// unauthenticated token API lets any workload on the Docker network mint a
+	// bind credential for any user. setup.sh generates it; the monitor sends it.
+	tokensSecret := os.Getenv("TOKENS_API_SECRET")
+	if tokensSecret == "" {
+		log.Fatal("TOKENS_API_SECRET is required but not set")
+	}
+
 	// Initialize token store
 	tokens, err := NewTokenStore(dbPath)
 	if err != nil {
@@ -84,20 +92,25 @@ func main() {
 	authHandler := NewAuthHandler(proxy, authRateLimit)
 	healthHandler := NewHealthHandler(tokens, proxy)
 
-	// HTTP mux — no auth on these endpoints. The REST API is internal-only
-	// (not exposed via Caddy), reachable only from the Docker network by
-	// the monitor service. If the proxy is ever exposed externally, add auth.
+	// Per-connection auth state for the LDAP protocol listener — searches are
+	// only relayed for connections that have bound non-anonymously.
+	connAuth := newConnAuth()
+
+	// HTTP mux. The /tokens API is authenticated with the shared bearer secret
+	// (it mints bind credentials). /auth/verify is the Caddy forward_auth hook
+	// (authenticated by the user's own Basic credentials + rate limited);
+	// /healthz is the Docker health probe.
 	mux := http.NewServeMux()
-	mux.Handle("POST /tokens", tokensAPI)
-	mux.Handle("GET /tokens/{username}", tokensAPI)
-	mux.Handle("DELETE /tokens/{username}", tokensAPI)
+	mux.Handle("POST /tokens", requireBearer(tokensSecret, tokensAPI))
+	mux.Handle("GET /tokens/{username}", requireBearer(tokensSecret, tokensAPI))
+	mux.Handle("DELETE /tokens/{username}", requireBearer(tokensSecret, tokensAPI))
 	mux.Handle("GET /auth/verify", authRateLimit.Middleware(http.HandlerFunc(authHandler.HandleVerify)))
 	mux.HandleFunc("GET /healthz", healthHandler.HandleHealthz)
 
 	// Start LDAP proxy in background
 	go func() {
 		log.Printf("LDAP proxy listening on %s → %s", ldapListenAddr, lldapAddr)
-		if err := startLDAPServer(ldapListenAddr, proxy); err != nil {
+		if err := startLDAPServer(ldapListenAddr, proxy, connAuth); err != nil {
 			log.Fatalf("LDAP server error: %v", err)
 		}
 	}()

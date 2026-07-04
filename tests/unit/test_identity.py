@@ -814,3 +814,33 @@ class TestUsernameToNumericId:
         """Must stay within JS Number.MAX_SAFE_INTEGER (2^53 - 1)."""
         nid = _username_to_numeric_id("jsmith")
         assert nid <= 0x1FFFFFFFFFFFFF
+
+
+class TestProxyAuth:
+    """The ldap-proxy /tokens API is authenticated with a shared bearer secret
+    (issue #54); _proxy_request must attach it when configured."""
+
+    def _client(self, secret):
+        return IdentityClient(
+            lldap_url="http://lldap-test:17170",
+            proxy_url="http://ldap-proxy-test:8081",
+            admin_password="test-password",
+            hidden_prefixes=[],
+            proxy_secret=secret,
+        )
+
+    def test_sends_bearer_header_when_configured(self):
+        client = self._client("s3cret")
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        with patch.object(client._client, "request", return_value=resp) as mock_req:
+            client._proxy_request("GET", "/tokens/jsmith")
+        assert mock_req.call_args.kwargs["headers"]["Authorization"] == "Bearer s3cret"
+
+    def test_no_header_when_secret_unset(self):
+        client = self._client("")
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        with patch.object(client._client, "request", return_value=resp) as mock_req:
+            client._proxy_request("GET", "/tokens/jsmith")
+        assert "headers" not in mock_req.call_args.kwargs

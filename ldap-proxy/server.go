@@ -26,8 +26,12 @@ import (
 
 // startLDAPServer starts the LDAP protocol listener and blocks until the
 // server is stopped or encounters a fatal error.
-func startLDAPServer(listenAddr string, proxy *LDAPProxy) error {
-	s, err := gldap.NewServer()
+func startLDAPServer(listenAddr string, proxy *LDAPProxy, auth *connAuth) error {
+	// WithOnClose lets us drop per-connection auth state when a client
+	// disconnects, so connAuth.authed does not grow unbounded.
+	s, err := gldap.NewServer(gldap.WithOnClose(func(connID int) {
+		auth.forget(connID)
+	}))
 	if err != nil {
 		return fmt.Errorf("create gldap server: %w", err)
 	}
@@ -38,12 +42,12 @@ func startLDAPServer(listenAddr string, proxy *LDAPProxy) error {
 	}
 
 	// Bind: intercept with proxy.HandleBind (token store → LLDAP fallback)
-	if err := r.Bind(makeBindHandler(proxy)); err != nil {
+	if err := r.Bind(makeBindHandler(proxy, auth)); err != nil {
 		return fmt.Errorf("register bind handler: %w", err)
 	}
 
 	// Search: forward to LLDAP, relay results back to the client
-	if err := r.Search(makeSearchHandler(proxy)); err != nil {
+	if err := r.Search(makeSearchHandler(proxy, auth)); err != nil {
 		return fmt.Errorf("register search handler: %w", err)
 	}
 
@@ -66,8 +70,9 @@ func startLDAPServer(listenAddr string, proxy *LDAPProxy) error {
 
 // makeBindHandler returns a gldap handler that authenticates bind requests
 // through the proxy (token check first, then LLDAP fallback).
-func makeBindHandler(proxy *LDAPProxy) gldap.HandlerFunc {
+func makeBindHandler(proxy *LDAPProxy, auth *connAuth) gldap.HandlerFunc {
 	return func(w *gldap.ResponseWriter, r *gldap.Request) {
+		connID := r.ConnectionID()
 		resp := r.NewBindResponse(
 			gldap.WithResponseCode(gldap.ResultInvalidCredentials),
 		)
@@ -77,51 +82,70 @@ func makeBindHandler(proxy *LDAPProxy) gldap.HandlerFunc {
 
 		m, err := r.GetSimpleBindMessage()
 		if err != nil {
-			log.Printf("[conn=%d] bind: not a simple bind message: %v", r.ConnectionID(), err)
+			log.Printf("[conn=%d] bind: not a simple bind message: %v", connID, err)
+			auth.setAuthed(connID, false)
 			return
 		}
 
-		// Anonymous bind (empty DN and password) — allow it
+		// Anonymous bind (empty DN and password) — allowed by the protocol, but
+		// it authorizes nothing: the connection is not marked authenticated, so
+		// a subsequent search is rejected (see makeSearchHandler).
 		if m.UserName == "" && m.Password == "" {
+			auth.setAuthed(connID, false)
 			resp.SetResultCode(gldap.ResultSuccess)
-			log.Printf("[conn=%d] bind: anonymous bind allowed", r.ConnectionID())
+			log.Printf("[conn=%d] bind: anonymous bind allowed (search not authorized)", connID)
 			return
 		}
 
 		ok, err := proxy.HandleBind(m.UserName, string(m.Password))
 		if err != nil {
-			log.Printf("[conn=%d] bind: error for %s: %v", r.ConnectionID(), m.UserName, err)
+			log.Printf("[conn=%d] bind: error for %s: %v", connID, m.UserName, err)
+			auth.setAuthed(connID, false)
 			resp.SetResultCode(gldap.ResultOperationsError)
 			resp.SetDiagnosticMessage("internal proxy error")
 			return
 		}
 
 		if ok {
+			auth.setAuthed(connID, true)
 			resp.SetResultCode(gldap.ResultSuccess)
-			log.Printf("[conn=%d] bind: success for %s", r.ConnectionID(), m.UserName)
+			log.Printf("[conn=%d] bind: success for %s", connID, m.UserName)
 		} else {
-			log.Printf("[conn=%d] bind: invalid credentials for %s", r.ConnectionID(), m.UserName)
+			auth.setAuthed(connID, false)
+			log.Printf("[conn=%d] bind: invalid credentials for %s", connID, m.UserName)
 		}
 	}
 }
 
 // makeSearchHandler returns a gldap handler that forwards search requests
 // to LLDAP and relays the results back to the client.
-func makeSearchHandler(proxy *LDAPProxy) gldap.HandlerFunc {
+func makeSearchHandler(proxy *LDAPProxy, auth *connAuth) gldap.HandlerFunc {
 	return func(w *gldap.ResponseWriter, r *gldap.Request) {
+		connID := r.ConnectionID()
 		resp := r.NewSearchDoneResponse()
 		defer func() {
 			_ = w.Write(resp)
 		}()
 
+		// Authorization: only relay searches for connections that completed a
+		// successful non-anonymous bind. The upstream search runs as the admin
+		// service account, so an unauthenticated search would leak the whole
+		// directory. Reject before touching LLDAP.
+		if !auth.isAuthed(connID) {
+			log.Printf("[conn=%d] search: rejected — no authenticated bind on this connection", connID)
+			resp.SetResultCode(gldap.ResultInsufficientAccessRights)
+			resp.SetDiagnosticMessage("bind required before search")
+			return
+		}
+
 		m, err := r.GetSearchMessage()
 		if err != nil {
-			log.Printf("[conn=%d] search: bad message: %v", r.ConnectionID(), err)
+			log.Printf("[conn=%d] search: bad message: %v", connID, err)
 			resp.SetResultCode(gldap.ResultOperationsError)
 			return
 		}
 
-		log.Printf("[conn=%d] search: base=%q scope=%d filter=%q", r.ConnectionID(), m.BaseDN, m.Scope, m.Filter)
+		log.Printf("[conn=%d] search: base=%q scope=%d filter=%q", connID, m.BaseDN, m.Scope, m.Filter)
 
 		// Connect to LLDAP as admin to perform the search
 		conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s", proxy.lldapAddr))

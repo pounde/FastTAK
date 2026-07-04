@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     lldap_url: str = "http://lldap:17170"
     ldap_proxy_url: str = "http://ldap-proxy:8080"
     ldap_admin_password: str = ""
+    # Shared secret for the ldap-proxy /tokens API (TOKENS_API_SECRET). Sent as
+    # a bearer token on every proxy request; the proxy rejects calls without it.
+    ldap_proxy_secret: str = ""
 
     # TAK Server API (mTLS)
     tak_server_url: str = "https://tak-server:8443"

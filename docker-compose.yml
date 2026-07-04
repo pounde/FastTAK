@@ -203,6 +203,7 @@ services:
       LLDAP_ADDR: lldap:3890
       LDAP_BASE_DN: ${LDAP_BASE_DN:-DC=takldap}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
+      TOKENS_API_SECRET: ${TOKENS_API_SECRET}
       TOKEN_DB_PATH: /tmp/tokens.db
       ENROLLMENT_TOKEN_TTL_MINUTES: ${ENROLLMENT_TOKEN_TTL_MINUTES:-15}
       ENROLLMENT_TOKEN_ONE_TIME: ${ENROLLMENT_TOKEN_ONE_TIME:-false}
@@ -481,6 +482,7 @@ services:
       # User management API (DD-025)
       LLDAP_URL: http://lldap:17170
       LDAP_PROXY_URL: http://ldap-proxy:8080
+      LDAP_PROXY_SECRET: ${TOKENS_API_SECRET}
       LDAP_ADMIN_PASSWORD: ${LDAP_BIND_PASSWORD}
       TAK_SERVER_URL: https://tak-server:8443
       TAK_API_CERT_PATH: /opt/tak/certs/files/svc_fasttakapi.p12

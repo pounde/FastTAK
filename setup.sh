@@ -132,6 +132,7 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   fill_secret TAK_DB_PASSWORD "$(openssl rand -hex 16)"
   fill_secret APP_DB_PASSWORD "$(openssl rand -hex 16)"
   fill_secret LDAP_BIND_PASSWORD "$(openssl rand -hex 16)"
+  fill_secret TOKENS_API_SECRET "$(openssl rand -hex 32)"
   fill_secret TAK_WEBADMIN_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
 
   echo "  All secrets generated on this device."

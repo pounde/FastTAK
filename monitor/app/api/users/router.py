@@ -40,6 +40,7 @@ def _get_identity() -> IdentityClient:
             proxy_url=settings.ldap_proxy_url,
             admin_password=settings.ldap_admin_password,
             hidden_prefixes=settings.users_hidden_prefixes.split(","),
+            proxy_secret=settings.ldap_proxy_secret,
         )
     return _identity
 
