@@ -39,6 +39,10 @@ volumes:
 # =============================================================================
 networks:
   default:
+  # Isolated network carrying only monitor <-> docker-proxy traffic. `internal`
+  # means no gateway to the outside world — the socket proxy has no egress.
+  docker-proxy:
+    internal: true
 
 # =============================================================================
 # Services
@@ -354,6 +358,50 @@ services:
       - ${TAK_HOST_PATH:-./tak}/certs/files/ca.pem:/opt/tak/certs/ca.pem:ro
 
   # ── Monitor (health API + operations dashboard) ────────────────────────
+  # ── Docker API proxy (scoped socket access for the monitor) ──────────────
+  # The monitor needs the Docker API for service discovery, container logs, and
+  # exec/put_archive during cert issuance. Mounting the raw socket into the
+  # monitor would make any monitor RCE a host-root escape (create a privileged
+  # container that bind-mounts host /). Instead the socket is mounted ONLY here,
+  # and this proxy allowlists the exact method+path set the monitor uses —
+  # crucially DENYING POST /containers/create, which blocks that escape. See
+  # issue #53. Residual: exec into existing containers is still permitted
+  # (required by cert_gen); eliminating that needs the cert-exec refactor (#69).
+  docker-proxy:
+    image: wollomatic/socket-proxy:1  # TODO: digest-pin once the target patch is confirmed
+    restart: unless-stopped
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    user: "0:0"  # must read the host docker socket (root:docker); hardened below
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+    command:
+      - "-loglevel=info"
+      - "-listenip=0.0.0.0"
+      - "-proxyport=2375"
+      - "-socketpath=/var/run/docker.sock"
+      # Service discovery + container inspect/logs + API version negotiation.
+      # `$$` is an escaped literal `$` (compose un-escapes it to `$` for the arg).
+      - '-allowGET=^(/v[0-9.]+)?/(_ping|version|containers/json|containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/(json|logs))(\?.*)?$$'
+      - '-allowHEAD=^(/v[0-9.]+)?/_ping$$'
+      # Exec (create + start) for cert_gen. Does NOT match /containers/create.
+      - '-allowPOST=^(/v[0-9.]+)?/(containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/exec|exec/[a-zA-Z0-9]+/start)$$'
+      # put_archive: write cert PEMs into tak-server for revocation.
+      - '-allowPUT=^(/v[0-9.]+)?/containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/archive(\?.*)?$$'
+      - "-watchdoginterval=3600"
+      - "-stoponwatchdog=false"
+      - "-shutdowngracetime=10"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-proxy
+
   monitor:
     build:
       context: ./monitor
@@ -363,6 +411,9 @@ services:
         FASTTAK_COMMIT: ${FASTTAK_COMMIT:-unknown}
     restart: unless-stopped
     logging: *default-logging
+    # Non-root (issue #53). Override to match the owner of BACKUP_DIR so backups
+    # remain writable; see MONITOR_UID/MONITOR_GID in .env.example.
+    user: "${MONITOR_UID:-10001}:${MONITOR_GID:-10001}"
     deploy:
       resources:
         limits:
@@ -370,6 +421,8 @@ services:
     depends_on:
       tak-server:
         condition: service_healthy
+      docker-proxy:
+        condition: service_started
     environment:
       TAK_VERSION: ${TAK_VERSION}
       TAK_DB_PASSWORD: ${TAK_DB_PASSWORD}
@@ -418,8 +471,9 @@ services:
       BACKUP_RETENTION_KEEP: ${BACKUP_RETENTION_KEEP:-14}
       BACKUP_ADMIN_GROUP: ${BACKUP_ADMIN_GROUP:-monitor_admin}
       BACKUP_PARTIAL_REAP_AGE_SECONDS: ${BACKUP_PARTIAL_REAP_AGE_SECONDS:-21600}
+      # Reach the Docker API through the scoped proxy, not the raw socket (#53).
+      DOCKER_HOST: tcp://docker-proxy:2375
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${TAK_HOST_PATH:-./tak}/certs:/opt/tak/certs:ro
       - .:/opt/fastak:ro  # For .env change detection (directory mount survives file rewrites)
       - ${BACKUP_DIR:-./backups}:/backups
@@ -427,3 +481,9 @@ services:
       - ${TAK_HOST_PATH:-./tak}:/tak-src:ro
       - nodered-data:/nodered-data:ro
       - ./.env:/host/.env:ro
+    networks:
+      # `default` for the rest of the stack (tak-server, lldap, app-db, ...);
+      # `docker-proxy` for the scoped Docker API. Both must be listed — a
+      # service with an explicit networks: is on ONLY the networks named here.
+      - default
+      - docker-proxy

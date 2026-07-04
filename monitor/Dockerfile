@@ -20,6 +20,15 @@ RUN apk add --no-cache openssl curl postgresql17-client age \
 COPY config/ ./config/
 COPY app/ ./app/
 
+# Run as a non-root user (issue #53). uid/gid 10001 is the default; compose
+# overrides it via MONITOR_UID/MONITOR_GID so the runtime uid can match the
+# owner of the bind-mounted BACKUP_DIR. /app is owned by this user so the
+# image is self-consistent when run without an override.
+RUN addgroup -g 10001 app \
+    && adduser -D -u 10001 -G app app \
+    && chown -R app:app /app
+USER app
+
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
