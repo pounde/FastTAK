@@ -25,6 +25,7 @@ nav:
     - Database Management: database-management.md
     - Video Recording: video-recording.md
     - Backup and Restore: backup-and-restore.md
+    - Traffic Capture: capture.md
   - Flows:
     - Overview: flows/index.md
     - DroneSense: flows/dronesense.md

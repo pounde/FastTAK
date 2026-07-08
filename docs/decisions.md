@@ -4,6 +4,50 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-045: Traffic capture via an mitmproxy overlay presenting TAK's own certs
+
+**Decision:** `just up --capture` layers `docker-compose.capture.yml`, adding an
+`mitmdump` reverse proxy (`tak-mitm`) in front of TAK Server on host ports 8443
+(HTTPS/Marti) and 8089 (CoT stream). A one-shot `init-capture` container mints a
+`mitm-proxy` client cert via TAK's own `makeCert.sh` and materializes the cert
+bundles mitm needs. mitm presents **TAK Server's own server cert** downstream and
+the TAK-issued client cert upstream. Decrypted flows are written to
+`./captures/`. It is a local dev tool for protocol documentation and test
+fixtures — no public-internet mode, no traffic rewriting.
+
+**Why:** TAK Server's REST/CoT behaviors aren't canonically specified. Capturing
+a real client↔server exchange gives ground truth for API/client design and
+deterministic replay fixtures (`mitmdump --server-replay`).
+
+**Key choices:**
+
+- **Present TAK's own cert downstream** rather than mitmproxy's CA, so any
+  existing data package connects with no client-side trust change.
+- **No data-package rewrite.** The generated data package already embeds
+  `SERVER_ADDRESS:8089`, and mitm binds those same host ports presenting TAK's
+  cert, so clients hit the proxy transparently. `SERVER_ADDRESS` must be a
+  hostname/IP the client can reach.
+- **`ports: !override` drops tak-server's direct 8443/8089 host bindings** when
+  the overlay loads (8446 stays direct), freeing the ports for mitm. Same
+  directive `docker-compose.test.yml` uses (Compose ≥2.24).
+- **`--ssl-insecure` upstream.** mitm dials the Docker service name `tak-server`,
+  but the server cert's SAN is `SERVER_ADDRESS`; hostname verification would
+  otherwise fail. Upstream is a container we control on the private network, so
+  skipping verification is safe.
+- **`reverse:tls://` (not `tcp://`) for 8089.** `tcp://` dials TAK in plaintext,
+  breaking the upstream mTLS handshake; `tls://` does TLS both directions.
+
+**Limitation:** mitm doesn't request the client's cert, so it authenticates
+upstream as the single `mitm-proxy` user. Captured flows are protocol-accurate
+but identity-flattened, and — because TAK routes situational awareness per user
+— **multiple clients connected through the proxy can't see each other**
+(`DistributedSubscriptionManager: sendLatestReachableSA : User lookup failed for
+mitm-proxy`). Capture is a single-client tool; multi-client operation must run
+without the overlay. This makes capture strictly a dev/diagnostic tool, not an
+operational path.
+
+---
+
 ## DD-044: DroneSense MediaMTX proxy paths are reconciled, not add-once
 
 **Decision:** The DroneSense flow reconciles MediaMTX `ds/*` proxy paths against the live
