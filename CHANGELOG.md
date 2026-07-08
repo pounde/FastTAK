@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v0.28.0 (2026-07-08)
+
+### Bug Fixes
+
+- Preserve docker-compose.override.yml; document federation as disabled
+  ([`f4c32cb`](https://github.com/pounde/FastTAK/commit/f4c32cba654d3d927ab457f4ff11c1c60aa78462))
+
+### Documentation
+
+- **capture**: Capture guide, nav entry, decision record DD-045
+  ([`5a6e4ef`](https://github.com/pounde/FastTAK/commit/5a6e4eff0c7ff5f542c23e5522f823d10ba0a14e))
+
+### Features
+
+- **capture**: Mitmproxy traffic-capture overlay + --capture flag
+  ([#49](https://github.com/pounde/FastTAK/pull/49),
+  [`7766786`](https://github.com/pounde/FastTAK/commit/77667863c01059bc0fdf14c001f3b77b8cc3d962))
+
+### Testing
+
+- **capture**: End-to-end integration tests for the capture overlay
+  ([`330d860`](https://github.com/pounde/FastTAK/commit/330d860efd7642eae03217f496a16e8f8d4d5a43))
+
+
 ## v0.27.2 (2026-06-10)
 
 ### Bug Fixes
