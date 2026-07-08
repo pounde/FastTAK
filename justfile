@@ -67,6 +67,11 @@ up *services:
       mkdir -p ./captures ./capture/mitm
     fi
     if [ -n "$files" ]; then
+      # An explicit COMPOSE_FILE disables compose's override auto-load;
+      # re-append docker-compose.override.yml last so it still wins.
+      if [ -f docker-compose.override.yml ]; then
+        files="$files:docker-compose.override.yml"
+      fi
       export COMPOSE_FILE="$files"
     fi
     # Surface FASTTAK_VERSION / FASTTAK_COMMIT to the monitor image build so
@@ -103,6 +108,9 @@ down *services:
     DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
     if [ "$DEPLOY_MODE" = "direct" ]; then
       export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
+      if [ -f docker-compose.override.yml ]; then
+        export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.override.yml"
+      fi
     fi
     # --remove-orphans removes the capture-overlay containers (tak-mitm,
     # init-capture) even though the overlay is not in COMPOSE_FILE — they are

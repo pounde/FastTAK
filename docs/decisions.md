@@ -4,6 +4,25 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-046: TAK federation is effectively disabled
+
+**Decision:** FastTAK does not support TAK Server federation. It is doubly off:
+`CoreConfig.xml` does not set `enableFederation="true"`, and
+`docker-compose.yml` does not publish the federation ports (9000 v1 / 9001 v2).
+Toggling federation on in the TAK admin UI does **not** make it work — the
+listener would start inside the container but remain unreachable from outside
+the Docker network.
+
+**Why:** No current need, and federation is untested against this stack.
+Supporting it properly is more than a port mapping: it needs
+`fed-truststore.jks` management (exchanging CA certs with the federate),
+enrollment/rotation story, docs, and integration coverage. Until someone needs
+it, an explicit "not supported" beats a half-open door.
+
+**Revisit when:** a deployment actually needs to federate. Tracked in #72.
+
+---
+
 ## DD-045: Traffic capture via an mitmproxy overlay presenting TAK's own certs
 
 **Decision:** `just up --capture` layers `docker-compose.capture.yml`, adding an

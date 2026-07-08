@@ -93,3 +93,12 @@ docker compose up -d --force-recreate init-config tak-server
 ```
 
 See [database-management.md](database-management.md) for the one case where direct YAML editing is appropriate (retention for files/missions when no `.env` retention variables are set).
+
+## Federation
+
+TAK Server federation is **effectively disabled** in FastTAK: `CoreConfig.xml`
+does not enable it, and the federation ports (9000/9001) are not published by
+Docker Compose. Enabling federation in the TAK admin UI will **not** make it
+reachable — the listener stays isolated inside the container. See DD-046 in
+[decisions.md](decisions.md) for the reasoning, and issue #72 for what proper
+support would require.

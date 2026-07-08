@@ -115,9 +115,14 @@ SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' .env | cut -d= -f2)
 DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env | cut -d= -f2)
 DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
 
-# Set compose file based on deploy mode
+# Set compose file based on deploy mode. An explicit COMPOSE_FILE disables
+# compose's override auto-load; re-append docker-compose.override.yml last
+# so it still wins.
 if [ "$DEPLOY_MODE" = "direct" ]; then
   export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
+  if [ -f docker-compose.override.yml ]; then
+    export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.override.yml"
+  fi
 fi
 
 # Surface FastTAK version + commit to the monitor image build.
