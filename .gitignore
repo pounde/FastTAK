@@ -114,3 +114,14 @@ site/
 # =============================================================================
 /recordings/*
 !/recordings/.gitkeep
+
+# =============================================================================
+# Capture (mitmproxy traffic inspection).
+# Flows contain real auth material (client certs, session tokens); mitm certs
+# are extracted under capture/. Track the dirs via .gitkeep so bind mounts have
+# host-owned targets on first `just up --capture`.
+# =============================================================================
+/captures/*
+!/captures/.gitkeep
+/capture/*
+!/capture/.gitkeep

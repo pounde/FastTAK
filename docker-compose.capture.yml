@@ -1,0 +1,79 @@
+# =============================================================================
+# FastTAK — Capture Overlay (mitmproxy sidecar)
+# =============================================================================
+# Loaded by `just up --capture`. Puts an mitmproxy reverse proxy in front of
+# TAK Server on host ports 8443 (HTTPS/Marti) and 8089 (CoT stream). mitm
+# presents TAK's own server cert downstream (no client-side trust change) and a
+# TAK-issued client cert upstream (TAK is mTLS). Decrypted flows land in
+# ./captures/current.flow.
+#
+# Local dev tool only — flows contain real auth material. See docs/capture.md.
+# Requires Docker Compose v2.24+ for the !override directive.
+# =============================================================================
+
+services:
+  # Drop tak-server's direct 8443/8089 host bindings so tak-mitm can bind them.
+  # 8446 (enrollment/admin mTLS) stays direct — it is NOT proxied.
+  tak-server:
+    ports: !override
+      - "8446:8446"
+
+  # One-shot: materialize the certs mitm needs from TAK's cert store.
+  init-capture:
+    build: ./init-capture
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    depends_on:
+      init-config:
+        condition: service_completed_successfully
+    volumes:
+      - ${TAK_HOST_PATH:-./tak}:/opt/tak
+      - ${CAPTURE_CERT_DIR:-./capture/mitm}:/certs
+
+  # mitmproxy reverse proxy in front of tak-server.
+  tak-mitm:
+    image: mitmproxy/mitmproxy:${MITMPROXY_VERSION:?add MITMPROXY_VERSION to .env (see Version Pins in .env.example)}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    depends_on:
+      init-capture:
+        condition: service_completed_successfully
+      tak-server:
+        condition: service_healthy
+    ports:
+      - "8443:8443"   # HTTPS / Marti API (proxied)
+      - "8089:8089"   # CoT stream mTLS (proxied)
+    volumes:
+      - ${CAPTURE_CERT_DIR:-./capture/mitm}:/certs:ro
+      - ${CAPTURE_DIR:-./captures}:/captures
+    command:
+      - mitmdump
+      - --set
+      - confdir=/tmp/mitmproxy
+      - --mode
+      - reverse:https://tak-server:8443@8443
+      - --mode
+      - reverse:tls://tak-server:8089@8089
+      - --certs
+      - "*=/certs/server-bundle.pem"
+      - --set
+      - client_certs=/certs/mitm-client.pem
+      - --ssl-insecure
+      - -w
+      - /captures/current.flow

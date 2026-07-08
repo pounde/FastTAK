@@ -43,14 +43,31 @@ setup-dev:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 
 # Start the stack (reads DEPLOY_MODE from .env to select compose files)
-# Pass service names to rebuild and force-recreate specific services: `just up monitor`
+# Pass service names to rebuild+force-recreate specific services: `just up monitor`
+# Pass --capture to run the mitmproxy capture sidecar: `just up --capture`
 up *services:
     #!/bin/bash
     set -euo pipefail
     DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2 || true)
     DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
+    # Split --capture out of the positional args (rest are service names).
+    capture=false
+    svcs=()
+    for arg in {{services}}; do
+      if [ "$arg" = "--capture" ]; then capture=true; else svcs+=("$arg"); fi
+    done
+    # Build COMPOSE_FILE only when non-default files are needed, so plain
+    # subdomain `just up` still auto-loads docker-compose.override.yml.
+    files=""
     if [ "$DEPLOY_MODE" = "direct" ]; then
-      export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
+      files="docker-compose.yml:docker-compose.direct.yml"
+    fi
+    if [ "$capture" = true ]; then
+      files="${files:-docker-compose.yml}:docker-compose.capture.yml"
+      mkdir -p ./captures ./capture/mitm
+    fi
+    if [ -n "$files" ]; then
+      export COMPOSE_FILE="$files"
     fi
     # Surface FASTTAK_VERSION / FASTTAK_COMMIT to the monitor image build so
     # backups produced from this stack are labeled with the right version
@@ -69,10 +86,17 @@ up *services:
       FASTTAK_COMMIT="unknown"
     fi
     export FASTTAK_VERSION FASTTAK_COMMIT
-    docker compose up -d --build {{ if services != "" { "--force-recreate" } else { "" } }} {{ services }}
+    # Branch on the array rather than expanding it: on macOS bash 3.2,
+    # "${svcs[@]}" on an empty array trips `set -u` (unbound variable).
+    # --remove-orphans clears stale services when toggling --capture on/off.
+    if [ ${#svcs[@]} -gt 0 ]; then
+      docker compose up -d --build --remove-orphans --force-recreate "${svcs[@]}"
+    else
+      docker compose up -d --build --remove-orphans
+    fi
 
-# Stop the stack
-down:
+# Stop the stack (including the capture overlay, if it was up).
+down *services:
     #!/bin/bash
     set -euo pipefail
     DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2 || true)
@@ -80,7 +104,10 @@ down:
     if [ "$DEPLOY_MODE" = "direct" ]; then
       export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
     fi
-    docker compose down
+    # --remove-orphans removes the capture-overlay containers (tak-mitm,
+    # init-capture) even though the overlay is not in COMPOSE_FILE — they are
+    # project orphans. No --capture flag needed; extra args are ignored.
+    docker compose down --remove-orphans
 
 # Take a backup. Output lands in $BACKUP_DIR (default ./backups).
 backup:
