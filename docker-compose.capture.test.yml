@@ -1,0 +1,30 @@
+# =============================================================================
+# FastTAK — Capture Overlay, Test Adjustments
+# =============================================================================
+# Layered on top of docker-compose.yml + docker-compose.test.yml +
+# docker-compose.capture.yml by the capture integration test. It exercises the
+# REAL init-capture + tak-mitm services from docker-compose.capture.yml (so the
+# test catches regressions in the actual mitm command), changing only what's
+# needed for test isolation:
+#
+#   - tak-server: restore the test-stack host ports that docker-compose.test.yml
+#     assigns. docker-compose.capture.yml drops 8443/8089 to hand them to mitm;
+#     here we put the +10000 test bindings back so the merged tak-server config
+#     matches the already-running container (no recreate) and nothing binds the
+#     un-offset host ports.
+#   - tak-mitm: publish NO host ports. The test drives mitm over the Docker
+#     network by service name (tak-mitm:8443 / tak-mitm:8089), so host bindings
+#     would only risk collisions with a dev stack.
+#
+# Requires Docker Compose v2.24+ for the !override directive.
+# =============================================================================
+
+services:
+  tak-server:
+    ports: !override
+      - "18089:8089"
+      - "18443:8443"
+      - "18446:8446"
+
+  tak-mitm:
+    ports: !override []
