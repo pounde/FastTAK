@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.28.1 (2026-08-11)
+
+### Bug Fixes
+
+- **security**: Gate admin APIs and fix silent TTL revocation skip
+  ([`8a0179e`](https://github.com/pounde/FastTAK/commit/8a0179e1b77123fd0d2acc4a256fa1b810ad0ec3))
+
+- **security**: Lock the monitor down to admin-only (DD-047)
+  ([`78ecfd2`](https://github.com/pounde/FastTAK/commit/78ecfd279385bd0fbb8491162fd6b371eb4eb38a))
+
+- **test**: Give docker compose the env it needs to interpolate the test overlay
+  ([`0787f3b`](https://github.com/pounde/FastTAK/commit/0787f3b2e808576cda56541414cd437c848265dd))
+
+
 ## v0.28.0 (2026-07-08)
 
 ### Bug Fixes
