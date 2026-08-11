@@ -49,36 +49,37 @@ TAK Server ←→ ldap-proxy ←→ LLDAP ←→ PostgreSQL (app-db)
 ### Important: LDAP cache delay
 
 When a new user is created or group membership changes, TAK Server's LDAP cache takes up to 30 seconds to refresh. During this window:
+
 - The user can connect (cert auth works immediately)
 - But they may see "No channels found"
 - After 30 seconds, disconnect and reconnect — channels appear
 
 ### Groups and TAK channels
 
-| LLDAP Group | TAK Channel | Who sees it |
-|----------------|-------------|-------------|
-| `tak_ROLE_ADMIN` | (admin access) | Admin users |
-| `tak_team1` | `team1` | Users in group |
-| `tak_fires` | `fires` | Users in group |
+| LLDAP Group      | TAK Channel    | Who sees it    |
+| ---------------- | -------------- | -------------- |
+| `tak_ROLE_ADMIN` | (admin access) | Admin users    |
+| `tak_team1`      | `team1`        | Users in group |
+| `tak_fires`      | `fires`        | Users in group |
 
 Only groups with the `tak_` prefix appear as TAK channels. Create groups in the Monitor dashboard (or directly in LLDAP), then assign users.
 
 ### Key components
 
-| Component | What it does | Runs on |
-|-----------|-------------|---------|
-| `lldap` | Lightweight LDAP server (Rust), user directory, GraphQL management API | Port 3890 (internal) |
-| `ldap-proxy` | LDAP proxy with enrollment token interception, forward auth endpoint | Port 3389 (internal) |
-| `init-identity` | One-shot bootstrap of LDAP users, groups, and schemas via GraphQL | Exits after setup |
-| `adm_ldapservice` | Service account TAK Server uses to query LDAP | LLDAP user |
-| `CoreConfig.xml` | TAK Server config with LDAP connection details | `/opt/tak/` |
+| Component         | What it does                                                           | Runs on              |
+| ----------------- | ---------------------------------------------------------------------- | -------------------- |
+| `lldap`           | Lightweight LDAP server (Rust), user directory, GraphQL management API | Port 3890 (internal) |
+| `ldap-proxy`      | LDAP proxy with enrollment token interception, forward auth endpoint   | Port 3389 (internal) |
+| `init-identity`   | One-shot bootstrap of LDAP users, groups, and schemas via GraphQL      | Exits after setup    |
+| `adm_ldapservice` | Service account TAK Server uses to query LDAP                          | LLDAP user           |
+| `CoreConfig.xml`  | TAK Server config with LDAP connection details                         | `/opt/tak/`          |
 
 ## Authorization: who may use the Monitor
 
 Authentication and authorization are separate steps. Caddy's `forward_auth`
-proves *who* you are — any valid LDAP bind passes, so every TAK user clears it —
+proves _who_ you are — any valid LDAP bind passes, so every TAK user clears it —
 and then copies `Remote-User` and `Remote-Groups` to the monitor. The monitor
-decides *what* you may do from that group list.
+decides _what_ you may do from that group list.
 
 The monitor is an admin console: every JSON API and every dashboard page
 requires membership in `ADMIN_GROUP` (default `monitor_admin`). That covers user
@@ -88,14 +89,15 @@ group authenticates successfully and then gets **403** on every route.
 
 Two deliberate exceptions:
 
-| Route | Access | Why |
-|-------|--------|-----|
-| `/api/ping` | Open | Liveness probe; returns `{"status": "ok"}` and nothing else |
-| `/api/backup/*`, `/dashboard/backups*` | `BACKUP_ADMIN_GROUP` | Lets you appoint a backup operator who is not a full admin |
+| Route                                  | Access               | Why                                                         |
+| -------------------------------------- | -------------------- | ----------------------------------------------------------- |
+| `/api/ping`                            | Open                 | Liveness probe; returns `{"status": "ok"}` and nothing else |
+| `/api/backup/*`, `/dashboard/backups*` | `BACKUP_ADMIN_GROUP` | Lets you appoint a backup operator who is not a full admin  |
 
 Both group names are env vars, read per request — rename a group in `.env` and
 restart the monitor; no rebuild, no code change.
 
+> [!WARNING]
 > The monitor trusts `Remote-Groups` because Caddy overwrites it on every
 > request. Publishing the monitor's container port directly (as the test stack
 > does) bypasses Caddy and lets a caller set the header themselves — keep the
