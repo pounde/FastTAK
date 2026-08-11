@@ -1,8 +1,8 @@
 """Tests for /api/tak/* proxy endpoints.
 
-The default Remote-Groups header is forward-compatible with #21's agency
-filter — once that lands, an unauthenticated test caller would otherwise
-receive [] from filtered endpoints. The header is harmless until then.
+The default Remote-Groups header carries the admin group the router is gated on
+(issue #52). It is also forward-compatible with #21's agency filter — once that
+lands, a caller without groups would receive [] from filtered endpoints.
 """
 
 from unittest.mock import MagicMock, patch
@@ -26,7 +26,7 @@ def app_client(mock_settings):
     with patch("app.api.tak.router._get_tak_server", return_value=fake):
         client = TestClient(
             app,
-            headers={"Remote-Groups": "fastak_admin", "Remote-User": "tester"},
+            headers={"Remote-Groups": "monitor_admin", "Remote-User": "tester"},
         )
         yield client, fake
 

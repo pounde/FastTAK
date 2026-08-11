@@ -73,6 +73,34 @@ Only groups with the `tak_` prefix appear as TAK channels. Create groups in the 
 | `adm_ldapservice` | Service account TAK Server uses to query LDAP | LLDAP user |
 | `CoreConfig.xml` | TAK Server config with LDAP connection details | `/opt/tak/` |
 
+## Authorization: who may use the Monitor
+
+Authentication and authorization are separate steps. Caddy's `forward_auth`
+proves *who* you are — any valid LDAP bind passes, so every TAK user clears it —
+and then copies `Remote-User` and `Remote-Groups` to the monitor. The monitor
+decides *what* you may do from that group list.
+
+The monitor is an admin console: every JSON API and every dashboard page
+requires membership in `ADMIN_GROUP` (default `monitor_admin`). That covers user
+and certificate management, ops operations, health telemetry, the audit event
+export, and the TAK proxies. A TAK user in `tak_team1` but not in the admin
+group authenticates successfully and then gets **403** on every route.
+
+Two deliberate exceptions:
+
+| Route | Access | Why |
+|-------|--------|-----|
+| `/api/ping` | Open | Liveness probe; returns `{"status": "ok"}` and nothing else |
+| `/api/backup/*`, `/dashboard/backups*` | `BACKUP_ADMIN_GROUP` | Lets you appoint a backup operator who is not a full admin |
+
+Both group names are env vars, read per request — rename a group in `.env` and
+restart the monitor; no rebuild, no code change.
+
+> The monitor trusts `Remote-Groups` because Caddy overwrites it on every
+> request. Publishing the monitor's container port directly (as the test stack
+> does) bypasses Caddy and lets a caller set the header themselves — keep the
+> port unpublished in production.
+
 ## Rate Limiting
 
 Authentication requests to `/auth/verify` (the endpoint Caddy uses for

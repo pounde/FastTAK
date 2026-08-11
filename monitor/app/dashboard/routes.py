@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app import store
-from app.api.auth_deps import require_group
+from app.api.auth_deps import require_admin, require_group
 from app.api.backup.router import run_backup_preflight
 from app.backup import state as backup_state
 from app.backup.config import admin_group_default, backup_dir
@@ -38,6 +38,13 @@ WINDOWS = [
 router = APIRouter(tags=["dashboard"])
 
 _require_backup_admin = require_group("BACKUP_ADMIN_GROUP", default=admin_group_default())
+
+# Every page and partial renders the same data as the admin-gated JSON APIs
+# (DD-012: the dashboard is a consumer of the API, so it inherits the API's
+# authorization). Applied per route rather than on the router so the backup
+# routes keep BACKUP_ADMIN_GROUP alone — an operator who splits that group from
+# ADMIN_GROUP still gets a backup admin who can reach the backup pages.
+_admin = [Depends(require_admin())]
 
 
 def _page_context(**extra) -> dict:
@@ -70,17 +77,17 @@ def _backup_view_models(paths):
 # --- Page routes ---
 
 
-@router.get("/")
+@router.get("/", dependencies=_admin)
 async def dashboard(request: Request):
     return templates.TemplateResponse(request, "dashboard.html", _page_context())
 
 
-@router.get("/ops")
+@router.get("/ops", dependencies=_admin)
 async def ops_page(request: Request):
     return templates.TemplateResponse(request, "ops.html", _page_context())
 
 
-@router.get("/logs")
+@router.get("/logs", dependencies=_admin)
 async def logs_page(request: Request):
     from app.docker_client import discover_services
 
@@ -89,12 +96,12 @@ async def logs_page(request: Request):
     )
 
 
-@router.get("/users")
+@router.get("/users", dependencies=_admin)
 async def users_page(request: Request):
     return templates.TemplateResponse(request, "users.html", _page_context())
 
 
-@router.get("/service-accounts")
+@router.get("/service-accounts", dependencies=_admin)
 async def service_accounts_page(request: Request):
     return templates.TemplateResponse(request, "service_accounts.html", _page_context())
 
@@ -187,7 +194,7 @@ def backups_list_partial(request: Request):
 # --- UI Partials (HTMX fragments) ---
 
 
-@router.get("/ui/partials/health-grid")
+@router.get("/ui/partials/health-grid", dependencies=_admin)
 def ui_health_grid(request: Request):
     entry = store.fetch("containers")
     data = entry["data"] if entry else {}
@@ -196,7 +203,7 @@ def ui_health_grid(request: Request):
     )
 
 
-@router.get("/ui/partials/cert-status")
+@router.get("/ui/partials/cert-status", dependencies=_admin)
 def ui_cert_status(request: Request):
     entry = store.fetch("certs")
     data = entry["data"] if entry else {}
@@ -205,7 +212,7 @@ def ui_cert_status(request: Request):
     )
 
 
-@router.get("/ui/partials/update-status")
+@router.get("/ui/partials/update-status", dependencies=_admin)
 def ui_update_status(request: Request):
     entry = store.fetch("updates")
     data = entry["data"] if entry else {}
@@ -214,7 +221,7 @@ def ui_update_status(request: Request):
     )
 
 
-@router.get("/ui/partials/resources")
+@router.get("/ui/partials/resources", dependencies=_admin)
 def ui_resources(request: Request):
     from app.api.health.containers import get_container_stats
     from app.docker_client import discover_running_services
@@ -227,7 +234,7 @@ def ui_resources(request: Request):
     return templates.TemplateResponse(request, "partials/resources.html", {"resources": results})
 
 
-@router.get("/ui/partials/activity-log")
+@router.get("/ui/partials/activity-log", dependencies=_admin)
 async def ui_activity_log(request: Request):
     from app.api.alerts.engine import get_activity_log
 
@@ -235,7 +242,7 @@ async def ui_activity_log(request: Request):
     return templates.TemplateResponse(request, "partials/activity_log.html", {"events": data})
 
 
-@router.get("/ui/partials/disk-usage")
+@router.get("/ui/partials/disk-usage", dependencies=_admin)
 def ui_disk_usage(request: Request):
     entry = store.fetch("disk")
     data = entry["data"] if entry else {}
@@ -244,7 +251,7 @@ def ui_disk_usage(request: Request):
     )
 
 
-@router.get("/ui/partials/tls-status")
+@router.get("/ui/partials/tls-status", dependencies=_admin)
 def ui_tls_status(request: Request):
     entry = store.fetch("tls")
     data = entry["data"] if entry else {}
@@ -253,7 +260,7 @@ def ui_tls_status(request: Request):
     )
 
 
-@router.get("/ui/partials/config-status")
+@router.get("/ui/partials/config-status", dependencies=_admin)
 def ui_config_status(request: Request):
     entry = store.fetch("config")
     data = entry["data"] if entry else {}
@@ -263,7 +270,7 @@ def ui_config_status(request: Request):
     )
 
 
-@router.get("/ui/partials/user-list")
+@router.get("/ui/partials/user-list", dependencies=_admin)
 async def ui_user_list(request: Request):
     from fastapi import HTTPException as _HTTPException
 
@@ -307,7 +314,7 @@ async def ui_user_list(request: Request):
     )
 
 
-@router.get("/ui/partials/service-account-list")
+@router.get("/ui/partials/service-account-list", dependencies=_admin)
 async def ui_service_account_list(request: Request):
     from fastapi import HTTPException as _HTTPException
 
@@ -330,7 +337,7 @@ async def ui_service_account_list(request: Request):
     )
 
 
-@router.get("/ui/partials/database-health")
+@router.get("/ui/partials/database-health", dependencies=_admin)
 def ui_database_health(request: Request):
     from app.status import Status
 
@@ -351,7 +358,7 @@ def ui_database_health(request: Request):
     )
 
 
-@router.get("/ui/partials/connected-clients")
+@router.get("/ui/partials/connected-clients", dependencies=_admin)
 def ui_connected_clients(request: Request):
     from app.api.tak.router import _build_clients_response
 
@@ -370,7 +377,7 @@ def ui_connected_clients(request: Request):
     )
 
 
-@router.get("/ui/partials/recent-contacts")
+@router.get("/ui/partials/recent-contacts", dependencies=_admin)
 def ui_recent_contacts(request: Request):
     from app.api.tak.router import _build_recent_contacts_response
 
