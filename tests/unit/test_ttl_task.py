@@ -141,6 +141,41 @@ class TestTtlEnforcement:
         mock_ak.deactivate_user.assert_called_once_with(6)
         mock_ak.mark_certs_revoked.assert_not_called()
 
+    def test_deferred_revocation_completes_on_a_later_tick(self):
+        """The point of deferring (#55): the user stays pending, so the next tick
+        with a TAK client available revokes the certs and marks them revoked."""
+        from unittest.mock import patch
+
+        from app.scheduler import _check_user_expiry
+
+        mock_ak = MagicMock()
+        pending_user = {
+            "id": 7,
+            "username": "retried",
+            "is_active": True,
+            "attributes": {
+                "fastak_expires": int(time.time()) - 60,
+                "fastak_certs_revoked": False,
+            },
+        }
+        mock_ak.get_users_pending_expiry.return_value = [pending_user]
+
+        with patch("app.scheduler._get_scheduler_tak", return_value=None):
+            _check_user_expiry(mock_ak, None)
+
+        # Still pending — deactivated, but not marked revoked.
+        mock_ak.mark_certs_revoked.assert_not_called()
+        pending_user["is_active"] = False
+
+        mock_tak = MagicMock()
+        mock_tak.revoke_all_user_certs.return_value = True
+        _check_user_expiry(mock_ak, mock_tak)
+
+        mock_tak.revoke_all_user_certs.assert_called_once_with("retried")
+        mock_ak.mark_certs_revoked.assert_called_once_with(7)
+        # Already deactivated on the first tick; the retry must not repeat it.
+        mock_ak.deactivate_user.assert_called_once_with(7)
+
     def test_noop_when_no_expired_users(self):
         from app.scheduler import _check_user_expiry
 

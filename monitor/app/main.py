@@ -69,17 +69,21 @@ def _add_middleware_in_execution_order(app: FastAPI, *middlewares: type) -> None
 _add_middleware_in_execution_order(app, AuthContextMiddleware, AuditMiddleware)
 
 # API (JSON)
-# Admin-gated surfaces: users/service-accounts issue and revoke certs (privilege
-# escalation path) and ops runs destructive DB operations. Gated here at include
-# time so the whole router is protected regardless of per-route decorators.
-# backup_router carries its own require_group dependency internally.
+# Every JSON surface is admin-only: users/service-accounts issue and revoke certs
+# (privilege escalation path), ops runs destructive DB operations, and health,
+# events, and the TAK proxies are operator telemetry — container inventory, cert
+# expiry, config drift, the audit trail, and the connected-client roster with
+# last-known positions. Gated at include time so the whole router is protected
+# regardless of per-route decorators. backup_router carries its own
+# require_group dependency internally. `/api/ping` (below) stays open as the
+# unauthenticated liveness probe.
 _admin = [Depends(require_admin())]
-app.include_router(health_router)
+app.include_router(health_router, dependencies=_admin)
 app.include_router(ops_router, dependencies=_admin)
 app.include_router(users_router, dependencies=_admin)
 app.include_router(service_accounts_router, dependencies=_admin)
-app.include_router(tak_router)
-app.include_router(events_router)
+app.include_router(tak_router, dependencies=_admin)
+app.include_router(events_router, dependencies=_admin)
 app.include_router(backup_router)
 
 # Dashboard (HTML)

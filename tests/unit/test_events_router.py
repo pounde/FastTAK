@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 def app_client(mock_settings):
     from app.main import app
 
-    return TestClient(app)
+    # events_router is admin-gated (issue #52); send an admin group on every request.
+    return TestClient(app, headers={"Remote-Groups": "monitor_admin"})
 
 
 def test_list_events_filters_by_source(app_client):

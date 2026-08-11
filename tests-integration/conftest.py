@@ -122,13 +122,21 @@ def compose_exec(compose_cmd):
 # ---------------------------------------------------------------------------
 
 
+# Caddy sets these after a successful LDAP bind; the test stack publishes the
+# monitor port directly, so the tests supply them. Every route except
+# /api/ping is admin-gated (issue #52), so without them the suite gets 403s.
+ADMIN_HEADERS = {"Remote-User": "integration-tester", "Remote-Groups": "monitor_admin"}
+
+
 @pytest.fixture(scope="session")
 def api():
-    """Call the Monitor API. Returns (status_code, parsed_json_or_None).
+    """Call the Monitor API as an admin. Returns (status_code, parsed_json_or_None).
 
     Usage: status, data = api("GET", "/api/ping")
     """
-    with httpx.Client(base_url=f"http://localhost:{MONITOR_HOST_PORT}", timeout=30) as client:
+    with httpx.Client(
+        base_url=f"http://localhost:{MONITOR_HOST_PORT}", timeout=30, headers=ADMIN_HEADERS
+    ) as client:
 
         def _call(method: str, path: str, json_data: dict | None = None):
             response = client.request(method, path, json=json_data)
