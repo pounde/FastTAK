@@ -105,13 +105,18 @@ def _purge_recording_dir(stream_dir: Path) -> None:
     )
 
 
-def _recreate_mediamtx(compose_cmd: list[str]) -> None:
-    """Force-recreate the mediamtx service and give it a moment to come up."""
+def _recreate_mediamtx(compose_cmd: list[str], compose_env: dict[str, str]) -> None:
+    """Force-recreate the mediamtx service and give it a moment to come up.
+
+    `compose_env` is required: `up` re-reads docker-compose.test.yml, which
+    interpolates HOST_ENV_FILE (see the fixture in conftest).
+    """
     subprocess.run(
         [*compose_cmd, "up", "-d", "--force-recreate", "mediamtx"],
         check=True,
         capture_output=True,
         timeout=60,
+        env=compose_env,
     )
     # mediamtx scratch image has no healthcheck — wait for it to bind ports
     time.sleep(3)
@@ -137,7 +142,7 @@ def test_default_off_writes_no_recording(stack_info, run_id):
     assert not files, f"Expected no recordings, found {[f.name for f in files]}"
 
 
-def test_recording_on_writes_valid_mp4(stack_info, compose_cmd, run_id):
+def test_recording_on_writes_valid_mp4(stack_info, compose_cmd, compose_env, run_id):
     """With MEDIAMTX_RECORD=true, publishing produces an ffprobe-valid mp4."""
     env_path = Path(stack_info.env_file)
     original_env = env_path.read_text()
@@ -155,7 +160,7 @@ def test_recording_on_writes_valid_mp4(stack_info, compose_cmd, run_id):
     env_path.write_text(modified)
 
     try:
-        _recreate_mediamtx(compose_cmd)
+        _recreate_mediamtx(compose_cmd, compose_env)
 
         publish = _publish_test_stream(stream_name)
         assert publish.returncode == 0, (
@@ -184,5 +189,5 @@ def test_recording_on_writes_valid_mp4(stack_info, compose_cmd, run_id):
         assert "mp4" in ffprobe.stdout.lower(), f"Recording is not a valid mp4: {ffprobe.stdout}"
     finally:
         env_path.write_text(original_env)
-        _recreate_mediamtx(compose_cmd)
+        _recreate_mediamtx(compose_cmd, compose_env)
         _purge_recording_dir(recordings_dir)
