@@ -98,10 +98,10 @@ Both group names are env vars, read per request — rename a group in `.env` and
 restart the monitor; no rebuild, no code change.
 
 !!! warning
-  The monitor trusts `Remote-Groups` because Caddy overwrites it on every
-  request. Publishing the monitor's container port directly (as the test stack
-  does) bypasses Caddy and lets a caller set the header themselves — keep the
-  port unpublished in production.
+    The monitor trusts `Remote-Groups` because Caddy overwrites it on every
+    request. Publishing the monitor's container port directly (as the test stack
+    does) bypasses Caddy and lets a caller set the header themselves — keep the
+    port unpublished in production.
 
 ## Rate Limiting
 
