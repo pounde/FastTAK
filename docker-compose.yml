@@ -435,9 +435,11 @@ services:
         FASTTAK_COMMIT: ${FASTTAK_COMMIT:-unknown}
     restart: unless-stopped
     logging: *default-logging
-    # Non-root (issue #53). Override to match the owner of BACKUP_DIR so backups
-    # remain writable; see MONITOR_UID/MONITOR_GID in .env.example.
-    user: "${MONITOR_UID:-10001}:${MONITOR_GID:-10001}"
+    # Still runs as root — the non-root half of #53 is deferred. tak-server
+    # generates certs as root with mode 0600 under a tree the monitor mounts
+    # read-only, so a non-root monitor gets EACCES on the mTLS client cert,
+    # on .p12 downloads, and on the backup tar. Closing that needs a cert
+    # permissioning scheme (see the follow-up issue), not just a USER line.
     deploy:
       resources:
         limits:
