@@ -46,8 +46,11 @@ services:
     # Override volumes so /host/.env points at the test .env (which lives under
     # TEST_DIR, not the repo root). Without this, docker creates an empty .env
     # directory in the repo for the missing bind source, breaking backup runs.
+    # No docker.sock here: the monitor reaches Docker through docker-proxy via
+    # DOCKER_HOST (issue #53), which this file does not override. Mounting the
+    # socket would re-open the exposure the proxy exists to remove — and it
+    # would be dead weight besides, since DOCKER_HOST takes precedence.
     volumes: !override
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${TAK_HOST_PATH:-./tak}/certs:/opt/tak/certs:ro
       - .:/opt/fastak:ro
       - ${BACKUP_DIR:-./backups}:/backups
