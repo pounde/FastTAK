@@ -365,8 +365,20 @@ services:
   # container that bind-mounts host /). Instead the socket is mounted ONLY here,
   # and this proxy allowlists the exact method+path set the monitor uses —
   # crucially DENYING POST /containers/create, which blocks that escape. See
-  # issue #53. Residual: exec into existing containers is still permitted
-  # (required by cert_gen); eliminating that needs the cert-exec refactor (#69).
+  # issue #53.
+  #
+  # RESIDUAL — this does NOT fully close #53, so do not close that issue on
+  # merge. What a monitor RCE can still do:
+  #   * Exec as root into ANY container on the daemon (cert_gen needs exec, and
+  #     the path pattern cannot be name-scoped because the Docker SDK addresses
+  #     containers by hex ID). That reaches tak-server's ca-do-not-share.key,
+  #     app-db, and lldap.
+  #   * Pass "Privileged": true on that exec — this proxy matches URL paths and
+  #     never inspects request bodies.
+  #   * Inspect any container, i.e. read its env. Marginal here: a monitor RCE
+  #     already yields the monitor's own env (LDAP admin, DB, TAK cert).
+  # Eliminating the first two needs the cert-exec refactor (#69); once that
+  # lands, drop -allowPOST/-allowPUT and make this proxy GET-only.
   docker-proxy:
     image: wollomatic/socket-proxy:1  # TODO: digest-pin once the target patch is confirmed
     restart: unless-stopped
@@ -386,14 +398,26 @@ services:
       - "-listenip=0.0.0.0"
       - "-proxyport=2375"
       - "-socketpath=/var/run/docker.sock"
-      # Service discovery + container inspect/logs + API version negotiation.
+      # Required: -allowfrom defaults to 127.0.0.1/32, which 403s the monitor and
+      # kills its Docker client at API-version negotiation. Resolved by DNS on
+      # every request (the proxy deliberately does not cache), so it survives
+      # container IP changes.
+      - "-allowfrom=monitor"
+      # Service discovery, container inspect/logs/stats, image inspect (the
+      # health grid reads container.image.tags), exec inspect (exec_run always
+      # calls exec_inspect for the exit code), and API version negotiation.
+      # Image IDs arrive as `sha256:…`, so the charset must admit `:`.
       # `$$` is an escaped literal `$` (compose un-escapes it to `$` for the arg).
-      - '-allowGET=^(/v[0-9.]+)?/(_ping|version|containers/json|containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/(json|logs))(\?.*)?$$'
+      # No `(\?.*)?` suffix: the proxy matches URL.Path, which excludes the query
+      # string — adding one would imply query args are validated. They are not.
+      - '-allowGET=^(/v[0-9.]+)?/(_ping|version|containers/json|containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/(json|logs|stats)|images/[a-zA-Z0-9][a-zA-Z0-9_.:@-]*/json|exec/[a-zA-Z0-9]+/json)$$'
       - '-allowHEAD=^(/v[0-9.]+)?/_ping$$'
       # Exec (create + start) for cert_gen. Does NOT match /containers/create.
       - '-allowPOST=^(/v[0-9.]+)?/(containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/exec|exec/[a-zA-Z0-9]+/start)$$'
-      # put_archive: write cert PEMs into tak-server for revocation.
-      - '-allowPUT=^(/v[0-9.]+)?/containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/archive(\?.*)?$$'
+      # put_archive: write cert PEMs into tak-server for revocation. The `?path=`
+      # destination is NOT validated here (paths only); it is safe because
+      # cert_gen.py hard-codes CERT_FILES rather than passing user input.
+      - '-allowPUT=^(/v[0-9.]+)?/containers/[a-zA-Z0-9][a-zA-Z0-9_.-]*/archive$$'
       - "-watchdoginterval=3600"
       - "-stoponwatchdog=false"
       - "-shutdowngracetime=10"
