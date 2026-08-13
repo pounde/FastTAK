@@ -160,7 +160,11 @@ echo "  ⏳ Building containers..."
 docker compose build --quiet 2>/dev/null
 
 echo "  ⏳ Starting services..."
-docker compose up -d > /dev/null 2>&1
+# --remove-orphans: containers for services deleted from the compose file are
+# NOT removed by a plain `up`. Without this an upgrade leaves the old container
+# running on its previous config, invisible to compose — e.g. tak-portal kept
+# running for months after DD-043 removed it, unauthenticated.
+docker compose up -d --remove-orphans > /dev/null 2>&1
 
 echo "  ⏳ Waiting for tak-server..."
 STATUS="unknown"

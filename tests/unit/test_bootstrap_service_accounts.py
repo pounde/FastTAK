@@ -164,3 +164,94 @@ class TestServiceAccountsHaveNoPassword:
         bootstrap.main()
 
         bootstrap.set_password.assert_not_called()
+
+
+class TestGateGroupBootstrap:
+    """Both monitor gate groups must be created and joined.
+
+    ADMIN_GROUP (DD-047) gates every JSON API and dashboard page; the bootstrap
+    originally knew only about BACKUP_ADMIN_GROUP. Renaming ADMIN_GROUP then
+    produced a group nothing created and nobody joined, which 403s every route
+    on the monitor — including for webadmin, with no way back in via the UI.
+    """
+
+    @staticmethod
+    def _reload_with(monkeypatch, **env):
+        """Re-import bootstrap so its module-level group constants pick up env."""
+        import importlib
+
+        import bootstrap
+
+        for key, value in env.items():
+            if value is None:
+                monkeypatch.delenv(key, raising=False)
+            else:
+                monkeypatch.setenv(key, value)
+        return importlib.reload(bootstrap)
+
+    def test_defaults_collapse_to_one_group(self, monkeypatch):
+        mod = self._reload_with(monkeypatch, ADMIN_GROUP=None, BACKUP_ADMIN_GROUP=None)
+
+        assert mod.GATE_GROUPS == ["monitor_admin"], "duplicate group would be created twice"
+        assert mod.DEFAULT_GROUPS == ["tak_ROLE_ADMIN", "monitor_admin"]
+
+    def test_renamed_admin_group_is_bootstrapped(self, monkeypatch):
+        mod = self._reload_with(
+            monkeypatch, ADMIN_GROUP="fastak_operators", BACKUP_ADMIN_GROUP=None
+        )
+
+        assert "fastak_operators" in mod.GATE_GROUPS
+        assert "monitor_admin" in mod.GATE_GROUPS
+        assert mod.DEFAULT_GROUPS[0] == "tak_ROLE_ADMIN"
+
+    def test_split_groups_are_both_bootstrapped(self, monkeypatch):
+        mod = self._reload_with(
+            monkeypatch, ADMIN_GROUP="fastak_operators", BACKUP_ADMIN_GROUP="fastak_backup"
+        )
+
+        assert mod.GATE_GROUPS == ["fastak_operators", "fastak_backup"]
+
+    def test_blank_env_falls_back_to_default(self, monkeypatch):
+        mod = self._reload_with(monkeypatch, ADMIN_GROUP="   ", BACKUP_ADMIN_GROUP=None)
+
+        assert mod.GATE_GROUPS == ["monitor_admin"]
+
+    def test_webadmin_joins_every_gate_group(self, mock_graphql, monkeypatch):
+        """A split ADMIN_GROUP/BACKUP_ADMIN_GROUP must not leave webadmin in only one."""
+        # TAK_WEBADMIN_PASSWORD is captured at import time, so it has to be set
+        # before the reload or main() skips the webadmin branch entirely.
+        mod = self._reload_with(
+            monkeypatch,
+            ADMIN_GROUP="fastak_operators",
+            BACKUP_ADMIN_GROUP="fastak_backup",
+            TAK_WEBADMIN_PASSWORD="pw",
+        )
+        monkeypatch.setattr(mod, "graphql", mock_graphql)
+        monkeypatch.setattr(mod, "lldap_login", MagicMock(return_value="fake-token"))
+        monkeypatch.setattr(mod, "set_password", MagicMock())
+        monkeypatch.setattr(mod, "ensure_user", MagicMock(return_value="webadmin-id"))
+        monkeypatch.setattr(mod, "set_user_attribute", MagicMock())
+        added = MagicMock()
+        monkeypatch.setattr(mod, "add_to_group", added)
+
+        groups = [
+            {"id": 1, "displayName": "tak_ROLE_ADMIN"},
+            {"id": 2, "displayName": "fastak_operators"},
+            {"id": 3, "displayName": "fastak_backup"},
+        ]
+        mock_graphql.side_effect = [
+            {"addUserAttribute": {"ok": True}},
+            {"addUserAttribute": {"ok": True}},
+            {"addUserAttribute": {"ok": True}},
+            {"addUserAttribute": {"ok": True}},
+            {"groups": groups},
+            {"groups": groups},
+            {"groups": groups},
+            {"user": {"id": "svc_fasttakapi", "displayName": "svc_fasttakapi"}},
+            {"updateUser": {"ok": True}},
+        ]
+
+        mod.main()
+
+        joined = {call.args[3] for call in added.call_args_list}
+        assert joined == {1, 2, 3}, f"webadmin missing a gate group: joined ids {joined}"
