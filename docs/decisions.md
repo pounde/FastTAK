@@ -4,6 +4,56 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-049: The monitor reaches Docker through a path-allowlisting proxy
+
+**Decision:** The monitor no longer mounts `/var/run/docker.sock`. A
+`wollomatic/socket-proxy` container holds the socket on an `internal: true`
+network with no egress, and the monitor reaches it over HTTP via
+`DOCKER_HOST=tcp://docker-proxy:2375`. The proxy allowlists by HTTP method and
+URL path, permitting exactly what the monitor calls: container list/inspect/
+logs/stats, image inspect, exec create/start/inspect, and `PUT .../archive`.
+`POST /containers/create` matches nothing and is denied.
+
+**Why:** Issue #53. Docker socket access is host root — anything that can reach
+that API can create a privileged container bind-mounting host `/`. The `:ro`
+flag protects the socket inode, not the API. The monitor is the most exposed
+component in the stack (a web-facing FastAPI app) and simultaneously holds LDAP
+admin credentials, the TAK admin mTLS cert, and database passwords, so a web bug
+there escalated to full host compromise.
+
+**Why `wollomatic` rather than `tecnativa`** (which #53 suggested): tecnativa's
+proxy toggles whole API sections, so enabling containers permits
+`POST /containers/create` along with exec. The monitor genuinely needs exec (for
+cert issuance) and must not have create, and only per-path regex matching can
+express that distinction.
+
+**Configuration that is easy to get wrong:** `-allowfrom` defaults to
+`127.0.0.1/32`, which rejects the monitor and silently nulls its Docker client at
+API-version negotiation — every Docker-backed feature then fails at once while
+the container still reports healthy. It must name the client (`-allowfrom=monitor`,
+resolved by DNS per request). The allowlist must also cover the calls the SDK
+makes implicitly: `exec_run()` always calls `exec_inspect()`, `container.image`
+resolves through `inspect_image`, and image IDs arrive as `sha256:…` so the
+charset must admit a colon.
+
+**Residual — this does not close #53.** The proxy matches paths and never
+inspects request bodies, and the container-ID pattern cannot be name-scoped
+because the SDK addresses containers by hex ID. A monitor compromise can still
+exec as root into any container (reaching `ca-do-not-share.key` in tak-server,
+the databases, the directory), pass `"Privileged": true` on that exec, and
+inspect any container's environment. What is retired is the clean one-shot host
+escape. #69 tracks moving cert-exec off the monitor, after which `-allowPOST`
+and `-allowPUT` can be dropped and the proxy made GET-only.
+
+**Non-root deferred:** running the monitor as a non-root user was part of #53 and
+was removed from this change. tak-server generates certs as root at mode `0600`
+under a tree the monitor mounts read-only, so a non-root monitor gets EACCES on
+the mTLS client cert, on `.p12` downloads, and on the backup tar. That needs a
+cert-tree permissioning scheme, tracked separately, and should not hold up the
+escape fix.
+
+---
+
 ## DD-048: Upgrade rules live in the scripts, not in a checklist
 
 **Decision:** Anything an upgrade must always do is enforced by code, not
