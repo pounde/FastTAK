@@ -95,13 +95,25 @@ Two deliberate exceptions:
 | `/api/backup/*`, `/dashboard/backups*` | `BACKUP_ADMIN_GROUP` | Lets you appoint a backup operator who is not a full admin  |
 
 Both group names are env vars, read per request — rename a group in `.env` and
-restart the monitor; no rebuild, no code change.
+restart the stack; no rebuild, no code change. Restart the whole stack rather
+than just the monitor, so `init-identity` creates the renamed group and adds
+`webadmin` to it. Any other account you want to keep admin access must be added
+to the new group yourself.
 
-!!! warning
+!!! warning "The gate protects against external callers, not other containers"
     The monitor trusts `Remote-Groups` because Caddy overwrites it on every
-    request. Publishing the monitor's container port directly (as the test stack
-    does) bypasses Caddy and lets a caller set the header themselves — keep the
-    port unpublished in production.
+    request — but it has no way to tell that a request actually came from Caddy.
+    Anything that can reach `monitor:8080` on the Docker network can set the
+    header itself and be treated as an admin.
+
+    That includes Node-RED, whose flow editor is reachable by **every**
+    authenticated LDAP user (its Caddy route uses `forward_auth` with no group
+    check) and which can issue arbitrary HTTP requests by design. Keeping the
+    monitor's container port unpublished is necessary but not sufficient.
+
+    Closing this needs either a shared secret injected by Caddy and required by
+    the monitor, or network isolation so the monitor is unreachable from the
+    services an ordinary user can drive. Tracked in the issue tracker.
 
 ## Rate Limiting
 

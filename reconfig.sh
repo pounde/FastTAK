@@ -100,7 +100,9 @@ echo "Bringing stack down..."
 docker compose down
 
 echo "Starting stack (init-config will regenerate server certs)..."
-docker compose up -d
+# --remove-orphans so containers for services removed from the compose file do
+# not survive a reconfigure (see start.sh for the failure this prevents).
+docker compose up -d --remove-orphans
 
 echo ""
 echo "Done. Server cert regenerated for $NEW_ADDRESS ($NEW_MODE)."

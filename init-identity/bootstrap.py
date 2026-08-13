@@ -33,14 +33,30 @@ BASE_DN = os.environ.get("LDAP_BASE_DN", "DC=takldap").strip() or "DC=takldap"
 WEBADMIN_PASS = os.environ.get("TAK_WEBADMIN_PASSWORD", "").strip()
 
 SERVICE_ACCOUNTS = ["svc_fasttakapi"]
-# Gate group for /api/backup/* and the dashboard backups page. Read from
-# env so an operator who renames it (via .env) gets the renamed group
-# bootstrapped and webadmin auto-joined, rather than hitting a 403 on the
-# first backup attempt.
-BACKUP_ADMIN_GROUP = (
-    os.environ.get("BACKUP_ADMIN_GROUP", "monitor_admin").strip() or "monitor_admin"
-)
-DEFAULT_GROUPS = ["tak_ROLE_ADMIN", BACKUP_ADMIN_GROUP]
+
+
+def _group_from_env(var: str, default: str = "monitor_admin") -> str:
+    """Read a gate group name from env, falling back to the default."""
+    return os.environ.get(var, default).strip() or default
+
+
+# Gate groups for the monitor. Both are read from env so an operator who renames
+# one (via .env) gets the renamed group bootstrapped and webadmin auto-joined,
+# rather than being locked out with a 403.
+#
+# ADMIN_GROUP gates every JSON API and dashboard page (DD-047); BACKUP_ADMIN_GROUP
+# gates the backup surfaces only, so a backup operator need not be a full admin.
+# They default to the same group. Both MUST be bootstrapped: without ADMIN_GROUP
+# here, renaming it produces a group that nothing creates and nobody joins, which
+# 403s every route on the monitor — including for webadmin, with no way back in
+# through the UI.
+ADMIN_GROUP = _group_from_env("ADMIN_GROUP")
+BACKUP_ADMIN_GROUP = _group_from_env("BACKUP_ADMIN_GROUP")
+
+# dict.fromkeys de-duplicates while preserving order, for the common case where
+# both names are "monitor_admin".
+GATE_GROUPS = list(dict.fromkeys([ADMIN_GROUP, BACKUP_ADMIN_GROUP]))
+DEFAULT_GROUPS = ["tak_ROLE_ADMIN", *GATE_GROUPS]
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +303,8 @@ def main():
         webadmin_id = ensure_user(LLDAP_URL, token, "webadmin", "Web Admin")
         set_password(LLDAP_URL, token, "webadmin", WEBADMIN_PASS)
         add_to_group(LLDAP_URL, token, webadmin_id, group_ids["tak_ROLE_ADMIN"])
-        add_to_group(LLDAP_URL, token, webadmin_id, group_ids[BACKUP_ADMIN_GROUP])
+        for gate_group in GATE_GROUPS:
+            add_to_group(LLDAP_URL, token, webadmin_id, group_ids[gate_group])
         set_user_attribute(LLDAP_URL, token, "webadmin", "fastak_user_type", "user")
     else:
         log.info("No TAK_WEBADMIN_PASSWORD set, skipping webadmin user")

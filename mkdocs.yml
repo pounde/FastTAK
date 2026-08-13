@@ -17,6 +17,8 @@ nav:
   - Getting Started: quickstart-walkthrough.md
   - Deployment:
     - AWS Lightsail: lightsail-deployment.md
+    - Upgrading: upgrading.md
+  - Troubleshooting: troubleshooting.md
   - Guides:
     - Authentication: authentication.md
     - Certificates: certificates.md
