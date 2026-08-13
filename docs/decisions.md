@@ -4,6 +4,47 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-050: The Docker network is not a trust boundary
+
+**Decision:** The ldap-proxy `/tokens` API requires a shared secret
+(`TOKENS_API_SECRET`, sent as a bearer token by the monitor), and the proxy
+rejects LDAP search from connections that have not completed a successful bind.
+
+**Why:** Issue #54. `/tokens` mints an LDAP bind credential for **any** username,
+including admin accounts, and it was unauthenticated on the reasoning that only
+the monitor could reach it. That reasoning does not hold: every container on the
+default network can reach `ldap-proxy:8080`, and one of them — Node-RED — is a
+scripting environment reachable by every authenticated LDAP user. Anonymous
+search was the same shape: the proxy relayed queries upstream as the admin
+service account, so an unauthenticated caller could read the whole directory.
+
+This supersedes the scope note in DD-036, which justified leaving `/tokens/*`
+unprotected because it was "internal-only … no Caddy route". Reachability is not
+authorization, and colocation on a Docker network is not a trust boundary. The
+same reasoning error appears in DD-047's residual (the monitor trusting
+`Remote-Groups` from any container), which is tracked separately — this decision
+records the principle for both.
+
+**Consequences:** `TOKENS_API_SECRET` becomes a required secret. `setup.sh`
+generates it on fresh install; existing deployments must add it, and the proxy
+fails closed (refusing to start) without it — which stops the whole stack, since
+tak-server waits on ldap-proxy being healthy. That upgrade path needs explicit
+handling rather than being left to fail loudly at the worst moment.
+
+**Residual:** search authorization is binary — any connection that completed
+*any* successful bind may search, and the proxy still relays as the admin
+service account. That raises the bar from "anyone" to "anyone with a valid
+credential", not to "only what you are entitled to see". A user's own password,
+or a 15-minute enrollment token, is enough to enumerate the directory.
+Per-principal search scoping is out of scope here.
+
+**Testing note:** the Go tests added with this change (`connauth_test.go`,
+`server_authz_test.go`, `tokens_auth_test.go`) are not run by CI — `just test`
+is shellcheck plus pytest, and there is no `go test` step. The files encoding
+the authorization rules are therefore verified only when someone runs them by
+hand, which should be fixed alongside this.
+---
+
 ## DD-049: The monitor reaches Docker through a path-allowlisting proxy
 
 **Decision:** The monitor no longer mounts `/var/run/docker.sock`. A
@@ -587,7 +628,12 @@ Failures-only counting restores the intended semantics: brute-force attempts (wh
 **Scope:**
 
 - `/auth/verify` — rate-limited
-- `/tokens/*` — NOT rate-limited; internal-only (monitor service over the Docker network, no Caddy route)
+- `/tokens/*` — NOT rate-limited. The original reasoning was "internal-only
+  (monitor service over the Docker network, no Caddy route)". **DD-050 rejects
+  that premise** — "on the Docker network" is not a trust boundary, and the
+  endpoint mints an LDAP bind credential for any username. It is now
+  authenticated with a shared secret instead. Rate limiting remains unnecessary
+  because an unauthenticated caller is rejected outright.
 - `/healthz` — NOT rate-limited; Docker health probes, not user traffic
 - LDAP bind port 3389 — NOT rate-limited at this layer; it's on the internal Docker network and TAK Server binds twice per enrollment by design (DD-031)
 
