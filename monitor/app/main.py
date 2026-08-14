@@ -22,6 +22,7 @@ from app.api.service_accounts.router import router as service_accounts_router
 from app.api.tak.router import router as tak_router
 from app.api.users.router import router as users_router
 from app.audit import AuditMiddleware, AuthContextMiddleware, init_schema
+from app.config import settings
 from app.dashboard.routes import router as dashboard_router
 from app.dashboard.routes import templates
 from app.scheduler import start_scheduler, stop_scheduler
@@ -31,6 +32,17 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Without the shared secret the monitor still starts, but every call to the
+    # ldap-proxy REST API is sent without the bearer header and comes back 401,
+    # so user management fails one operation at a time with no obvious cause.
+    # ldap-proxy refuses to start in the same situation; say so here too rather
+    # than leaving the asymmetry to be diagnosed from HTTP status codes.
+    if not settings.ldap_proxy_secret:
+        log.error(
+            "LDAP_PROXY_SECRET is empty — ldap-proxy will reject every request "
+            "from the monitor (401). Set TOKENS_API_SECRET in .env and recreate "
+            "the stack; ./scripts/ensure-secrets.sh .env will generate one."
+        )
     init_config_hash()
     try:
         init_schema()
