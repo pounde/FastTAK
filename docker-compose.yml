@@ -68,6 +68,7 @@ services:
       - tak-db-data:/var/lib/postgresql/data
       - *tak-mount
       - ./tak-database/start.sh:/start.sh:ro
+      - ./tak-database/check-pgdata-persistent.sh:/opt/fastak/check-pgdata-persistent.sh:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "martiuser", "-d", "cot"]
       interval: 10s
