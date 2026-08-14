@@ -110,7 +110,7 @@ upgrade_needs_migration() {
 upgrade_cot_plan() {
   local state="$1" skip_cot="$2" remove=false restore=false
   [ "$state" = absent ] || remove=true
-  if [ "$remove" = true ] && [ "$skip_cot" != true ]; then
+  if [ "$remove" = true ] && [ "$skip_cot" = false ]; then
     restore=true
   fi
   printf '%s %s' "$remove" "$restore"
@@ -127,7 +127,7 @@ upgrade_cot_summary() {
   elif [ "$skip_cot" = true ]; then
     printf 'CoT history: DISCARDED (--skip-cot)'
   else
-    printf 'CoT history: not carried across (tak-db-data was kept as-is)'
+    printf 'CoT history: unaffected (tak-db-data was not recreated)'
   fi
 }
 
@@ -556,11 +556,15 @@ fi
 # ── 6. Back up ───────────────────────────────────────────────────────────
 echo ""
 echo "▸ Taking a backup"
-# `tee /dev/stderr` streams the dump's progress while still capturing it for the
-# archive-name parse below. A multi-GB cot database can take many minutes, and a
-# capture-only pipeline makes that a silent wait with no sign of life.
+# `tee -a /dev/stderr` streams the dump's progress while still capturing it for
+# the archive-name parse below. A multi-GB cot database can take many minutes,
+# and a capture-only pipeline makes that a silent wait with no sign of life.
+# `-a` matters: plain `tee /dev/stderr` opens /dev/stderr with O_TRUNC, and
+# under `./upgrade.sh >log 2>log` that reopen has its own offset starting at 0
+# — it overwrites whatever stdout already wrote to the same file instead of
+# appending after it. `-a` opens for append instead, avoiding that.
 # `set -o pipefail` keeps the backup's own exit status, not tee's.
-BACKUP_OUTPUT="$(compose exec -T monitor python -m app.backup run | tee /dev/stderr)" \
+BACKUP_OUTPUT="$(compose exec -T monitor python -m app.backup run | tee -a /dev/stderr)" \
   || fail "backup failed — refusing to continue. Everything after this point is destructive."
 
 ARCHIVE_NAME="$(printf '%s\n' "$BACKUP_OUTPUT" | upgrade_archive_name_from_output)"
@@ -686,13 +690,15 @@ if [ "$TAK_DB_VOLUME_REMOVED" = true ] && [ "$SKIP_COT" = false ]; then
   echo ""
   echo "▸ Restoring the cot database (this may take a while)"
   # cot is SQL_ASCII on TAK Server (monitor/app/backup/manifest.py documents
-  # this — SHOW server_version comes back as bytes from it). A plain CREATE
-  # DATABASE would inherit the new cluster's template encoding, which is UTF-8,
-  # and every high-byte row in the dump would then fail its COPY. The archive's
-  # MANIFEST.json records server versions but not encodings (manifest.build),
-  # so the encoding is pinned here rather than read back from the archive.
-  # TEMPLATE template0 is required: a non-matching encoding cannot be copied
-  # from template1.
+  # this — SHOW server_version comes back as bytes from it). The encoding is
+  # pinned explicitly here rather than left to inherit whatever template1's
+  # default is on the target cluster — the restore target is tak-database's
+  # own cluster, which is itself SQL_ASCII, but pinning it makes the restore
+  # correct independent of the target cluster's default, defensively. The
+  # archive's MANIFEST.json records server versions but not encodings
+  # (manifest.build), so the encoding can't be read back from the archive
+  # either. TEMPLATE template0 is required: a non-matching encoding cannot be
+  # copied from template1.
   # shellcheck disable=SC2016  # expands inside the container, not on the host
   compose exec -T tak-database \
     sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d postgres -c "DROP DATABASE IF EXISTS cot WITH (FORCE);" -c "CREATE DATABASE cot OWNER martiuser ENCODING '"'"'SQL_ASCII'"'"' TEMPLATE template0;"' \

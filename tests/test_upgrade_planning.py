@@ -3,7 +3,9 @@
 
 Everything here runs with FASTAK_UPGRADE_LIB_ONLY=1, which sources the script's
 helper definitions and returns before it touches Docker. The migration itself
-moves Docker volumes and is covered by tests-integration/test_upgrade_rehearsal.py.
+moves Docker volumes and currently has no automated coverage — a rehearsal
+integration test (planned as tests-integration/test_upgrade_rehearsal.py) is
+forthcoming but does not exist yet.
 """
 
 import json
@@ -335,7 +337,7 @@ def test_cot_summary_claims_migration_only_after_a_restore():
     "restored,skip_cot,expected",
     [
         ("false", "true", "CoT history: DISCARDED (--skip-cot)"),
-        ("false", "false", "CoT history: not carried across (tak-db-data was kept as-is)"),
+        ("false", "false", "CoT history: unaffected (tak-db-data was not recreated)"),
         # --skip-cot wins the wording even if a restore somehow ran.
         ("true", "false", "CoT history: migrated"),
     ],

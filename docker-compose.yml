@@ -163,9 +163,20 @@ services:
       POSTGRES_DB: lldap
       POSTGRES_USER: fastak
       POSTGRES_PASSWORD: ${APP_DB_PASSWORD}
+      # Pinned: the postgres:18 image otherwise defaults PGDATA to
+      # /var/lib/postgresql/18/docker (a version-specific path), while the
+      # volume below is mounted at /var/lib/postgresql/data. Without this
+      # override the 18 entrypoint hard-fails on start, refusing to treat the
+      # mount as usable data. Pinning PGDATA to the mount point instead keeps
+      # PGDATA exactly equal to what's mounted, which is what
+      # check-pgdata-persistent.sh's exact-match guard requires — it does NOT
+      # accept a mount at PGDATA's parent (see that script's parent-dir test).
+      # A future major may move PGDATA again; re-check this pin when it does.
+      PGDATA: /var/lib/postgresql/data
     volumes:
       - app-db-data:/var/lib/postgresql/data
       - ./app-db/start.sh:/start.sh:ro
+      - ./tak-database/check-pgdata-persistent.sh:/opt/fastak/check-pgdata-persistent.sh:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "fastak"]
       interval: 10s
