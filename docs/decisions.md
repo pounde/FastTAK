@@ -39,10 +39,13 @@ or a 15-minute enrollment token, is enough to enumerate the directory.
 Per-principal search scoping is out of scope here.
 
 **Testing note:** the Go tests added with this change (`connauth_test.go`,
-`server_authz_test.go`, `tokens_auth_test.go`) are not run by CI — `just test`
-is shellcheck plus pytest, and there is no `go test` step. The files encoding
-the authorization rules are therefore verified only when someone runs them by
-hand, which should be fixed alongside this.
+`server_authz_test.go`, `tokens_auth_test.go`) encode the rules above — who may
+call `/tokens`, and who may search. They were initially unreachable by CI, since
+`just test` was shellcheck plus pytest with no `go test` step, which left the
+authorization rules verified only when someone ran them by hand. `just test` now
+runs them and CI installs Go from `ldap-proxy/go.mod`, so they gate every push.
+Locally they are skipped with a warning when Go is absent, because the image
+builds in-container and a contributor need not have a toolchain installed.
 ---
 
 ## DD-049: The monitor reaches Docker through a path-allowlisting proxy
