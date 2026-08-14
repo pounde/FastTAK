@@ -40,8 +40,11 @@ PG_AUTOVACUUM_SCALE_FACTOR="${PG_AUTOVACUUM_SCALE_FACTOR:-0.05}"
 PG_AUTOVACUUM_COST_LIMIT="${PG_AUTOVACUUM_COST_LIMIT:-1000}"
 PG_MAINTENANCE_WORK_MEM="${PG_MAINTENANCE_WORK_MEM:-256MB}"
 
-# A connection that hangs must not consume the verification deadline.
-export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-5}"
+# A connection that hangs must not consume the verification deadline. Not
+# exported: this is scoped to FastTAK's own psql calls (see psql_show and
+# psql_stderr below) so it doesn't leak into the vendor entrypoint and TAK's
+# own psql/pg_isready calls.
+PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-5}"
 
 # ── 0. Validate the tunables ─────────────────────────────────────────────
 # These are interpolated into postgresql.conf, which is line-oriented and
@@ -66,17 +69,63 @@ reject_unsafe_value PG_AUTOVACUUM_SCALE_FACTOR "$PG_AUTOVACUUM_SCALE_FACTOR"
 reject_unsafe_value PG_AUTOVACUUM_COST_LIMIT "$PG_AUTOVACUUM_COST_LIMIT"
 reject_unsafe_value PG_MAINTENANCE_WORK_MEM "$PG_MAINTENANCE_WORK_MEM"
 
+# ── Shared temp-file rewrite helpers ─────────────────────────────────────
+# Both the CoreConfig password patch and the tuning block below rewrite a
+# file via `<transform> target > tmp && mv tmp target` rather than `sed -i`:
+# BSD sed (macOS) requires an argument to -i and GNU sed forbids one, and this
+# script is executed directly by the unit tests on the developer's host as
+# well as inside the container. An unchecked version of that pattern is the
+# exact silent failure this script exists to remove — a failed write leaves
+# the old file in place, prints nothing, and exits 0. Every step here is
+# checked instead.
+
+# seed_tmp <target> <tmp>
+#
+# Seeds <tmp> from <target> via `cp -p` so it inherits target's mode and
+# owner — `mv` would otherwise stamp the temp file's onto the target.
+seed_tmp() {
+  local target="$1" tmp="$2"
+  if ! cp -p "$target" "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    echo "[tak-database] ERROR: cannot create ${tmp} — ${target} is not rewritable." >&2
+    return 1
+  fi
+}
+
+# commit_tmp <target> <tmp>
+#
+# Atomically swaps <tmp> into place over <target>, once its content has been
+# written by the caller.
+commit_tmp() {
+  local target="$1" tmp="$2"
+  if ! mv "$tmp" "$target"; then
+    rm -f "$tmp"
+    echo "[tak-database] ERROR: failed to replace ${target}." >&2
+    return 1
+  fi
+}
+
 # ── 1. CoreConfig DB password ────────────────────────────────────────────
 # tak-database starts before init-config and needs the password immediately.
-#
-# Written via a temp file rather than `sed -i`: BSD sed (macOS) requires an
-# argument to -i and GNU sed forbids one, and this script is executed directly
-# by the unit tests on the developer's host as well as inside the container.
+patch_coreconfig_password() {
+  local target="$1"
+  local tmp="${target}.fastak.tmp"
+
+  seed_tmp "$target" "$tmp" || return 1
+
+  if ! sed '/<connection /s|password="[^"]*"|password="'"${TAK_DB_PASSWORD}"'"|' "$target" > "$tmp"; then
+    rm -f "$tmp"
+    echo "[tak-database] ERROR: failed to rewrite the DB password in ${target}." >&2
+    return 1
+  fi
+
+  commit_tmp "$target" "$tmp" || return 1
+}
+
 if [ -n "${TAK_DB_PASSWORD:-}" ]; then
   for f in "${TAK_DIR}/CoreConfig.xml" "${TAK_DIR}/CoreConfig.example.xml"; do
     [ -f "$f" ] || continue
-    sed '/<connection /s|password="[^"]*"|password="'"${TAK_DB_PASSWORD}"'"|' "$f" > "${f}.fastak.tmp" \
-      && mv "${f}.fastak.tmp" "$f"
+    patch_coreconfig_password "$f" || exit 1
   done
 fi
 
@@ -110,21 +159,15 @@ EOF
 # Only the text between the two markers is dropped, so anything appended after
 # the block by a later start (or by hand) survives.
 #
-# awk into a temp file rather than `sed -i`, for the BSD/GNU reason above. The
-# temp file is seeded with `cp -p` so it inherits the target's mode and owner —
-# `mv` would otherwise stamp the temp file's onto the target. Every step is
-# checked: an unwritable directory used to short-circuit the `&&`, leaving the
-# old block in place while the append added a second one and the script still
+# Uses the seed_tmp/commit_tmp helpers above. Every step is checked: an
+# unwritable directory used to short-circuit the pattern, leaving the old
+# block in place while the append added a second one and the script still
 # reported success.
 apply_tuning() {
   local target="$1"
   local tmp="${target}.fastak.tmp"
 
-  if ! cp -p "$target" "$tmp" 2>/dev/null; then
-    rm -f "$tmp"
-    echo "[tak-database] ERROR: cannot create ${tmp} — ${target} is not rewritable." >&2
-    return 1
-  fi
+  seed_tmp "$target" "$tmp" || return 1
 
   if ! awk -v b="$BEGIN_MARKER" -v e="$END_MARKER" '
          $0 == b { skip = 1; next }
@@ -136,11 +179,7 @@ apply_tuning() {
     return 1
   fi
 
-  if ! mv "$tmp" "$target"; then
-    rm -f "$tmp"
-    echo "[tak-database] ERROR: failed to replace ${target}." >&2
-    return 1
-  fi
+  commit_tmp "$target" "$tmp" || return 1
 
   if ! tuning_block >> "$target"; then
     echo "[tak-database] ERROR: failed to append FastTAK's tuning to ${target}." >&2
@@ -209,27 +248,43 @@ VENDOR_PID=$!
 # this script — killing the vendor shell leaves it running until the container
 # teardown SIGKILLs it. PGDATA is genuinely persistent now, so that means crash
 # recovery on every stop. Shut it down explicitly on every exit path.
+# stop_postgres
+#
+# Stops the postmaster and returns pg_ctl's exit status, so callers can warn
+# rather than assume a clean shutdown happened. Discarding that status was the
+# same "claims success without having verified it" defect the rest of this
+# script exists to remove. pg_ctl's stderr is printed on failure so a missing
+# binary and a stop timeout don't look identical.
 stop_postgres() {
-  pg_ctl -D "$PGDATA" stop -m fast >/dev/null 2>&1
+  local err status
+  err="$(pg_ctl -D "$PGDATA" stop -m fast 2>&1 >/dev/null)"
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "[tak-database] pg_ctl stop: ${err:-(no output)}" >&2
+  fi
+  return "$status"
 }
 
 stop_vendor() {
   kill "$VENDOR_PID" 2>/dev/null
 }
 
-# Without a trap, `docker stop` kills this script while `wait` is blocked and
-# the postmaster is hard-killed again.
+# As PID 1, this script would otherwise ignore SIGTERM outright rather than
+# being killed by it — Linux does not apply a terminate-by-default signal
+# disposition to PID 1 unless a handler is installed. Without this trap,
+# `docker stop` would wait out its timeout and then SIGKILL the postmaster
+# instead of giving it a clean shutdown.
 on_signal() {
   trap - TERM INT
-  echo "[tak-database] Signal received — stopping PostgreSQL cleanly."
-  stop_postgres
+  echo "[tak-database] Signal received — stopping PostgreSQL."
+  stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
   stop_vendor
   exit 0
 }
 trap on_signal TERM INT
 
 psql_show() {
-  PGPASSWORD="${TAK_DB_PASSWORD:-}" psql -h localhost -U martiuser -d cot \
+  PGCONNECT_TIMEOUT="$PGCONNECT_TIMEOUT" PGPASSWORD="${TAK_DB_PASSWORD:-}" psql -h localhost -U martiuser -d cot \
     -tAc "SHOW $1;" 2>/dev/null | tr -d '[:space:]'
 }
 
@@ -237,7 +292,7 @@ psql_show() {
 # auth failure, a server that never came up and a genuinely wrong setting all
 # render the same. Capture stderr once so the diagnostic says which.
 psql_stderr() {
-  PGPASSWORD="${TAK_DB_PASSWORD:-}" psql -h localhost -U martiuser -d cot \
+  PGCONNECT_TIMEOUT="$PGCONNECT_TIMEOUT" PGPASSWORD="${TAK_DB_PASSWORD:-}" psql -h localhost -U martiuser -d cot \
     -tAc "SHOW autovacuum_vacuum_scale_factor;" 2>&1 >/dev/null | tr '\n' ' '
 }
 
@@ -268,7 +323,7 @@ while [ "$SECONDS" -lt "$DEADLINE" ]; do
   TAK Server's startup, not in FastTAK's tuning — look above this line for the
   vendor's own output.
 EOF
-    stop_postgres
+    stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
     exit 1
   fi
 
@@ -300,7 +355,7 @@ Otherwise the server never became reachable, or FastTAK's block did not reach
 ${LIVE_CONF}. Running on untuned autovacuum with WAL archiving on fills the
 disk, so this is fatal rather than a warning.
 EOF
-  stop_postgres
+  stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
   stop_vendor
   exit 1
 fi
@@ -320,12 +375,12 @@ if [ -x "$GUARD" ]; then
 
   psql stderr: $(psql_stderr)
 EOF
-    stop_postgres
+    stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
     stop_vendor
     exit 1
   fi
   if ! "$GUARD" "$DATA_DIR"; then
-    stop_postgres
+    stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
     stop_vendor
     exit 1
   fi

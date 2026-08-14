@@ -172,6 +172,25 @@ def test_coreconfig_password_is_still_patched(tmp_path):
     assert 'password="test-pw"' in (tak / "CoreConfig.xml").read_text()
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_unwritable_coreconfig_fails_loudly(tmp_path):
+    """The failure this replaces was silent: `sed ... > tmp && mv tmp target`
+    short-circuits when the temp file cannot be created. The old password
+    stays in place, nothing is printed, the script exits 0 into the vendor
+    start, and a stray .fastak.tmp is left in the bind-mounted tree. This
+    must be fatal and must name the file."""
+    tak = _fake_tak_tree(tmp_path)
+    tak.chmod(0o500)
+    try:
+        result = _inject_only(tak)
+    finally:
+        tak.chmod(0o755)
+    assert result.returncode != 0, result.stdout
+    assert "CoreConfig.xml" in result.stderr
+    assert 'password="OLD"' in (tak / "CoreConfig.xml").read_text()
+    assert list(tak.rglob("*.fastak.tmp")) == []
+
+
 # ── The live configuration ($PGDATA/postgresql.conf) ─────────────────────
 #
 # takserver-setup-db.sh copies db-utils/postgresql.conf over the live config
