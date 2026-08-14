@@ -106,6 +106,18 @@ EOF
   exit 1
 fi
 
+if ! tak_version_major_minor "$TAK_VERSION" >/dev/null; then
+  cat >&2 <<EOF
+ERROR: TAK_VERSION=$TAK_VERSION in $ENV_FILE could not be parsed.
+
+Expected the form X.Y or X.Y-anything, e.g. 5.8-RELEASE-65.
+
+Check $ENV_FILE for a typo — a patch-style value like 5.8.65 is not the
+same as the release-bundle version string 5.8-RELEASE-65.
+EOF
+  exit 1
+fi
+
 if ! tak_version_meets_floor "$TAK_VERSION" "$TAK_VERSION_FLOOR"; then
   cat >&2 <<EOF
 ERROR: TAK_VERSION=$TAK_VERSION in $ENV_FILE is below the supported floor of $TAK_VERSION_FLOOR.

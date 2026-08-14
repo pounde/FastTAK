@@ -339,3 +339,53 @@ def test_unset_tak_version_fails(tmp_path):
     )
     assert result.returncode == 1
     assert "tak_version" in result.stderr.lower()
+
+
+def test_unparseable_patch_style_tak_version_fails_with_parse_message(tmp_path):
+    """5.8.65 looks plausible but isn't the real X.Y[-anything] form — the
+    minor substring "8.65" contains a dot and fails the digit-only check.
+    This must be reported as unparseable, not as below the floor: 5.8.65 is
+    not below 5.8, and telling the operator to find a newer release sends
+    them chasing the wrong fix for what is actually a formatting typo.
+    """
+    result = _run(
+        "SERVER_ADDRESS=tak.internal\nDEPLOY_MODE=direct\n"
+        "TAK_WEBADMIN_PASSWORD=secret-pw\nTAK_VERSION=5.8.65\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "5.8.65" in result.stderr
+    assert "below the supported floor" not in result.stderr
+    stderr_lower = result.stderr.lower()
+    assert "pars" in stderr_lower or "format" in stderr_lower
+
+
+def test_unparseable_garbage_tak_version_fails_with_parse_message(tmp_path):
+    result = _run(
+        "SERVER_ADDRESS=tak.internal\nDEPLOY_MODE=direct\n"
+        "TAK_WEBADMIN_PASSWORD=secret-pw\nTAK_VERSION=RELEASE-65\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "RELEASE-65" in result.stderr
+    assert "below the supported floor" not in result.stderr
+    stderr_lower = result.stderr.lower()
+    assert "pars" in stderr_lower or "format" in stderr_lower
+
+
+def test_below_floor_tak_version_still_gets_floor_message_not_parse_message(tmp_path):
+    """Regression guard: a genuinely below-floor value must keep getting the
+    below-the-floor message, not the new parse-failure message. This is the
+    assertion that stops the two branches (unparseable vs. below-floor) from
+    being confused again.
+    """
+    result = _run(
+        "SERVER_ADDRESS=tak.internal\nDEPLOY_MODE=direct\n"
+        "TAK_WEBADMIN_PASSWORD=secret-pw\nTAK_VERSION=5.6-RELEASE-6\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "below the supported floor" in result.stderr
+    stderr_lower = result.stderr.lower()
+    assert "could not be parsed" not in stderr_lower
+    assert "could not parse" not in stderr_lower
