@@ -2,6 +2,26 @@
 
 <!-- version list -->
 
+## v0.28.3 (2026-08-14)
+
+### Bug Fixes
+
+- **security**: Defer the non-root monitor; keep the socket proxy
+  ([`4e01d9a`](https://github.com/pounde/FastTAK/commit/4e01d9a56a1a3bada8afe4033b47f4f93146fb35))
+
+- **security**: Make the docker-proxy allowlist match what the monitor calls
+  ([`955f518`](https://github.com/pounde/FastTAK/commit/955f5182bde3e944639b32687534badff473385a))
+
+- **security**: Scope monitor Docker access via socket proxy, run non-root
+  ([#53](https://github.com/pounde/FastTAK/pull/53),
+  [`74a3b1e`](https://github.com/pounde/FastTAK/commit/74a3b1e37b9f3cb42d313e9644a3e160f3d5d2c3))
+
+### Documentation
+
+- **decisions**: Record the Docker socket proxy decision (DD-049)
+  ([`864217b`](https://github.com/pounde/FastTAK/commit/864217b8686f4eaa29286922bb5b1de88e7c9ec7))
+
+
 ## v0.28.2 (2026-08-14)
 
 ### Bug Fixes
