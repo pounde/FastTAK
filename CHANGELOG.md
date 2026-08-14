@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.28.2 (2026-08-14)
+
+### Bug Fixes
+
+- **upgrade**: Enforce upgrade rules in the scripts; document the rest (DD-048)
+  ([`9f87912`](https://github.com/pounde/FastTAK/commit/9f8791269903925bc1def40f537a81671f68d41b))
+
+### Documentation
+
+- Fix formatting...again
+  ([`baab69a`](https://github.com/pounde/FastTAK/commit/baab69a5bae969ff5eb017d79cdca6ba76925df6))
+
+- Fix warning formatting in authentication.md
+  ([`e870d36`](https://github.com/pounde/FastTAK/commit/e870d36a1f7733fdbe81ffa42d474cc18563c966))
+
+
 ## v0.28.1 (2026-08-11)
 
 ### Bug Fixes
