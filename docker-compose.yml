@@ -53,6 +53,11 @@ services:
   tak-database:
     image: takserver-database:${TAK_VERSION}
     entrypoint: ["/start.sh"]
+    # TAK 5.8's hardened image runs as postgres:0. FastTAK overrides to root:
+    # the bind-mounted /opt/tak tree is owned by the operator's host uid, and
+    # under rootless Podman container uid 0 maps to the invoking user while
+    # uid 999 maps into the subuid range and owns nothing. Tracked in #97.
+    user: "0:0"
     restart: unless-stopped
     logging: *default-logging
     deploy:
@@ -108,6 +113,12 @@ services:
   tak-server:
     image: takserver:${TAK_VERSION}
     entrypoint: ["/start.sh"]
+    # TAK 5.8's hardened image runs as tak:0 (uid 1001). FastTAK overrides to
+    # root: TAK Server writes into the bind-mounted /opt/tak tree, and the
+    # monitor's cert_gen exec calls (monitor/app/api/service_accounts/cert_gen.py)
+    # pass no user= and so inherit the image user. Tracked in #97, which is
+    # sequenced behind #69.
+    user: "0:0"
     restart: unless-stopped
     logging: *default-logging
     deploy:
@@ -140,7 +151,7 @@ services:
 
   # ── App Database (PostgreSQL — shared by LLDAP + Node-RED) ─────────────
   app-db:
-    image: postgres:15-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     logging: *default-logging
     deploy:
