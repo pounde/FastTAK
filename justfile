@@ -4,9 +4,19 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 help:
     @just --list
 
-# Run fast tests (unit + shellcheck) — no Docker needed
+# Run fast tests (unit + shellcheck + go) — no Docker needed
 test:
+    #!/bin/bash
+    set -euo pipefail
     find . -name '*.sh' -not -path './tak/*' -not -path './.venv/*' | xargs shellcheck
+    # ldap-proxy's tests encode its authorization rules (who may call /tokens,
+    # who may search). CI installs Go so they always run there; locally they are
+    # skipped loudly rather than failing a machine that only builds in-container.
+    if command -v go >/dev/null 2>&1; then
+        (cd ldap-proxy && go test ./...)
+    else
+        echo "  ⚠ go not found — SKIPPING ldap-proxy authorization tests"
+    fi
     uv run pytest tests/ -v
 
 # Run full test suite: unit tests first, then stand up stack and validate

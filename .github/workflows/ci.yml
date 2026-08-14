@@ -24,6 +24,12 @@ jobs:
 
       - uses: extractions/setup-just@v3
 
+      # ldap-proxy's authorization tests are Go; without this they are skipped
+      # and the rules governing /tokens and LDAP search go unverified.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ldap-proxy/go.mod
+
       - run: uv sync
       - run: just test
 
