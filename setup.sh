@@ -12,7 +12,6 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/lib-tak-version.sh
-# shellcheck disable=SC1091 # resolved fine when checked with lib-tak-version.sh (see `just test`); only a single-file `shellcheck setup.sh` needs -x to follow it
 . "$SCRIPT_DIR/scripts/lib-tak-version.sh"
 TAK_VERSION_FLOOR="5.8"
 TARGET_DIR="$SCRIPT_DIR"
@@ -95,18 +94,36 @@ EOF
 done
 
 # ── Build Docker images ─────────────────────────────────────────────────────
+# Build one image, or abort with the tail of the build log. A bare
+# `docker build ... | tail -1` under `set -e` cannot fail the script: the
+# pipeline's status is tail's, so a failed build would print "Setup Complete"
+# with no images ever created.
+build_image() {
+  local tag="$1" dockerfile="$2" log status
+  log="$(mktemp)"
+  status=0
+  docker build -t "$tag" -f "$dockerfile" "$RELEASE_DIR" > "$log" 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "" >&2
+    echo "  ERROR: build of $tag failed. Last 40 lines:" >&2
+    tail -40 "$log" >&2
+    rm -f "$log"
+    exit 1
+  fi
+  tail -1 "$log"
+  rm -f "$log"
+}
+
 echo ""
 echo "▸ Building Docker images (this may take a few minutes)..."
 echo "  Note: the hardened images install packages from the Rocky, EPEL,"
 echo "        Adoptium and PGDG repositories during the build. This step"
 echo "        requires outbound network access."
 echo "  Building takserver-database:${VERSION}..."
-docker build -t "takserver-database:${VERSION}" \
-  -f "$DOCKERFILE_DB" "$RELEASE_DIR" 2>&1 | tail -1
+build_image "takserver-database:${VERSION}" "$DOCKERFILE_DB"
 
 echo "  Building takserver:${VERSION}..."
-docker build -t "takserver:${VERSION}" \
-  -f "$DOCKERFILE_SERVER" "$RELEASE_DIR" 2>&1 | tail -1
+build_image "takserver:${VERSION}" "$DOCKERFILE_SERVER"
 
 # ── Set up tak/ directory ────────────────────────────────────────────────────
 echo ""
