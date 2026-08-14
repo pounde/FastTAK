@@ -170,10 +170,12 @@ wait_healthy "DB services" tak-database app-db
 #
 # cot is created SQL_ASCII, matching TAK Server's own cluster
 # (monitor/app/backup/manifest.py documents this — SHOW server_version comes
-# back as bytes from it). A plain CREATE DATABASE inherits the target cluster's
-# template encoding, which is UTF-8, and every high-byte row in the dump then
-# fails its COPY. TEMPLATE template0 is required: a database whose encoding
-# differs from template1's cannot be cloned from template1.
+# back as bytes from it). The encoding is pinned explicitly rather than left
+# to inherit whatever template1's default is on the target cluster — this
+# restore's target is tak-database's own cluster, which is itself SQL_ASCII,
+# but pinning it makes the restore correct independent of the target
+# cluster's default, defensively. TEMPLATE template0 is required: a database
+# whose encoding differs from template1's cannot be cloned from template1.
 echo "[restore] restoring cot database"
 # shellcheck disable=SC2016  # vars expand inside the container, not on the host
 "${COMPOSE[@]}" exec -T tak-database \
