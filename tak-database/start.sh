@@ -4,17 +4,28 @@
 # Wraps TAK Server's own db-utils/configureInDocker.sh with three things the
 # vendor image does not do:
 #   1. Set the CoreConfig DB password before the vendor's setup reads it.
-#   2. Apply FastTAK's PostgreSQL tuning (DD-026) and disable WAL archiving.
+#   2. Apply FastTAK's PostgreSQL tuning (DD-020) and disable WAL archiving.
 #   3. Verify (2) actually took effect once the server is up, and fail if not.
 #
 # On (2): TAK 5.6 exposed tuning as pg_ctl -o flags, and this script used to
 # splice FastTAK's in with sed. TAK 5.8 dropped those flags entirely, so that
 # sed matched nothing and exited 0 — the tuning disappeared with no error.
 # 5.8 moved tuning into db-utils/postgresql.conf, which takserver-setup-db.sh
-# copies over the live config. Appending there is the vendor's own mechanism
-# and cannot silently miss: postgresql.conf is last-wins, so there is no
-# pattern to match. Step (3) exists because "cannot silently miss" is a claim
-# worth testing at runtime.
+# copies over the live config — but only on the very first boot. That script
+# checks whether the `cot` database already exists and, if it does, prompts
+# `read -p "Type 'erase' ..."` before touching it. This container has no TTY,
+# so the read hits EOF and the script exits 1, dozens of lines before the copy.
+# Every boot after the first therefore leaves the live config untouched, and a
+# changed PG_* value in .env would be written somewhere the server never reads.
+#
+# So the block is written to both files, before the vendor entrypoint starts:
+#
+#   db-utils/postgresql.conf   what the vendor copies into PGDATA on first boot
+#   $PGDATA/postgresql.conf    what the server reads on every boot after that
+#
+# The two paths converge: on first boot the vendor's copy already carries the
+# block. Step (3) checks the running server, because "the tuning reached the
+# server" is the only claim that actually matters.
 
 set -uo pipefail
 
@@ -22,11 +33,38 @@ TAK_DIR="${FASTAK_TAK_DIR:-/opt/tak}"
 PG_CONF="${TAK_DIR}/db-utils/postgresql.conf"
 VENDOR_ENTRYPOINT="${TAK_DIR}/db-utils/configureInDocker.sh"
 GUARD="${FASTAK_GUARD:-/opt/fastak/check-pgdata-persistent.sh}"
-MARKER="# FASTTAK-TUNING-BEGIN"
+BEGIN_MARKER="# FASTTAK-TUNING-BEGIN"
+END_MARKER="# FASTTAK-TUNING-END"
 
 PG_AUTOVACUUM_SCALE_FACTOR="${PG_AUTOVACUUM_SCALE_FACTOR:-0.05}"
 PG_AUTOVACUUM_COST_LIMIT="${PG_AUTOVACUUM_COST_LIMIT:-1000}"
 PG_MAINTENANCE_WORK_MEM="${PG_MAINTENANCE_WORK_MEM:-256MB}"
+
+# A connection that hangs must not consume the verification deadline.
+export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-5}"
+
+# ── 0. Validate the tunables ─────────────────────────────────────────────
+# These are interpolated into postgresql.conf, which is line-oriented and
+# quotes string values with '. A value carrying a newline or a single quote
+# can close the quoting and append configuration lines of its own choosing.
+# Same reasoning as env_reject_newline in scripts/ensure-secrets.sh.
+reject_unsafe_value() {
+  case "$2" in
+    *"'"* | *"
+"*)
+      cat >&2 <<EOF
+[tak-database] ERROR: refusing to apply $1 — the value contains a newline or a
+single quote, either of which would let it inject arbitrary postgresql.conf
+lines. Fix the value in .env.
+EOF
+      exit 1
+      ;;
+  esac
+}
+
+reject_unsafe_value PG_AUTOVACUUM_SCALE_FACTOR "$PG_AUTOVACUUM_SCALE_FACTOR"
+reject_unsafe_value PG_AUTOVACUUM_COST_LIMIT "$PG_AUTOVACUUM_COST_LIMIT"
+reject_unsafe_value PG_MAINTENANCE_WORK_MEM "$PG_MAINTENANCE_WORK_MEM"
 
 # ── 1. CoreConfig DB password ────────────────────────────────────────────
 # tak-database starts before init-config and needs the password immediately.
@@ -43,31 +81,13 @@ if [ -n "${TAK_DB_PASSWORD:-}" ]; then
 fi
 
 # ── 2. Tuning + WAL archiving ────────────────────────────────────────────
-if [ ! -f "$PG_CONF" ]; then
-  cat >&2 <<EOF
-[tak-database] ERROR: ${PG_CONF} not found.
-
-FastTAK applies its PostgreSQL tuning by appending to this file, which
-TAK Server's takserver-setup-db.sh then installs as the live configuration.
-Its absence means the release layout changed, and starting anyway would run
-with untuned autovacuum and WAL archiving left on — the exact silent failure
-this check exists to prevent.
-EOF
-  exit 1
-fi
-
-# Idempotent: /opt/tak is bind-mounted from the host, so this file persists
-# across restarts. Drop any previous block before appending a fresh one.
-# awk rather than `sed -i` for the BSD/GNU portability reason noted above.
-awk -v marker="$MARKER" '$0 == marker { exit } { print }' "$PG_CONF" > "${PG_CONF}.fastak.tmp" \
-  && mv "${PG_CONF}.fastak.tmp" "$PG_CONF"
-
-cat >> "$PG_CONF" <<EOF
-${MARKER}
+tuning_block() {
+  cat <<EOF
+${BEGIN_MARKER}
 # Appended by tak-database/start.sh — do not edit; rewritten on every start.
 # postgresql.conf is last-wins, so these override the vendor values above.
 #
-# Autovacuum is tuned for TAK Server's high-write CoT workload (DD-026).
+# Autovacuum is tuned for TAK Server's high-write CoT workload (DD-020).
 # Override via .env; set to PostgreSQL defaults (0.2 / 200 / 64MB) to disable.
 autovacuum_vacuum_scale_factor = ${PG_AUTOVACUUM_SCALE_FACTOR}
 autovacuum_vacuum_cost_limit = ${PG_AUTOVACUUM_COST_LIMIT}
@@ -80,9 +100,99 @@ maintenance_work_mem = '${PG_MAINTENANCE_WORK_MEM}'
 # disk fills. FastTAK's backups are logical (pg_dump) and consume no
 # archives, so archiving is pure cost.
 archive_mode = off
+${END_MARKER}
 EOF
+}
+
+# apply_tuning <target>
+#
+# Idempotent: strips any previous FastTAK block, then appends a fresh one.
+# Only the text between the two markers is dropped, so anything appended after
+# the block by a later start (or by hand) survives.
+#
+# awk into a temp file rather than `sed -i`, for the BSD/GNU reason above. The
+# temp file is seeded with `cp -p` so it inherits the target's mode and owner —
+# `mv` would otherwise stamp the temp file's onto the target. Every step is
+# checked: an unwritable directory used to short-circuit the `&&`, leaving the
+# old block in place while the append added a second one and the script still
+# reported success.
+apply_tuning() {
+  local target="$1"
+  local tmp="${target}.fastak.tmp"
+
+  if ! cp -p "$target" "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    echo "[tak-database] ERROR: cannot create ${tmp} — ${target} is not rewritable." >&2
+    return 1
+  fi
+
+  if ! awk -v b="$BEGIN_MARKER" -v e="$END_MARKER" '
+         $0 == b { skip = 1; next }
+         $0 == e { skip = 0; next }
+         !skip   { print }
+       ' "$target" > "$tmp"; then
+    rm -f "$tmp"
+    echo "[tak-database] ERROR: failed to strip the previous FastTAK block from ${target}." >&2
+    return 1
+  fi
+
+  if ! mv "$tmp" "$target"; then
+    rm -f "$tmp"
+    echo "[tak-database] ERROR: failed to replace ${target}." >&2
+    return 1
+  fi
+
+  if ! tuning_block >> "$target"; then
+    echo "[tak-database] ERROR: failed to append FastTAK's tuning to ${target}." >&2
+    return 1
+  fi
+}
+
+if [ ! -f "$PG_CONF" ]; then
+  cat >&2 <<EOF
+[tak-database] ERROR: ${PG_CONF} not found.
+
+FastTAK applies its PostgreSQL tuning by appending to this file, which
+TAK Server's takserver-setup-db.sh installs as the live configuration on the
+first boot of a fresh database. Its absence means the release layout changed,
+and starting anyway would run with untuned autovacuum and WAL archiving left
+on — the exact silent failure this check exists to prevent.
+EOF
+  exit 1
+fi
+
+if [ -z "${PGDATA:-}" ]; then
+  cat >&2 <<EOF
+[tak-database] ERROR: PGDATA is not set.
+
+The vendor only installs db-utils/postgresql.conf on the first boot of a fresh
+database, so FastTAK must write its tuning to the live configuration as well.
+Without PGDATA that write cannot happen, and a changed PG_* value in .env would
+silently never reach the server. The image sets PGDATA; its absence means the
+image changed.
+EOF
+  exit 1
+fi
+
+LIVE_CONF="${PGDATA}/postgresql.conf"
+if [ ! -f "$LIVE_CONF" ]; then
+  cat >&2 <<EOF
+[tak-database] ERROR: ${LIVE_CONF} not found.
+
+The hardened DB image runs initdb at build time and Docker seeds an empty
+named volume from the image, so the live configuration is expected to exist
+before this entrypoint runs. Its absence means that assumption has broken.
+Continuing would leave the running server on whatever configuration it finds,
+which is the silent failure this check exists to prevent.
+EOF
+  exit 1
+fi
+
+apply_tuning "$PG_CONF" || exit 1
+apply_tuning "$LIVE_CONF" || exit 1
 
 echo "[tak-database] Tuning applied: scale_factor=${PG_AUTOVACUUM_SCALE_FACTOR} cost_limit=${PG_AUTOVACUUM_COST_LIMIT} work_mem=${PG_MAINTENANCE_WORK_MEM} archive_mode=off"
+echo "[tak-database] Targets: ${PG_CONF} (vendor copies on first boot), ${LIVE_CONF} (live)"
 
 # Unit tests exercise the config injection without a PostgreSQL server.
 if [ "${FASTAK_INJECT_ONLY:-}" = "1" ]; then
@@ -95,30 +205,78 @@ fi
 "$VENDOR_ENTRYPOINT" &
 VENDOR_PID=$!
 
+# The postmaster is started by pg_ctl and is a detached daemon, not a child of
+# this script — killing the vendor shell leaves it running until the container
+# teardown SIGKILLs it. PGDATA is genuinely persistent now, so that means crash
+# recovery on every stop. Shut it down explicitly on every exit path.
+stop_postgres() {
+  pg_ctl -D "$PGDATA" stop -m fast >/dev/null 2>&1
+}
+
+stop_vendor() {
+  kill "$VENDOR_PID" 2>/dev/null
+}
+
+# Without a trap, `docker stop` kills this script while `wait` is blocked and
+# the postmaster is hard-killed again.
+on_signal() {
+  trap - TERM INT
+  echo "[tak-database] Signal received — stopping PostgreSQL cleanly."
+  stop_postgres
+  stop_vendor
+  exit 0
+}
+trap on_signal TERM INT
+
 psql_show() {
   PGPASSWORD="${TAK_DB_PASSWORD:-}" psql -h localhost -U martiuser -d cot \
     -tAc "SHOW $1;" 2>/dev/null | tr -d '[:space:]'
 }
 
-# Poll rather than sleep-then-check: takserver-setup-db.sh installs
-# postgresql.conf and restarts the server partway through startup, so the
-# settings are not final until after that restart.
-# FASTAK_VERIFY_TIMEOUT exists so the unit test can exercise the failure path
+# On the failure path an empty value is ambiguous: a missing psql binary, an
+# auth failure, a server that never came up and a genuinely wrong setting all
+# render the same. Capture stderr once so the diagnostic says which.
+psql_stderr() {
+  PGPASSWORD="${TAK_DB_PASSWORD:-}" psql -h localhost -U martiuser -d cot \
+    -tAc "SHOW autovacuum_vacuum_scale_factor;" 2>&1 >/dev/null | tr '\n' ' '
+}
+
+# Poll rather than sleep-then-check: on a first boot takserver-setup-db.sh
+# installs postgresql.conf and restarts the server partway through startup, so
+# the settings are not final until after that restart.
+# FASTAK_VERIFY_TIMEOUT exists so the unit tests can exercise these paths
 # without waiting five minutes.
 DEADLINE=$((SECONDS + ${FASTAK_VERIFY_TIMEOUT:-300}))
 VERIFIED=false
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
   if [ "$(psql_show autovacuum_vacuum_scale_factor)" = "$PG_AUTOVACUUM_SCALE_FACTOR" ] &&
-     [ "$(psql_show autovacuum_vacuum_cost_limit)" = "$PG_AUTOVACUUM_COST_LIMIT" ] &&
-     [ "$(psql_show maintenance_work_mem)" = "$PG_MAINTENANCE_WORK_MEM" ] &&
-     [ "$(psql_show archive_mode)" = "off" ]; then
+    [ "$(psql_show autovacuum_vacuum_cost_limit)" = "$PG_AUTOVACUUM_COST_LIMIT" ] &&
+    [ "$(psql_show maintenance_work_mem)" = "$PG_MAINTENANCE_WORK_MEM" ] &&
+    [ "$(psql_show archive_mode)" = "off" ]; then
     VERIFIED=true
     break
   fi
+
+  # A vendor that has exited will never bring the server up, so waiting out the
+  # full timeout would burn five minutes and then blame the wrong component.
+  if ! kill -0 "$VENDOR_PID" 2>/dev/null; then
+    cat >&2 <<EOF
+[tak-database] ERROR: TAK Server's own entrypoint exited during startup.
+
+  ${VENDOR_ENTRYPOINT} is no longer running, so the database server will never
+  come up and FastTAK's settings can never be verified. This is a failure in
+  TAK Server's startup, not in FastTAK's tuning — look above this line for the
+  vendor's own output.
+EOF
+    stop_postgres
+    exit 1
+  fi
+
   sleep 5
 done
 
 if [ "$VERIFIED" != true ]; then
+  PSQL_ERR="$(psql_stderr)"
   cat >&2 <<EOF
 [tak-database] ERROR: FastTAK's PostgreSQL settings did not take effect.
 
@@ -131,12 +289,19 @@ if [ "$VERIFIED" != true ]; then
           maintenance_work_mem=$(psql_show maintenance_work_mem)
           archive_mode=$(psql_show archive_mode)
 
-Either the server never became reachable, or TAK Server stopped installing
-db-utils/postgresql.conf as the live configuration. Running on untuned
-autovacuum with WAL archiving on fills the disk, so this is fatal rather
-than a warning.
+  psql stderr: ${PSQL_ERR:-(none)}
+
+An empty "got" with psql stderr above means the query failed, not that the
+setting is wrong. PostgreSQL also normalises values it reports back — 0.050
+becomes 0.05 and 262144kB becomes 256MB — so a wanted/got pair that looks
+equivalent means the .env value needs writing in the form the server reports.
+
+Otherwise the server never became reachable, or FastTAK's block did not reach
+${LIVE_CONF}. Running on untuned autovacuum with WAL archiving on fills the
+disk, so this is fatal rather than a warning.
 EOF
-  kill "$VENDOR_PID" 2>/dev/null
+  stop_postgres
+  stop_vendor
   exit 1
 fi
 
@@ -145,8 +310,23 @@ echo "[tak-database] Settings verified against the running server."
 # ── 4. PGDATA persistence guard ──────────────────────────────────────────
 if [ -x "$GUARD" ]; then
   DATA_DIR="$(psql_show data_directory)"
-  if [ -n "$DATA_DIR" ] && ! "$GUARD" "$DATA_DIR"; then
-    kill "$VENDOR_PID" 2>/dev/null
+  if [ -z "$DATA_DIR" ]; then
+    cat >&2 <<EOF
+[tak-database] ERROR: could not read the server's data_directory.
+
+  SHOW data_directory returned nothing, so the persistence guard cannot run.
+  Reporting the volume as verified without having checked it is the silent
+  failure this guard exists to remove, so this is fatal.
+
+  psql stderr: $(psql_stderr)
+EOF
+    stop_postgres
+    stop_vendor
+    exit 1
+  fi
+  if ! "$GUARD" "$DATA_DIR"; then
+    stop_postgres
+    stop_vendor
     exit 1
   fi
   echo "[tak-database] PGDATA (${DATA_DIR}) is on a mounted volume."
