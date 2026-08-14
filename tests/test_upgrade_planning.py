@@ -7,7 +7,9 @@ moves Docker volumes and is covered by tests-integration/test_upgrade_rehearsal.
 """
 
 import json
+import shlex
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -255,6 +257,180 @@ def test_skip_cot_never_skips_the_app_db_restore(app_current):
     """--skip-cot is about CoT history only. Dropping app-db would lose users."""
     result = _call("upgrade_plan", app_current, APP_TARGET, "15", COT_TARGET, "true")
     assert result.stdout.split()[0] == "true"
+
+
+# ── The cot invariant ────────────────────────────────────────────────────
+#
+#   restore_cot  ⟺  (the tak-db-data volume was removed)  ∧  ¬SKIP_COT
+#
+# The restore has to follow from what the script actually destroyed, never
+# from a version comparison. tak-db-data is recreated whenever it exists —
+# `docker volume rm` does not care whether the major changed — so gating the
+# restore on "the cot major is stale" silently drops the whole CoT history
+# every time tak-database is *already* on the target major. That is the
+# permanent steady state after 5.8: the next app-db major bump would delete
+# tak-db-data, restore nothing, and print "CoT history: migrated".
+#
+# upgrade_cot_plan prints "<remove-volume> <restore-cot>".
+
+COT_STATES = ["15", "18", "empty", "absent"]
+
+
+@pytest.mark.parametrize(
+    "state,skip_cot,expected",
+    [
+        # Stale major: the volume goes, the history comes back.
+        ("15", "false", "true true"),
+        # NEW-3. tak-database already on the target major. The volume is still
+        # removed, so the history still has to be restored.
+        ("18", "false", "true true"),
+        # The pre-5.8 shape: the volume exists but TAK 5.6 ran initdb into
+        # /var/lib/postgresql/15/data, so it holds no data directory. The live
+        # cot rows are in the container's writable layer, `compose down`
+        # destroys them, and the archive's cot.sql is the only copy — restore.
+        ("empty", "false", "true true"),
+        # No volume at all: nothing is removed, so nothing is restored.
+        ("absent", "false", "false false"),
+        # --skip-cot suppresses the restore in every shape, never the removal.
+        ("15", "true", "true false"),
+        ("18", "true", "true false"),
+        ("empty", "true", "true false"),
+        ("absent", "true", "false false"),
+    ],
+)
+def test_cot_plan_truth_table(state, skip_cot, expected):
+    result = _call("upgrade_cot_plan", state, skip_cot)
+    assert result.returncode == 0
+    assert result.stdout == expected
+
+
+@pytest.mark.parametrize("state", COT_STATES)
+def test_cot_restore_iff_volume_removed_and_not_skipped(state):
+    """The invariant itself, asserted rather than enumerated."""
+    for skip_cot in ("false", "true"):
+        removed, restore = _call("upgrade_cot_plan", state, skip_cot).stdout.split()
+        assert restore == ("true" if removed == "true" and skip_cot == "false" else "false")
+
+
+@pytest.mark.parametrize("state", COT_STATES)
+def test_skip_cot_never_changes_what_is_removed(state):
+    """--skip-cot skips the restore, not the destruction. Say so honestly."""
+    without = _call("upgrade_cot_plan", state, "false").stdout.split()[0]
+    with_ = _call("upgrade_cot_plan", state, "true").stdout.split()[0]
+    assert without == with_
+
+
+# ── The summary line ─────────────────────────────────────────────────────
+#
+# upgrade_cot_summary <cot-restored> <skip-cot>. "migrated" is a claim about
+# rows that exist, so only a restore that actually ran and succeeded earns it.
+
+
+def test_cot_summary_claims_migration_only_after_a_restore():
+    result = _call("upgrade_cot_summary", "true", "false")
+    assert result.stdout.strip() == "CoT history: migrated"
+
+
+@pytest.mark.parametrize(
+    "restored,skip_cot,expected",
+    [
+        ("false", "true", "CoT history: DISCARDED (--skip-cot)"),
+        ("false", "false", "CoT history: not carried across (tak-db-data was kept as-is)"),
+        # --skip-cot wins the wording even if a restore somehow ran.
+        ("true", "false", "CoT history: migrated"),
+    ],
+)
+def test_cot_summary_wording(restored, skip_cot, expected):
+    assert _call("upgrade_cot_summary", restored, skip_cot).stdout.strip() == expected
+
+
+@pytest.mark.parametrize("skip_cot", ["false", "true"])
+def test_cot_summary_never_says_migrated_without_a_restore(skip_cot):
+    """The NEW-3 lie: data deleted, operator told it was carried across."""
+    result = _call("upgrade_cot_summary", "false", skip_cot)
+    assert "migrated" not in result.stdout
+
+
+# ── The three-way volume probe ───────────────────────────────────────────
+#
+# `docker` is stubbed on PATH, so none of this needs a daemon. The three
+# outcomes must stay separable: an existing-but-empty tak-db-data IS the
+# pre-5.8 state this whole upgrade exists to fix, so reading it as a probe
+# failure aborts the one upgrade the script is for.
+
+PROBE_OK = 0
+PROBE_ABSENT = 1
+PROBE_NO_DATA = 2
+PROBE_FAILED = 3
+
+
+def _docker_stub(tmp_path, *, volume_exists=True, run_rc=0, run_stdout="", argv_log=None):
+    """Write a fake `docker` and return the directory to prepend to PATH."""
+    bin_dir = tmp_path / "stub-bin"
+    bin_dir.mkdir(exist_ok=True)
+    log = f'printf "%s\\n" "$*" >> {shlex.quote(str(argv_log))}' if argv_log else ":"
+    (bin_dir / "docker").write_text(
+        textwrap.dedent(f"""\
+        #!/bin/bash
+        {log}
+        case "${{1:-}} ${{2:-}}" in
+          "volume inspect") exit {0 if volume_exists else 1} ;;
+        esac
+        case "${{1:-}}" in
+          run) printf '%s\\n' {shlex.quote(run_stdout)}; exit {run_rc} ;;
+        esac
+        exit 0
+        """)
+    )
+    (bin_dir / "docker").chmod(0o755)
+    return bin_dir
+
+
+def _probe(tmp_path, **kwargs):
+    bin_dir = _docker_stub(tmp_path, **kwargs)
+    return _bash(f'PATH={shlex.quote(str(bin_dir))}:"$PATH"; upgrade_volume_pg_major some-volume')
+
+
+@pytest.mark.parametrize("major", ["15", "17", "18"])
+def test_probe_reports_the_major_it_read(tmp_path, major):
+    result = _probe(tmp_path, run_stdout=major)
+    assert result.returncode == PROBE_OK
+    assert result.stdout == major
+
+
+def test_probe_strips_the_trailing_newline_pg_version_carries(tmp_path):
+    assert _probe(tmp_path, run_stdout="15\n\n").stdout == "15"
+
+
+def test_probe_reports_an_absent_volume_as_absent(tmp_path):
+    """Fresh install. Not an error, and nothing to preserve."""
+    result = _probe(tmp_path, volume_exists=False)
+    assert result.returncode == PROBE_ABSENT
+    assert result.stdout == ""
+
+
+def test_probe_reports_a_volume_without_pg_version_as_no_data(tmp_path):
+    """The pre-5.8 shape: volume present, empty. Must not abort the upgrade."""
+    result = _probe(tmp_path, run_stdout="__NO_PG_VERSION__")
+    assert result.returncode == PROBE_NO_DATA
+    assert result.stdout == ""
+
+
+def test_probe_reports_a_docker_failure_as_a_failure(tmp_path):
+    """Daemon unreachable, or postgres:18-alpine could not be pulled."""
+    assert _probe(tmp_path, run_rc=125).returncode == PROBE_FAILED
+
+
+def test_probe_treats_silent_success_as_a_failure(tmp_path):
+    """No version and no sentinel means the probe did not really answer."""
+    assert _probe(tmp_path, run_stdout="").returncode == PROBE_FAILED
+
+
+def test_probe_mounts_the_volume_read_only(tmp_path):
+    """A probe that could write to the volume it is inspecting is a hazard."""
+    log = tmp_path / "argv.log"
+    _probe(tmp_path, run_stdout="15", argv_log=log)
+    assert "some-volume:/v:ro" in log.read_text()
 
 
 # ── Archive identification ───────────────────────────────────────────────

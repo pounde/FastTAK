@@ -163,21 +163,32 @@ wait_healthy "DB services" tak-database app-db
 # postgres OS user mapping doesn't include martiuser/fastak). PGPASSWORD
 # and TAK_DB_PASSWORD / POSTGRES_PASSWORD are read from the container's
 # environment (set by compose from .env).
+#
+# -v ON_ERROR_STOP=1 on every psql that reads a dump: without it psql reports
+# each statement error and still exits 0, so `set -e` catches nothing short of
+# a dropped connection and a restore that errored on every row still "passes".
+#
+# cot is created SQL_ASCII, matching TAK Server's own cluster
+# (monitor/app/backup/manifest.py documents this — SHOW server_version comes
+# back as bytes from it). A plain CREATE DATABASE inherits the target cluster's
+# template encoding, which is UTF-8, and every high-byte row in the dump then
+# fails its COPY. TEMPLATE template0 is required: a database whose encoding
+# differs from template1's cannot be cloned from template1.
 echo "[restore] restoring cot database"
 # shellcheck disable=SC2016  # vars expand inside the container, not on the host
 "${COMPOSE[@]}" exec -T tak-database \
-    sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -h localhost -U martiuser -d postgres -c "DROP DATABASE IF EXISTS cot WITH (FORCE);" -c "CREATE DATABASE cot OWNER martiuser;"'
+    sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d postgres -c "DROP DATABASE IF EXISTS cot WITH (FORCE);" -c "CREATE DATABASE cot OWNER martiuser ENCODING '"'"'SQL_ASCII'"'"' TEMPLATE template0;"'
 # shellcheck disable=SC2016
 "${COMPOSE[@]}" exec -T tak-database \
-    sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -h localhost -U martiuser -d cot' \
+    sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d cot' \
     < "$WORK/postgres/cot.sql"
 
 for db in lldap nodered fastak; do
     echo "[restore] restoring $db database"
     "${COMPOSE[@]}" exec -T app-db \
-        sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -h localhost -U fastak -d postgres -c \"DROP DATABASE IF EXISTS $db WITH (FORCE);\" -c \"CREATE DATABASE $db OWNER fastak;\""
+        sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -v ON_ERROR_STOP=1 -h localhost -U fastak -d postgres -c \"DROP DATABASE IF EXISTS $db WITH (FORCE);\" -c \"CREATE DATABASE $db OWNER fastak;\""
     "${COMPOSE[@]}" exec -T app-db \
-        sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -h localhost -U fastak -d $db" \
+        sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -v ON_ERROR_STOP=1 -h localhost -U fastak -d $db" \
         < "$WORK/postgres/$db.sql"
 done
 
