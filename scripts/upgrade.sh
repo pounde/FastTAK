@@ -39,20 +39,42 @@ APP_DB_DATABASES="lldap nodered fastak"
 
 # upgrade_volume_pg_major <volume-name>
 #
-# Prints the PostgreSQL major recorded in the volume's PG_VERSION file.
-#   0 + empty output — the volume does not exist. Fresh install, not an error.
-#   3               — the volume exists but its PG_VERSION could not be read.
+# Three outcomes, kept separable because they call for three different
+# responses:
+#   0 + the major on stdout — the volume holds a PostgreSQL data directory.
+#   1                       — no such volume. Fresh install, not an error.
+#   2                       — the volume exists but holds no PG_VERSION, so
+#                             there is no data on it to preserve. This is the
+#                             *expected* pre-5.8 shape: TAK 5.6 ran initdb into
+#                             /var/lib/postgresql/15/data while FastTAK mounted
+#                             the volume at /var/lib/postgresql/data, which is
+#                             the persistence defect this upgrade fixes. Reading
+#                             it as an error would abort the one upgrade this
+#                             script exists to perform.
+#   3                       — the probe itself did not answer: the daemon is
+#                             unreachable, the reader image could not be
+#                             pulled, or `docker run` failed.
 #
-# The reader image is postgres:18-alpine, which docker-compose.yml already
-# names for app-db, so it is present on any host that has run FastTAK. An
-# image the stack does not otherwise use would have to be pulled, and TAK
-# deployments are routinely air-gapped.
+# The container prints a sentinel rather than letting `cat` fail, so a
+# successful run that found no PG_VERSION (2) stays distinguishable from a run
+# that never happened (3).
+#
+# The reader image is postgres:18-alpine — the image docker-compose.yml now
+# names for app-db, so it is the one image this upgrade needs regardless. It is
+# not necessarily on the host yet: the operator's sequence is `git pull` then
+# `just upgrade`, and the pull is what introduces 18. Docker pulls it here, and
+# on an air-gapped host that is the first thing to fail — which is why a pull
+# failure reports as itself instead of as unreadable data.
 upgrade_volume_pg_major() {
   local volume="$1" out
-  docker volume inspect "$volume" >/dev/null 2>&1 || return 0
-  out="$(docker run --rm --entrypoint cat -v "${volume}:/v:ro" \
-    postgres:18-alpine /v/PG_VERSION 2>/dev/null)" || return 3
-  printf '%s' "$out" | tr -d '[:space:]'
+  docker volume inspect "$volume" >/dev/null 2>&1 || return 1
+  out="$(docker run --rm --entrypoint sh -v "${volume}:/v:ro" postgres:18-alpine \
+    -c 'if [ -f /v/PG_VERSION ]; then cat /v/PG_VERSION; else echo __NO_PG_VERSION__; fi' \
+    2>/dev/null)" || return 3
+  out="$(printf '%s' "$out" | tr -d '[:space:]')"
+  [ "$out" = "__NO_PG_VERSION__" ] && return 2
+  [ -n "$out" ] || return 3
+  printf '%s' "$out"
 }
 
 # upgrade_needs_migration <current-major> <target-major>
@@ -66,9 +88,54 @@ upgrade_needs_migration() {
   return 0
 }
 
+# upgrade_cot_plan <tak-volume-state> <skip-cot>
+#
+# <tak-volume-state> is "absent", "empty", or a major version string — the
+# three outcomes of upgrade_volume_pg_major.
+#
+# Prints "<remove-volume> <restore-cot>". The invariant:
+#
+#   restore_cot  ⟺  (the tak-db-data volume was removed)  ∧  ¬SKIP_COT
+#
+# The restore follows from what was destroyed, never from a version
+# comparison. `docker volume rm` does not care whether the major changed, so
+# gating the restore on a stale major discards the entire CoT history every
+# time tak-database is already on the target — which is the permanent steady
+# state after 5.8, and is also true on the 5.6 → 5.8 upgrade itself, where the
+# volume is empty and reads as "no major to migrate".
+#
+# "empty" still restores. The volume holds nothing, but the live cot rows are
+# in the container's writable layer (that is the 5.6 defect), `compose down`
+# destroys them, and the archive's cot.sql is then the only copy.
+upgrade_cot_plan() {
+  local state="$1" skip_cot="$2" remove=false restore=false
+  [ "$state" = absent ] || remove=true
+  if [ "$remove" = true ] && [ "$skip_cot" != true ]; then
+    restore=true
+  fi
+  printf '%s %s' "$remove" "$restore"
+}
+
+# upgrade_cot_summary <cot-restored> <skip-cot>
+#
+# The summary's CoT line. "migrated" is a claim about rows that exist, so only
+# a restore that actually ran and succeeded earns it.
+upgrade_cot_summary() {
+  local restored="$1" skip_cot="$2"
+  if [ "$restored" = true ]; then
+    printf 'CoT history: migrated'
+  elif [ "$skip_cot" = true ]; then
+    printf 'CoT history: DISCARDED (--skip-cot)'
+  else
+    printf 'CoT history: not carried across (tak-db-data was kept as-is)'
+  fi
+}
+
 # upgrade_plan <app-current> <app-target> <cot-current> <cot-target> <skip-cot>
 #
-# Prints "<migrate-app-db> <migrate-cot> <nothing-to-migrate>", each true/false.
+# Prints "<migrate-app-db> <cot-major-stale> <nothing-to-migrate>", each
+# true/false. This decides whether there is any *version* work to do; what
+# happens to the CoT history is upgrade_cot_plan's call, not this one's.
 #
 # --skip-cot only ever suppresses the *cot* restore; the app-db restore is
 # decided by the majors alone. It also disables the "nothing to migrate" exit,
@@ -270,8 +337,16 @@ echo "  .env validated."
 
 # The project name decides which volumes get deleted, so take Compose's answer
 # rather than a local guess. See upgrade_project_name_from_config.
-COMPOSE_CONFIG="$(compose config --format json 2>/dev/null)" \
-  || fail "\`docker compose config\` failed; cannot determine the compose project name."
+COMPOSE_ERR="$(mktemp)" || fail "could not create a temporary file (is \$TMPDIR writable?)"
+COMPOSE_CONFIG="$(compose config --format json 2>"$COMPOSE_ERR")" || {
+  echo "" >&2
+  echo "ERROR: \`docker compose config\` failed; cannot determine the compose project name." >&2
+  echo "" >&2
+  sed 's/^/  /' "$COMPOSE_ERR" >&2
+  rm -f "$COMPOSE_ERR"
+  exit 1
+}
+rm -f "$COMPOSE_ERR"
 PROJECT="$(printf '%s' "$COMPOSE_CONFIG" | upgrade_project_name_from_config)" \
   || fail "\`docker compose config\` emitted no project name; refusing to guess which volumes to delete."
 unset COMPOSE_CONFIG
@@ -301,17 +376,59 @@ TAK_DB_VOLUME="$(upgrade_volume_for tak-db-data)"
 # ── 2. Plan ──────────────────────────────────────────────────────────────
 echo ""
 echo "▸ Planning"
-APP_DB_CURRENT="$(upgrade_volume_pg_major "$APP_DB_VOLUME")" \
-  || fail "$APP_DB_VOLUME exists but its PG_VERSION could not be read."
-TAK_DB_CURRENT="$(upgrade_volume_pg_major "$TAK_DB_VOLUME")" \
-  || fail "$TAK_DB_VOLUME exists but its PG_VERSION could not be read."
+# A probe failure is a Docker problem, not a data problem: say which, because
+# the fix (pull the image / start the daemon) is nothing like "your volume is
+# corrupt". See upgrade_volume_pg_major for the three outcomes.
+probe_failed() {
+  echo "" >&2
+  echo "ERROR: could not read the PostgreSQL major from $1." >&2
+  echo "" >&2
+  echo "  The probe (\`docker run postgres:18-alpine\`) did not run. The daemon" >&2
+  echo "  may have gone away, or the image could not be pulled: 18 arrives with" >&2
+  echo "  this release, so on an air-gapped host it has to be loaded or pulled" >&2
+  echo "  first — \`docker pull postgres:18-alpine\`." >&2
+  echo "" >&2
+  echo "  This says nothing about the volume's data. Nothing has been changed." >&2
+  exit 1
+}
 
-echo "  app-db:       PostgreSQL ${APP_DB_CURRENT:-none} → ${APP_DB_TARGET_MAJOR}"
-echo "  tak-database: PostgreSQL ${TAK_DB_CURRENT:-none} → ${TAK_DB_TARGET_MAJOR}"
+APP_DB_CURRENT="$(upgrade_volume_pg_major "$APP_DB_VOLUME")"
+case "$?" in
+  0) APP_DB_STATE="$APP_DB_CURRENT" ;;
+  1) APP_DB_STATE=absent ;;
+  2) APP_DB_STATE=empty ;;
+  *) probe_failed "$APP_DB_VOLUME" ;;
+esac
+TAK_DB_CURRENT="$(upgrade_volume_pg_major "$TAK_DB_VOLUME")"
+case "$?" in
+  0) TAK_DB_STATE="$TAK_DB_CURRENT" ;;
+  1) TAK_DB_STATE=absent ;;
+  2) TAK_DB_STATE=empty ;;
+  *) probe_failed "$TAK_DB_VOLUME" ;;
+esac
 
-read -r MIGRATE_APP_DB MIGRATE_COT NOTHING_TO_MIGRATE <<EOF
+# upgrade_describe_state <state> — the volume's shape, in the operator's terms.
+upgrade_describe_state() {
+  case "$1" in
+    absent) printf 'no volume yet' ;;
+    empty)  printf 'volume holds no data directory (pre-5.8 layout)' ;;
+    *)      printf 'PostgreSQL %s' "$1" ;;
+  esac
+}
+
+echo "  app-db:       $(upgrade_describe_state "$APP_DB_STATE") → ${APP_DB_TARGET_MAJOR}"
+echo "  tak-database: $(upgrade_describe_state "$TAK_DB_STATE") → ${TAK_DB_TARGET_MAJOR}"
+
+read -r MIGRATE_APP_DB COT_MAJOR_STALE NOTHING_TO_MIGRATE <<EOF
 $(upgrade_plan "$APP_DB_CURRENT" "$APP_DB_TARGET_MAJOR" \
     "$TAK_DB_CURRENT" "$TAK_DB_TARGET_MAJOR" "$SKIP_COT")
+EOF
+
+# What happens to tak-db-data, and therefore to the CoT history. Decided by
+# the volume's shape and --skip-cot alone — never by the major comparison
+# above, which says nothing about what `docker volume rm` is about to delete.
+read -r REMOVE_TAK_VOLUME RESTORE_COT <<EOF
+$(upgrade_cot_plan "$TAK_DB_STATE" "$SKIP_COT")
 EOF
 
 if [ "$NOTHING_TO_MIGRATE" = true ]; then
@@ -320,13 +437,14 @@ if [ "$NOTHING_TO_MIGRATE" = true ]; then
   exit 0
 fi
 
-if [ "$MIGRATE_APP_DB" = false ] && [ "$MIGRATE_COT" = false ]; then
+if [ "$MIGRATE_APP_DB" = false ] && [ "$COT_MAJOR_STALE" = false ] \
+   && [ "$REMOVE_TAK_VOLUME" = true ]; then
   # Reached only under --skip-cot: no major changed, so nothing *needs* moving,
   # but tak-db-data is recreated regardless. On an already-migrated stack that
   # discards whatever CoT has accumulated since.
   echo ""
-  echo "  ⚠  Nothing needs migrating — both databases are already on their"
-  echo "     target majors. --skip-cot will still recreate tak-db-data, so the"
+  echo "  ⚠  Nothing needs migrating — no database major changed."
+  echo "     --skip-cot will still recreate tak-db-data, so the"
   echo "     CoT history accumulated since the last upgrade WILL BE LOST."
   echo "     Re-run without --skip-cot to exit without touching anything."
 fi
@@ -343,8 +461,11 @@ upgrade_service_running() {
   [ "$(docker inspect --format='{{.State.Running}}' "$cid" 2>/dev/null)" = "true" ]
 }
 
-REQUIRED_SERVICES="monitor"
-[ "$MIGRATE_COT" = true ] && REQUIRED_SERVICES="$REQUIRED_SERVICES tak-database"
+# tak-database is required unconditionally, --skip-cot or not: the backup dumps
+# cot on every run (monitor/app/backup/runner.py _database_dsns), so with
+# tak-database down the run would pass preflight and then die at "backup
+# failed" — the catch-22 this check exists to explain.
+REQUIRED_SERVICES="monitor tak-database"
 
 MISSING_SERVICES=""
 for _svc in $REQUIRED_SERVICES; do
@@ -378,7 +499,7 @@ fi
 BACKUP_DIR_RESOLVED="$(env_get "$ENV_FILE" BACKUP_DIR)"
 BACKUP_DIR_RESOLVED="$(upgrade_abs_path "${BACKUP_DIR_RESOLVED:-$REPO_DIR/backups}")"
 
-if [ "$MIGRATE_COT" = true ]; then
+if [ "$RESTORE_COT" = true ]; then
   echo ""
   echo "▸ Checking disk headroom for the CoT database"
   # shellcheck disable=SC2016  # expands inside the container, not on the host
@@ -435,9 +556,12 @@ fi
 # ── 6. Back up ───────────────────────────────────────────────────────────
 echo ""
 echo "▸ Taking a backup"
-BACKUP_OUTPUT="$(compose exec -T monitor python -m app.backup run)" \
+# `tee /dev/stderr` streams the dump's progress while still capturing it for the
+# archive-name parse below. A multi-GB cot database can take many minutes, and a
+# capture-only pipeline makes that a silent wait with no sign of life.
+# `set -o pipefail` keeps the backup's own exit status, not tee's.
+BACKUP_OUTPUT="$(compose exec -T monitor python -m app.backup run | tee /dev/stderr)" \
   || fail "backup failed — refusing to continue. Everything after this point is destructive."
-printf '%s\n' "$BACKUP_OUTPUT"
 
 ARCHIVE_NAME="$(printf '%s\n' "$BACKUP_OUTPUT" | upgrade_archive_name_from_output)"
 [ -n "$ARCHIVE_NAME" ] \
@@ -459,8 +583,13 @@ python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$WORK/MANIFEST.json"
 for db in $APP_DB_DATABASES; do
   [ -s "$WORK/postgres/${db}.sql" ] || fail "archive is missing postgres/${db}.sql"
 done
-if [ "$MIGRATE_COT" = true ]; then
-  [ -s "$WORK/postgres/cot.sql" ] || fail "archive is missing postgres/cot.sql"
+# Checked whenever a cot restore is going to be required — i.e. whenever
+# tak-db-data is about to be removed without --skip-cot. Tying this to the
+# major comparison instead would skip the check on exactly the runs that need
+# it, and the missing dump would surface after the data was already gone.
+if [ "$RESTORE_COT" = true ]; then
+  [ -s "$WORK/postgres/cot.sql" ] \
+    || fail "archive is missing postgres/cot.sql, but tak-db-data is about to be recreated — the CoT history would be lost. Re-run with --skip-cot to discard it deliberately."
 fi
 echo "  Archive verified."
 
@@ -478,13 +607,18 @@ if [ "$MIGRATE_APP_DB" = true ]; then
     || fail_after_restore_point "could not remove $APP_DB_VOLUME"
   echo "  Removed $APP_DB_VOLUME (was PostgreSQL ${APP_DB_CURRENT})"
 fi
-# tak-db-data is always recreated: TAK 5.8 ships a build-time initdb, and an
-# empty named volume is populated from the image on first use. A pre-existing
-# volume is not.
-if docker volume inspect "$TAK_DB_VOLUME" >/dev/null 2>&1; then
+# tak-db-data is recreated whenever it exists: TAK 5.8 ships a build-time
+# initdb, and an empty named volume is populated from the image on first use. A
+# pre-existing volume is not.
+#
+# TAK_DB_VOLUME_REMOVED is the fact the cot restore turns on — not the plan,
+# and not the major comparison. Whatever was on that volume is gone from here.
+TAK_DB_VOLUME_REMOVED=false
+if [ "$REMOVE_TAK_VOLUME" = true ]; then
   docker volume rm "$TAK_DB_VOLUME" >/dev/null \
     || fail_after_restore_point "could not remove $TAK_DB_VOLUME"
-  echo "  Removed $TAK_DB_VOLUME (was PostgreSQL ${TAK_DB_CURRENT:-empty})"
+  TAK_DB_VOLUME_REMOVED=true
+  echo "  Removed $TAK_DB_VOLUME ($(upgrade_describe_state "$TAK_DB_STATE"))"
 fi
 
 # ── 9. Start the database services on the new majors ─────────────────────
@@ -497,11 +631,16 @@ echo "  Waiting for databases..."
 
 # `xargs -r` is GNU-only and this script also runs on macOS during development,
 # so the container id is captured into a variable and tested instead.
+#
+# `head -1` matches upgrade_service_running: `compose ps -q` prints one id per
+# replica, and two ids would make the inspect below fail on a malformed
+# argument rather than report the first container's health.
 service_health() {
-  local cid
-  cid="$(compose ps -q "$1" 2>/dev/null)"
-  [ -n "$cid" ] || { printf 'missing'; return; }
-  docker inspect --format='{{.State.Health.Status}}' "$cid" 2>/dev/null || printf 'unknown'
+  local cid status
+  cid="$(compose ps -q "$1" 2>/dev/null | head -1)"
+  [ -n "$cid" ] || { printf 'missing'; return 0; }
+  status="$(docker inspect --format='{{.State.Health.Status}}' "$cid" 2>/dev/null)"
+  printf '%s' "${status:-unknown}"
 }
 
 DEADLINE=$((SECONDS + 300))
@@ -540,7 +679,10 @@ if [ "$MIGRATE_APP_DB" = true ]; then
   done
 fi
 
-if [ "$MIGRATE_COT" = true ]; then
+# The restore condition is what was actually destroyed, ANDed with --skip-cot:
+# the volume is gone, so whatever cot held is gone with it. See upgrade_cot_plan.
+COT_RESTORED=false
+if [ "$TAK_DB_VOLUME_REMOVED" = true ] && [ "$SKIP_COT" = false ]; then
   echo ""
   echo "▸ Restoring the cot database (this may take a while)"
   # cot is SQL_ASCII on TAK Server (monitor/app/backup/manifest.py documents
@@ -559,6 +701,7 @@ if [ "$MIGRATE_COT" = true ]; then
   compose exec -T tak-database \
     sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d cot' \
     < "$WORK/postgres/cot.sql" || fail_after_restore_point "restore of cot failed"
+  COT_RESTORED=true
 elif [ "$SKIP_COT" = true ]; then
   echo ""
   echo "▸ CoT history NOT migrated (--skip-cot). TAK Server starts with an empty cot database."
@@ -576,11 +719,9 @@ echo "║          Upgrade Complete                ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Backup taken before the upgrade: $ARCHIVE"
-if [ "$SKIP_COT" = true ]; then
-  echo "  CoT history: DISCARDED (--skip-cot)"
-else
-  echo "  CoT history: migrated"
-fi
+# Driven by COT_RESTORED — the restore that ran and returned 0 — so the line
+# can never claim a migration that did not happen.
+echo "  $(upgrade_cot_summary "$COT_RESTORED" "$SKIP_COT")"
 echo ""
 echo "  Verify:  docker compose ps"
 echo ""
