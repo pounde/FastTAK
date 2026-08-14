@@ -11,6 +11,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/lib-tak-version.sh
+# shellcheck disable=SC1091 # resolved fine when checked with lib-tak-version.sh (see `just test`); only a single-file `shellcheck setup.sh` needs -x to follow it
+. "$SCRIPT_DIR/scripts/lib-tak-version.sh"
+TAK_VERSION_FLOOR="5.8"
 TARGET_DIR="$SCRIPT_DIR"
 
 while getopts "d:" opt; do
@@ -55,16 +59,54 @@ if [ -z "$VERSION" ]; then
 fi
 echo "  TAK Server version: $VERSION"
 
+# FastTAK supports the hardened bundle from TAK Server 5.8 onward only. A 5.6
+# bundle would build cleanly but put PGDATA at /var/lib/postgresql/15/data
+# rather than the volume mount, silently un-persisting the database — so this
+# refuses rather than tolerates. See DD-051.
+if ! tak_version_meets_floor "$VERSION" "$TAK_VERSION_FLOOR"; then
+  cat >&2 <<EOF
+
+  ERROR: TAK Server $VERSION is below the supported floor of $TAK_VERSION_FLOOR.
+
+  FastTAK requires the hardened Docker bundle from TAK Server $TAK_VERSION_FLOOR
+  or later (takserver-docker-hardened-X.Y-RELEASE-N.zip).
+
+  Earlier releases place the PostgreSQL data directory outside the volume
+  FastTAK mounts, so the database would not survive a container recreate.
+
+  Download a current bundle from https://tak.gov/products/tak-server
+EOF
+  exit 1
+fi
+
+DOCKERFILE_DB="$RELEASE_DIR/docker/Dockerfile.hardened-takserver-db"
+DOCKERFILE_SERVER="$RELEASE_DIR/docker/Dockerfile.hardened-takserver"
+for f in "$DOCKERFILE_DB" "$DOCKERFILE_SERVER"; do
+  if [ ! -f "$f" ]; then
+    cat >&2 <<EOF
+
+  ERROR: $(basename "$f") not found in the release bundle.
+
+  FastTAK builds the hardened images. This looks like a standard (non-hardened)
+  bundle — download takserver-docker-hardened-X.Y-RELEASE-N.zip instead.
+EOF
+    exit 1
+  fi
+done
+
 # ── Build Docker images ─────────────────────────────────────────────────────
 echo ""
 echo "▸ Building Docker images (this may take a few minutes)..."
+echo "  Note: the hardened images install packages from the Rocky, EPEL,"
+echo "        Adoptium and PGDG repositories during the build. This step"
+echo "        requires outbound network access."
 echo "  Building takserver-database:${VERSION}..."
 docker build -t "takserver-database:${VERSION}" \
-  -f "$RELEASE_DIR/docker/Dockerfile.takserver-db" "$RELEASE_DIR" 2>&1 | tail -1
+  -f "$DOCKERFILE_DB" "$RELEASE_DIR" 2>&1 | tail -1
 
 echo "  Building takserver:${VERSION}..."
 docker build -t "takserver:${VERSION}" \
-  -f "$RELEASE_DIR/docker/Dockerfile.takserver" "$RELEASE_DIR" 2>&1 | tail -1
+  -f "$DOCKERFILE_SERVER" "$RELEASE_DIR" 2>&1 | tail -1
 
 # ── Set up tak/ directory ────────────────────────────────────────────────────
 echo ""
