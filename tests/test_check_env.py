@@ -22,6 +22,7 @@ MODES = ["direct", "subdomain", ""]  # "" covers an unset DEPLOY_MODE
 
 
 VALID_TOKENS_SECRET = "0" * 64
+VALID_TAK_VERSION = "5.8-RELEASE-65"
 
 
 def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
@@ -34,6 +35,8 @@ def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
     """
     if "TOKENS_API_SECRET" not in env_content:
         env_content = f"{env_content}TOKENS_API_SECRET={VALID_TOKENS_SECRET}\n"
+    if "TAK_VERSION" not in env_content:
+        env_content = f"{env_content}TAK_VERSION={VALID_TAK_VERSION}\n"
     env_file = tmp_path / ".env"
     env_file.write_text(env_content)
     return subprocess.run(
@@ -288,3 +291,51 @@ def test_set_tokens_secret_passes(tmp_path, mode):
         tmp_path,
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
+
+
+# ── TAK_VERSION ────────────────────────────────────────────────────────────
+
+
+def test_below_floor_tak_version_fails(tmp_path):
+    result = _run(
+        "SERVER_ADDRESS=tak.internal\nDEPLOY_MODE=direct\n"
+        "TAK_WEBADMIN_PASSWORD=secret-pw\nTAK_VERSION=5.6-RELEASE-6\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "tak_version" in result.stderr.lower()
+    assert "5.8" in result.stderr
+
+
+def test_at_floor_tak_version_passes(tmp_path):
+    result = _run(
+        "SERVER_ADDRESS=tak.internal\nDEPLOY_MODE=direct\n"
+        "TAK_WEBADMIN_PASSWORD=secret-pw\nTAK_VERSION=5.8-RELEASE-65\n",
+        tmp_path,
+    )
+    assert result.returncode == 0
+
+
+def test_above_floor_tak_version_passes(tmp_path):
+    result = _run(
+        "SERVER_ADDRESS=tak.internal\nDEPLOY_MODE=direct\n"
+        "TAK_WEBADMIN_PASSWORD=secret-pw\nTAK_VERSION=5.10-RELEASE-2\n",
+        tmp_path,
+    )
+    assert result.returncode == 0
+
+
+def test_unset_tak_version_fails(tmp_path):
+    """An absent TAK_VERSION leaves compose interpolating an empty image tag."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "SERVER_ADDRESS=tak.internal\nDEPLOY_MODE=direct\n"
+        f"TAK_WEBADMIN_PASSWORD=secret-pw\nTOKENS_API_SECRET={VALID_TOKENS_SECRET}\n"
+    )
+    result = subprocess.run(
+        ["/bin/bash", str(CHECK), str(env_file)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "tak_version" in result.stderr.lower()

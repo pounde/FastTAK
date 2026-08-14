@@ -11,6 +11,9 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/lib-env.sh
 . "$SCRIPT_DIR/lib-env.sh"
+# shellcheck source=scripts/lib-tak-version.sh
+. "$SCRIPT_DIR/lib-tak-version.sh"
+TAK_VERSION_FLOOR="5.8"
 
 ENV_FILE="${1:-.env}"
 DEFAULT_WEBADMIN_PASSWORD="FastTAK-Admin-1!"
@@ -30,6 +33,7 @@ fi
 SERVER_ADDRESS=$(get_env_value SERVER_ADDRESS)
 WEBADMIN_PASSWORD=$(get_env_value TAK_WEBADMIN_PASSWORD)
 TOKENS_API_SECRET=$(get_env_value TOKENS_API_SECRET)
+TAK_VERSION=$(get_env_value TAK_VERSION)
 
 # ── SERVER_ADDRESS ─────────────────────────────────────────────────────────
 if [ -z "$SERVER_ADDRESS" ] || [ "$SERVER_ADDRESS" = "tak.example.com" ]; then
@@ -81,6 +85,36 @@ Generate one:
 
 Or set it by hand:
   openssl rand -hex 32
+EOF
+  exit 1
+fi
+
+# ── TAK_VERSION ────────────────────────────────────────────────────────────
+# setup.sh refuses a below-floor release bundle, but .env can be edited by
+# hand. Compose interpolates this into the image tags, so an empty value
+# produces `takserver:` — an unresolvable tag and a confusing pull error.
+if [ -z "$TAK_VERSION" ]; then
+  cat >&2 <<EOF
+ERROR: TAK_VERSION is unset or empty in $ENV_FILE.
+
+Compose builds the image tags from it, so an empty value leaves the stack
+pulling "takserver:" — which does not exist.
+
+Re-run ./setup.sh <takserver-docker-hardened-X.Y-RELEASE-N.zip>, which sets
+this from the bundle's tak/version.txt.
+EOF
+  exit 1
+fi
+
+if ! tak_version_meets_floor "$TAK_VERSION" "$TAK_VERSION_FLOOR"; then
+  cat >&2 <<EOF
+ERROR: TAK_VERSION=$TAK_VERSION in $ENV_FILE is below the supported floor of $TAK_VERSION_FLOOR.
+
+FastTAK supports the hardened TAK Server bundle from $TAK_VERSION_FLOOR onward.
+Earlier releases place the PostgreSQL data directory outside the volume FastTAK
+mounts, so the database would not survive a container recreate.
+
+Re-run ./setup.sh with a current bundle from https://tak.gov/products/tak-server
 EOF
   exit 1
 fi
