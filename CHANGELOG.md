@@ -2,6 +2,34 @@
 
 <!-- version list -->
 
+## v0.28.4 (2026-08-14)
+
+### Bug Fixes
+
+- **monitor**: Log when the ldap-proxy shared secret is missing
+  ([`3d0ce07`](https://github.com/pounde/FastTAK/commit/3d0ce0740dfd7da8e26852d2caeb1ba4cfd955be))
+
+- **security**: Authenticate ldap-proxy /tokens and reject anonymous search
+  ([#54](https://github.com/pounde/FastTAK/pull/54),
+  [`e26fb00`](https://github.com/pounde/FastTAK/commit/e26fb00a96111f9ca65c507d869441a49e252900))
+
+- **upgrade**: Provision required secrets for existing deployments
+  ([`d461205`](https://github.com/pounde/FastTAK/commit/d461205d860f7c7d91133a40d22f25beb345fdf7))
+
+### Documentation
+
+- **decisions**: DD-050's testing note now describes reality
+  ([`f501bf2`](https://github.com/pounde/FastTAK/commit/f501bf2e8b917e275b773944b5e48f6cb7e55ca7))
+
+- **decisions**: Record the ldap-proxy authz decision and correct DD-036 (DD-050)
+  ([`ce3a001`](https://github.com/pounde/FastTAK/commit/ce3a0019d892e1b9ff9fc4058fabad8f3d9c62e4))
+
+### Testing
+
+- **ci**: Run ldap-proxy's authorization tests
+  ([`d37e947`](https://github.com/pounde/FastTAK/commit/d37e9476cd5ab8a41eb620aa664e44ed8e90a9c7))
+
+
 ## v0.28.3 (2026-08-14)
 
 ### Bug Fixes
