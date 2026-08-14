@@ -8,38 +8,17 @@
 
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/lib-env.sh
+. "$SCRIPT_DIR/lib-env.sh"
+
 ENV_FILE="${1:-.env}"
 DEFAULT_WEBADMIN_PASSWORD="FastTAK-Admin-1!"
 
-# Reads a key's value from the env file, matching Docker Compose dotenv
-# semantics: optional 'export' prefix, optional leading whitespace,
-# last-wins on duplicates, surrounding quotes stripped, `=` in values
-# preserved, inline comments after quoted values trimmed, trailing
-# whitespace trimmed for unquoted values.
+# Shared with ensure-secrets.sh via lib-env.sh, so the validator and the
+# provisioner cannot disagree about whether a key is set.
 get_env_value() {
-  local key="$1" line val
-  line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE" | tail -n 1)
-  [ -z "$line" ] && { printf '%s' ''; return; }
-  # Strip everything up to and including the first `=` (key + optional prefix)
-  val="${line#*=}"
-  # Handle quoted values: strip quotes and anything after the closing quote (inline comment)
-  case "$val" in
-    \"*)
-      # Double-quoted: take up to the closing double quote
-      val="${val#\"}"
-      val="${val%%\"*}"
-      ;;
-    \'*)
-      # Single-quoted: take up to the closing single quote
-      val="${val#\'}"
-      val="${val%%\'*}"
-      ;;
-    *)
-      # Unquoted: strip trailing whitespace
-      val="${val%"${val##*[![:space:]]}"}"
-      ;;
-  esac
-  printf '%s' "$val"
+  env_get "$ENV_FILE" "$1"
 }
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -50,6 +29,7 @@ fi
 
 SERVER_ADDRESS=$(get_env_value SERVER_ADDRESS)
 WEBADMIN_PASSWORD=$(get_env_value TAK_WEBADMIN_PASSWORD)
+TOKENS_API_SECRET=$(get_env_value TOKENS_API_SECRET)
 
 # ── SERVER_ADDRESS ─────────────────────────────────────────────────────────
 if [ -z "$SERVER_ADDRESS" ] || [ "$SERVER_ADDRESS" = "tak.example.com" ]; then
@@ -78,6 +58,29 @@ Generate a random replacement:
 
 Or set your own strong password in $ENV_FILE.
 Or leave it empty to skip webadmin user creation entirely.
+EOF
+  exit 1
+fi
+
+# ── TOKENS_API_SECRET ──────────────────────────────────────────────────────
+# ldap-proxy calls log.Fatal without it, init-ldap-ready waits on ldap-proxy
+# and tak-server waits on init-ldap-ready, so an empty value takes the whole
+# stack down. ensure-secrets.sh normally fills it before this check runs; this
+# rule is the backstop for a .env reached some other way, so the failure is a
+# named key rather than a stack that never comes up.
+if [ -z "$TOKENS_API_SECRET" ]; then
+  cat >&2 <<EOF
+ERROR: TOKENS_API_SECRET is unset or empty in $ENV_FILE.
+
+ldap-proxy refuses to start without it, and tak-server waits on ldap-proxy,
+so the whole stack stays down. An unauthenticated token API would let any
+workload on the Docker network mint LDAP credentials for any user (DD-050).
+
+Generate one:
+  ./scripts/ensure-secrets.sh $ENV_FILE
+
+Or set it by hand:
+  openssl rand -hex 32
 EOF
   exit 1
 fi

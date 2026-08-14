@@ -102,6 +102,16 @@ if ! $TEST; then
   if [ ! -d "$SCRIPT_DIR/tak" ]; then
     echo "ERROR: tak/ not found. Run: ./setup.sh <zip>" >&2; exit 1
   fi
+  if [ ! -f "$SCRIPT_DIR/.env" ]; then
+    echo "ERROR: .env not found. Run: ./setup.sh <zip>" >&2; exit 1
+  fi
+  # Provision here as well as in setup.sh: a FastTAK-only upgrade is `git pull`
+  # with no new TAK zip, which never runs setup.sh. The launch is the one step
+  # every upgrade path takes. This script does not use `set -e`, so the exit
+  # status is checked explicitly.
+  if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$SCRIPT_DIR/.env"; then
+    exit 1
+  fi
   if ! "$SCRIPT_DIR/scripts/check-env.sh" "$SCRIPT_DIR/.env"; then
     exit 1
   fi

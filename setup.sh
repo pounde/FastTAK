@@ -129,13 +129,11 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
     rm -f "$TARGET_DIR/.env.bak"
   }
 
-  fill_secret TAK_DB_PASSWORD "$(openssl rand -hex 16)"
-  fill_secret APP_DB_PASSWORD "$(openssl rand -hex 16)"
-  fill_secret LDAP_BIND_PASSWORD "$(openssl rand -hex 16)"
-  fill_secret TOKENS_API_SECRET "$(openssl rand -hex 32)"
+  # Fresh install only: empty means "skip webadmin user creation", so this must
+  # not be filled on an upgrade. Every other required secret is provisioned
+  # below by ensure-secrets.sh, which runs for fresh installs and upgrades
+  # alike.
   fill_secret TAK_WEBADMIN_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
-
-  echo "  All secrets generated on this device."
 else
   # Upgrade: update TAK_VERSION if changed
   CURRENT_VERSION=$(grep '^TAK_VERSION=' "$TARGET_DIR/.env" | cut -d= -f2)
@@ -145,6 +143,15 @@ else
     echo ""
     echo "▸ Updated TAK_VERSION in .env: ${CURRENT_VERSION} → ${VERSION}"
   fi
+fi
+
+# Required secrets, for fresh installs and upgrades alike. Outside the branch
+# above on purpose: work placed inside the fresh-install arm never runs for an
+# existing deployment, which is how a secret added by a later release goes
+# missing everywhere it was already installed.
+if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$TARGET_DIR/.env"; then
+  echo "ERROR: could not provision required secrets in $TARGET_DIR/.env" >&2
+  exit 1
 fi
 
 # ── Verify ───────────────────────────────────────────────────────────────────

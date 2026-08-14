@@ -21,7 +21,19 @@ DEFAULT_PASSWORD = "FastTAK-Admin-1!"
 MODES = ["direct", "subdomain", ""]  # "" covers an unset DEPLOY_MODE
 
 
+VALID_TOKENS_SECRET = "0" * 64
+
+
 def _run(env_content: str, tmp_path: Path) -> subprocess.CompletedProcess:
+    """Run the validator against `env_content`.
+
+    Each test exercises one rule, so a valid TOKENS_API_SECRET is supplied
+    unless the content sets one itself — otherwise every fixture would have to
+    carry an unrelated key to get past that rule. Tests for the rule itself
+    provide their own value.
+    """
+    if "TOKENS_API_SECRET" not in env_content:
+        env_content = f"{env_content}TOKENS_API_SECRET={VALID_TOKENS_SECRET}\n"
     env_file = tmp_path / ".env"
     env_file.write_text(env_content)
     return subprocess.run(
@@ -224,6 +236,55 @@ def test_missing_webadmin_password_key_passes(tmp_path):
     """Entirely missing TAK_WEBADMIN_PASSWORD key = treated as empty = passes (skip webadmin)."""
     result = _run(
         "SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE=direct\n",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+
+
+# ── TOKENS_API_SECRET ──────────────────────────────────────────────────────
+# ldap-proxy calls log.Fatal without it and tak-server waits on ldap-proxy, so
+# an empty value takes the whole stack down (DD-050). The gate turns that into
+# a named key instead of a stack that never comes up.
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_empty_tokens_secret_fails(tmp_path, mode):
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"TAK_WEBADMIN_PASSWORD=strong-custom-pw-42\nTOKENS_API_SECRET=\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "tokens_api_secret" in result.stderr.lower()
+
+
+def test_missing_tokens_secret_key_fails(tmp_path):
+    """Absent entirely — the state of every .env upgraded from before #54."""
+    result = _run(
+        "SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE=direct\n"
+        "TAK_WEBADMIN_PASSWORD=strong-custom-pw-42\nTOKENS_API_SECRET=\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "tokens_api_secret" in result.stderr.lower()
+
+
+def test_tokens_secret_error_names_the_fix(tmp_path):
+    """The message has to say what to run, or it is just a different mystery."""
+    result = _run(
+        "SERVER_ADDRESS=tak.mydomain.com\nTOKENS_API_SECRET=\n",
+        tmp_path,
+    )
+    assert result.returncode == 1
+    assert "ensure-secrets.sh" in result.stderr
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_set_tokens_secret_passes(tmp_path, mode):
+    result = _run(
+        f"SERVER_ADDRESS=tak.mydomain.com\nDEPLOY_MODE={mode}\n"
+        f"TAK_WEBADMIN_PASSWORD=strong-custom-pw-42\n"
+        f"TOKENS_API_SECRET={VALID_TOKENS_SECRET}\n",
         tmp_path,
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
