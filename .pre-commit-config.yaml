@@ -23,6 +23,12 @@ repos:
     hooks:
       - id: shellcheck
         exclude: ^tak/
+        # -x lets shellcheck follow `source`d files. pre-commit passes only the
+        # staged files, so without it a script committed apart from the library
+        # it sources fails SC1091 ("not following"), which is info-level but
+        # still exits 1. `just test` never saw this because it passes every
+        # script as input in one invocation, making the libraries followable.
+        args: [-x]
 
   - repo: local
     hooks:
