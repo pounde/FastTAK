@@ -145,7 +145,7 @@ backup-prune keep="":
         docker compose exec -T monitor python -m app.backup prune
     fi
 
-# Upgrade an existing deployment (database majors, then restart the stack).
 # Pass --skip-cot to discard the CoT history instead of migrating it.
+# Upgrade an existing deployment (database majors, then restart the stack).
 upgrade *args:
     ./scripts/upgrade.sh {{args}}
