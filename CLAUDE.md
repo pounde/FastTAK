@@ -35,3 +35,9 @@ After code changes, rebuild just the monitor in the test stack:
 
 ### Dev Stack
 The dev stack (`just dev-up`) is for manual browser testing, not automated tests. Don't use it for integration testing — state from manual testing makes results unreliable.
+
+## TAK Server Version
+
+FastTAK requires the **hardened** TAK Server bundle, 5.8 or later. `setup.sh`
+refuses older bundles — earlier releases place PGDATA outside the mounted
+volume. See `docs/decisions.md` DD-051.
