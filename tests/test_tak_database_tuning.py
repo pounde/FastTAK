@@ -48,7 +48,6 @@ CORRECT_SETTINGS = {
     "autovacuum_vacuum_cost_limit": "1000",
     "maintenance_work_mem": "256MB",
     "archive_mode": "off",
-    "data_directory": "/var/lib/postgresql/data",
 }
 
 
@@ -70,6 +69,9 @@ def _fake_tak_tree(tmp_path: Path) -> Path:
     pgdata = _pgdata(tak)
     pgdata.mkdir(parents=True)
     (pgdata / "postgresql.conf").write_text(LIVE_CONF)
+    # What initdb also leaves behind — the persistence guard's PGDATA check
+    # treats its presence as proof PGDATA points at a real cluster directory.
+    (pgdata / "PG_VERSION").write_text("15\n")
     return tak
 
 
@@ -414,7 +416,6 @@ def test_wrong_settings_report_what_the_server_returned(tmp_path):
             "autovacuum_vacuum_cost_limit": "200",
             "maintenance_work_mem": "64MB",
             "archive_mode": "on",
-            "data_directory": "/var/lib/postgresql/data",
         },
     )
     result = _run_full(tak, bin_dir=bin_dir)
@@ -429,7 +430,13 @@ def test_wrong_settings_report_what_the_server_returned(tmp_path):
 
 def test_correct_settings_verify_and_run_the_guard(tmp_path):
     """The success path: a server reporting FastTAK's values must reach the
-    'verified' line and then hand data_directory to the persistence guard."""
+    'verified' line and then hand PGDATA to the persistence guard.
+
+    The guard no longer asks the server for data_directory — that setting is
+    restricted to roles with pg_read_all_settings, which martiuser is not, so
+    SHOW silently returns nothing rather than erroring. PGDATA is what the
+    guard is handed instead.
+    """
     tak = _fake_tak_tree(tmp_path)
     _vendor_runs_for(tak, 2)
     bin_dir = tmp_path / "stubbin"
@@ -438,7 +445,7 @@ def test_correct_settings_verify_and_run_the_guard(tmp_path):
     result = _run_full(tak, bin_dir=bin_dir, FASTAK_GUARD=str(guard))
     assert result.returncode == 0, result.stderr
     assert "Settings verified" in result.stdout
-    assert calls.read_text().strip() == "/var/lib/postgresql/data"
+    assert calls.read_text().strip() == str(_pgdata(tak))
     assert "is on a mounted volume" in result.stdout
 
 
@@ -452,18 +459,20 @@ def test_guard_failure_is_fatal(tmp_path):
     assert result.returncode == 1
 
 
-def test_empty_data_directory_is_fatal(tmp_path):
-    """`[ -n "$DATA_DIR" ] && ! guard` skips the check when SHOW returns
-    nothing and then prints 'PGDATA () is on a mounted volume' — a success
-    claim for a check that never ran."""
+def test_missing_pg_version_is_fatal(tmp_path):
+    """PGDATA is trusted without a server round-trip, so before handing it to
+    the guard the script confirms it looks like a real cluster directory. A
+    PGDATA missing PG_VERSION must not reach 'is on a mounted volume' — a
+    success claim for a check that never ran."""
     tak = _fake_tak_tree(tmp_path)
+    (_pgdata(tak) / "PG_VERSION").unlink()
     _vendor_runs_for(tak, 30)
     bin_dir = tmp_path / "stubbin"
-    _stub_psql(bin_dir, {**CORRECT_SETTINGS, "data_directory": ""})
+    _stub_psql(bin_dir, CORRECT_SETTINGS)
     guard, calls = _stub_guard(tmp_path)
     result = _run_full(tak, bin_dir=bin_dir, FASTAK_GUARD=str(guard))
     assert result.returncode == 1
-    assert "data_directory" in result.stderr
+    assert "PG_VERSION" in result.stderr
     assert "is on a mounted volume" not in result.stdout
     assert not calls.exists()
 
