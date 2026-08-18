@@ -15,12 +15,24 @@ WARN_SECONDS=$((WARN_DAYS * 86400))
 LOGFILE="/opt/tak/logs/takserver.log"
 
 # --- Check 1: All 5 Java processes running ---
+# The 5.8 hardened image ships no procps (no pgrep/ps/pidof), so match on
+# /proc directly. cmdline is NUL-separated; translate to spaces before matching.
+proc_running() {
+    for c in /proc/[0-9]*/cmdline; do
+        [ -r "$c" ] || continue
+        if tr '\0' ' ' < "$c" 2>/dev/null | grep -qF -- "$1"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 MISSING=""
-pgrep -f "spring.profiles.active=config" > /dev/null 2>&1    || MISSING="${MISSING} config"
-pgrep -f "spring.profiles.active=messaging" > /dev/null 2>&1  || MISSING="${MISSING} messaging"
-pgrep -f "spring.profiles.active=api" > /dev/null 2>&1        || MISSING="${MISSING} api"
-pgrep -f "takserver-retention.jar" > /dev/null 2>&1            || MISSING="${MISSING} retention"
-pgrep -f "takserver-pm.jar" > /dev/null 2>&1                   || MISSING="${MISSING} plugins"
+proc_running "spring.profiles.active=config"    || MISSING="${MISSING} config"
+proc_running "spring.profiles.active=messaging" || MISSING="${MISSING} messaging"
+proc_running "spring.profiles.active=api"       || MISSING="${MISSING} api"
+proc_running "takserver-retention.jar"          || MISSING="${MISSING} retention"
+proc_running "takserver-pm.jar"                 || MISSING="${MISSING} plugins"
 
 if [ -n "$MISSING" ]; then
     echo "UNHEALTHY: missing processes:${MISSING}"
