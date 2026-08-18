@@ -3,9 +3,9 @@
 
 Everything here runs with FASTAK_UPGRADE_LIB_ONLY=1, which sources the script's
 helper definitions and returns before it touches Docker. The migration itself
-moves Docker volumes and currently has no automated coverage — a rehearsal
-integration test (planned as tests-integration/test_upgrade_rehearsal.py) is
-forthcoming but does not exist yet.
+moves Docker volumes; that destructive path is covered by
+tests-integration/test_upgrade_rehearsal.py, which rehearses `just upgrade`
+against a live stack and asserts row counts survive the restore.
 """
 
 import json
