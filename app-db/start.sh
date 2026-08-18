@@ -24,6 +24,40 @@ PG_PID=$!
 
 until pg_isready -U "$POSTGRES_USER" -q; do sleep 1; done
 
+# ── PGDATA persistence guard ────────────────────────────────────────────
+# Catches the class of defect that reached review here: a postgres image
+# moving PGDATA out from under docker-compose.yml's volume mount, silently.
+# Reads the live setting from the running server rather than trusting the
+# PGDATA env var, so a mismatch between what's configured and what the
+# server actually opened is caught too. See tak-database/start.sh for the
+# original pattern this mirrors; the guard script itself is not duplicated.
+GUARD="${FASTAK_GUARD:-/opt/fastak/check-pgdata-persistent.sh}"
+if [ -x "$GUARD" ]; then
+  DATA_DIR="$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SHOW data_directory;" 2>/dev/null | tr -d '[:space:]')"
+  if [ -z "$DATA_DIR" ]; then
+    echo "[app-db] ERROR: could not read the server's data_directory; the persistence guard cannot run." >&2
+    exit 1
+  fi
+  if ! "$GUARD" "$DATA_DIR"; then
+    exit 1
+  fi
+  echo "[app-db] PGDATA (${DATA_DIR}) is on a mounted volume."
+else
+  cat >&2 <<EOF
+[app-db] ERROR: ${GUARD} is missing or not executable.
+
+  The guard is bind-mounted from the host, so a mount that did not land or a
+  stripped execute bit disables the one check that catches a PGDATA that has
+  moved off the volume — while the container still reports a normal startup.
+  Continuing would mean running unverified, so this is fatal.
+
+  Confirm app-db's ./tak-database/check-pgdata-persistent.sh mount in
+  docker-compose.yml (the guard script is shared, not duplicated), and that
+  the file on the host is executable.
+EOF
+  exit 1
+fi
+
 # Clear stale ALTER SYSTEM settings that conflict with command-line args
 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
   "ALTER SYSTEM RESET ALL;" >/dev/null 2>&1

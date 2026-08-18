@@ -4,6 +4,177 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-054: Restoring `cot` Pre-Creates Extensions as Superuser, Then Reassigns Ownership
+
+**Decision:** Restoring the `cot` database — in `just upgrade` and in
+`tests-integration/restore.sh` alike — pre-creates every extension the dump
+requires as the `postgres` superuser, over the Unix socket, *before* handing
+the dump to `martiuser` to restore. It then reassigns each extension's
+ownership (`pg_extension.extowner`) and the ownership of any tables in its
+`extconfig` (e.g. PostGIS's `spatial_ref_sys`) to `martiuser`, rather than
+leaving them owned by `postgres`.
+
+**Why creation needs a superuser:** every TAK `cot` dump carries `CREATE
+EXTENSION IF NOT EXISTS postgis`, PostGIS is not a trusted extension, and the
+restore connects as `martiuser`, which is not a superuser. Restoring wholesale
+as `martiuser` fails outright with "permission denied to create extension
+postgis". Restoring wholesale as `postgres` avoids that, but the dumps are
+taken with `pg_dump --no-owner` (`monitor/app/backup/runner.py`) specifically
+so the restoring role ends up owning what it restores — doing the whole
+restore as `postgres` would leave TAK Server, which connects as `martiuser`,
+without write access to its own tables.
+
+**Why ownership has to be reassigned, not just the extension created:** two
+statements later in the same dump act on objects the superuser just created —
+`COMMENT ON EXTENSION postgis IS '...'` requires owning the extension, and
+`COPY public.spatial_ref_sys ...` requires `INSERT` on a table that `CREATE
+EXTENSION` created as `postgres`. Both fail against a `postgres`-owned
+extension; confirmed against a live stack. PostgreSQL has no `ALTER EXTENSION
+... OWNER TO`, so `extowner` is set directly — a superuser-only `UPDATE` of one
+OID column — and `extconfig` (the extension's own list of tables whose *data*
+`pg_dump` emits) gives the exact table set that needs the same treatment. The
+result is the state `martiuser` would have reached had PostGIS been trusted
+enough to create itself.
+
+**Why the extension set is discovered from the dump, not hardcoded:** it
+varies by TAK release — the `cot` dump also carries `pgcrypto`, and
+`postgis_topology`/`fuzzystrmatch` appear on other releases — so a hardcoded
+`postgis` would put the next release back on the same failure path. Both call
+sites scan the dump's pre-data section for `CREATE EXTENSION` statements
+(stopping at the first `COPY ... FROM stdin`, since `pg_dump` never emits one
+before the other) and build the ownership-handoff SQL from what they find.
+
+**Alternatives considered:**
+
+- Grant `martiuser` superuser for the restore, then revoke it. Rejected —
+  broadens the blast radius of a compromised restore session for no benefit
+  over a narrowly-scoped ownership handoff.
+- Mark `postgis` a trusted extension so `martiuser` can create it directly.
+  Rejected — that is a cluster-wide `ALTER EXTENSION ... TRUSTED` change on an
+  extension that manipulates filesystem-adjacent GEOS/PROJ libraries, a larger
+  and less reviewable change than reassigning ownership after the fact.
+
+**Do not simplify this to a plain `CREATE EXTENSION` as `martiuser`.** It
+works right up until the first dump that touches `extconfig`, then fails
+mid-restore with the data already dropped.
+
+**Kept in sync in two places:** `scripts/upgrade.sh` and
+`tests-integration/restore.sh` each carry their own copy of this logic
+(`upgrade_dump_extensions` / `upgrade_extension_sql`) because the restore
+step runs inline in both, not through a shared library. A change to one must
+be mirrored in the other.
+
+---
+
+## DD-053: WAL Archiving Disabled
+
+**Decision:** `tak-database/start.sh` appends `archive_mode = off` to both
+`db-utils/postgresql.conf` (what the vendor's `takserver-setup-db.sh` copies
+into `PGDATA` on the first boot of a fresh database) and the live
+`$PGDATA/postgresql.conf` (what the server reads on every boot after that) —
+see [DD-020](#dd-020-global-autovacuum-tuning-via-postgresqlconf) for why both
+files need writing.
+
+**Why:** TAK Server ships `archive_mode = on` with
+`archive_command = 'cp "%p" "/var/lib/postgresql/archivedir/%f"'`, and nothing
+in any TAK bundle creates that directory. PostgreSQL will not recycle a WAL
+segment until its archive command succeeds, so every segment is retained and
+`pg_wal` grows until the filesystem fills.
+
+This went unnoticed because the PGDATA persistence defect masked it — every
+container recreate wiped the accumulated WAL along with the database. Fixing
+persistence without also fixing this would have traded a data-loss bug for a
+disk-fill bug.
+
+**Alternatives considered:**
+
+- Create `archivedir` so the `cp` succeeds. Rejected: it converts a fast
+  disk-fill into a slow one, because nothing prunes the archives either.
+- Build point-in-time recovery on top of the archives. Out of scope —
+  FastTAK's backups are logical (`pg_dump` per database) and no restore path
+  consumes an archive. Worth revisiting as its own feature with its own
+  retention design.
+
+---
+
+## DD-052: `tak-server` Root Override on the Hardened Images
+
+**Decision:** `docker-compose.yml` sets `user: "0:0"` on `tak-server` only,
+overriding the hardened image's own `tak:0` (uid 1001). `tak-database` keeps
+the hardened image's own `postgres:0` — it does **not** get the override.
+
+**Why `tak-server` needs it:** TAK Server writes into the bind-mounted
+`/opt/tak` tree, and the monitor's cert_gen exec calls
+(`monitor/app/api/service_accounts/cert_gen.py`) pass no `user=` and so
+inherit the image user — twelve `exec_run` call sites, plus a `put_archive`
+writing PEMs into `/opt/tak/certs/files`. Adopting non-root properly needs a
+cert-tree permissioning scheme, the same blocker that defers the non-root
+monitor.
+
+**Why `tak-database` cannot take it, and does not need to:** PostgreSQL
+categorically refuses to run as root (`pg_ctl: cannot be run as root`), and
+TAK 5.8's entrypoint (`db-utils/configureInDocker.sh`) calls `pg_ctl` directly
+rather than wrapping it in `su - postgres` the way 5.6 did — so `user: "0:0"`
+on this service would simply fail to start. It does not need the override
+either way: unlike `tak-server`, `tak-database` does not bind-mount
+`/opt/tak` over the image's copy — it uses the image's own — which removes
+the host-ownership conflict that motivated the override everywhere else.
+Running it as the image's own `postgres:0` is both required and sufficient.
+
+**Not purely a regression:** under rootless Podman, container uid 0 maps to
+the invoking user, so bind-mount writes to a user-owned `./tak` work, while
+uid 1001 maps into the subuid range and owns nothing.
+
+**What is retained:** the image hardening is independent of process user —
+UBI 10 with the DISA STIG remediations, FIPS-enabled OpenSSL, ChaCha20
+disabled in the JDK TLS policy, DoD/WCF trust anchors, package minimisation,
+GPG-verified package sources, and the file-integrity healthchecks. What is
+given up, on `tak-server` only, is the non-root process user.
+
+**Tracked in** [#97](https://github.com/pounde/FastTAK/issues/97), sequenced
+behind [#69](https://github.com/pounde/FastTAK/issues/69) — moving cert-exec
+off the monitor removes most of the code that forces the override.
+
+---
+
+## DD-051: TAK Server 5.8 Hardened Bundle Is the Supported Floor
+
+**Decision:** `setup.sh` and `scripts/check-env.sh` both refuse a TAK Server
+release below 5.8 — `setup.sh` at extraction time (reading
+`tak/version.txt`), `check-env.sh` at every stack start, since `.env` can be
+hand-edited after `setup.sh` already ran. `check-env.sh` distinguishes a
+`TAK_VERSION` that is simply below the floor from one it cannot parse at all,
+so the two failures do not read as the same problem. FastTAK builds only the
+hardened Dockerfiles found in the release bundle's `docker/` directory
+(`Dockerfile.hardened-takserver`, `Dockerfile.hardened-takserver-db`).
+
+**Why:** tak.gov ships 5.8 as a hardened bundle. A 5.6 bundle would build
+cleanly but land PGDATA at `/var/lib/postgresql/15/data` rather than the
+volume FastTAK mounts, silently un-persisting the database on every container
+recreate — the defect this whole change fixes. Refusing outright is simpler
+and safer than tolerating a configuration that loses data quietly.
+
+**Alternatives considered:**
+
+- Detect the bundle flavour and support both. Rejected as speculative: there
+  is no standard (non-hardened) 5.8 bundle to support today. Support can be
+  added back as filename detection plus a build arg if one appears.
+- Warn instead of refusing. Rejected — the failure mode is silent data loss,
+  exactly the case a warning does not adequately cover.
+
+**Note:** PGDATA location and the container user are properties of the
+*hardened Dockerfile*, not of TAK 5.8 itself. A future standard bundle could
+reintroduce the same problem, which is why
+`tak-database/check-pgdata-persistent.sh` stays in place even though 5.8's
+hardened image gets PGDATA right.
+
+**Building the images needs network access.** The hardened images install
+packages from the Rocky, EPEL, Adoptium and PGDG repositories during the
+build — a change from earlier bundles, which built from `postgres:15.1` with
+two extra packages. Worth noting for restricted-egress build environments.
+
+---
+
 ## DD-050: The Docker network is not a trust boundary
 
 **Decision:** The ldap-proxy `/tokens` API requires a shared secret
@@ -656,12 +827,12 @@ Failures-only counting restores the intended semantics: brute-force attempts (wh
 
 ---
 
-## DD-035: `app-db` Uses Official `postgres:15-alpine` Instead of `postgis/postgis`
+## DD-035: `app-db` Uses Official `postgres:18-alpine` Instead of `postgis/postgis`
 
 **Date:** 2026-04-18
-**Status:** Decided
+**Status:** Decided (amended 2026-08-18 — see below)
 
-**Decision:** The `app-db` service (shared PostgreSQL for LLDAP + Node-RED) uses the official `postgres:15-alpine` image instead of `postgis/postgis:15-3.4-alpine`. PostGIS is no longer installed on `app-db`. Flows that need spatial queries should connect to `tak-database`, which has PostGIS natively.
+**Decision:** The `app-db` service (shared PostgreSQL for LLDAP + Node-RED) uses the official `postgres:18-alpine` image instead of `postgis/postgis:15-3.4-alpine`. PostGIS is no longer installed on `app-db`. Flows that need spatial queries should connect to `tak-database`, which has PostGIS natively.
 
 **Why:** `postgis/postgis` ships `amd64` only. The community multi-arch fork (`imresamu/postgis`) marks its arm64 support as experimental. Running FastTAK on ARM hosts (Apple Silicon development, AWS Graviton, Oracle Ampere A1, Hetzner Ampere) either fails outright or runs under emulation. The official `postgres` image is first-party, multi-arch-stable, and maintained by the PostgreSQL Docker team — no supply-chain or architecture-compatibility caveats.
 
@@ -674,6 +845,20 @@ The tradeoff is the loss of PostGIS on `app-db`. Stock FastTAK does not depend o
 - Build our own PostGIS image — rejected as overkill. The feature (PostGIS on app-db) isn't used by stock FastTAK, so maintaining our own image for a user-convenience feature is disproportionate effort.
 
 **Related:** DD-033 (same principle — security/reliability defaults stay universal across deploy modes and host architectures).
+
+**Amended 2026-08-18:** `app-db` moved from `postgres:15-alpine` to
+`postgres:18-alpine` alongside TAK 5.8's own move to PostgreSQL 18
+(`tak-database` moves with it — see
+[DD-051](#dd-051-tak-server-58-hardened-bundle-is-the-supported-floor)).
+`docker-compose.yml` now pins `PGDATA=/var/lib/postgresql/data` explicitly on
+`app-db`: the `postgres:18` image otherwise defaults `PGDATA` to a
+version-specific path (`/var/lib/postgresql/18/docker`) rather than the mount
+point, and the 18 entrypoint hard-fails on start rather than silently using
+the wrong directory. Pinning `PGDATA` to the mount keeps it exactly equal to
+what's mounted, which is what `tak-database/check-pgdata-persistent.sh`'s
+exact-match guard requires — that guard does **not** accept a mount at
+PGDATA's *parent*. A future PostgreSQL major may move the default PGDATA path
+again; re-check this pin when it does.
 
 ---
 
@@ -936,14 +1121,18 @@ These were chosen based on observed idle/startup footprint plus safety margin, a
 
 ---
 
-## DD-020: Global Autovacuum Tuning via Startup Flags
+## DD-020: Global Autovacuum Tuning via `postgresql.conf`
 
 **Date:** 2026-03-27
-**Status:** Decided
+**Status:** Decided (amended 2026-08-18 — see below)
 
-**Decision:** PostgreSQL autovacuum is tuned via global `-c` startup flags injected by `tak-database/start.sh`, not per-table `ALTER TABLE SET` statements. Three configurable `.env` variables with FastTAK defaults: `PG_AUTOVACUUM_SCALE_FACTOR` (default: 0.05), `PG_AUTOVACUUM_COST_LIMIT` (default: 1000), `PG_MAINTENANCE_WORK_MEM` (default: 256MB). These defaults are applied automatically — users who want stock PostgreSQL behavior must explicitly set them to `0.2`, `200`, `64MB`. Autovacuum health status uses a minimum dead tuple threshold (`AUTOVACUUM_MIN_DEAD_TUPLES`, default 1000) — tables below this count are shown in the UI but don't affect the overall status. This prevents tiny config tables with a handful of dead rows from triggering false alerts on a fresh stack.
+**Decision:** PostgreSQL autovacuum is tuned globally, not via per-table `ALTER TABLE SET` statements. Three configurable `.env` variables with FastTAK defaults: `PG_AUTOVACUUM_SCALE_FACTOR` (default: 0.05), `PG_AUTOVACUUM_COST_LIMIT` (default: 1000), `PG_MAINTENANCE_WORK_MEM` (default: 256MB). These defaults are applied automatically — users who want stock PostgreSQL behavior must explicitly set them to `0.2`, `200`, `64MB`. Autovacuum health status uses a minimum dead tuple threshold (`AUTOVACUUM_MIN_DEAD_TUPLES`, default 1000) — tables below this count are shown in the UI but don't affect the overall status. This prevents tiny config tables with a handful of dead rows from triggering false alerts on a fresh stack.
 
-**Why:** Per-table tuning (`ALTER TABLE cot_router SET (autovacuum_vacuum_scale_factor = 0.05)`) is more precise but couples us to TAK Server's schema — table names could change across versions. The CoT tables are the dominant workload, so global settings effectively tune for them. Startup flags are the simplest mechanism to wire through `.env` and require no SQL execution or schema knowledge.
+**Why:** Per-table tuning (`ALTER TABLE cot_router SET (autovacuum_vacuum_scale_factor = 0.05)`) is more precise but couples us to TAK Server's schema — table names could change across versions. The CoT tables are the dominant workload, so global settings effectively tune for them.
+
+**Amended 2026-08-18:** the original mechanism — `pg_ctl -o` startup flags injected by `tak-database/start.sh` — no longer exists. TAK 5.8 dropped those flags entirely; the `sed` that used to splice FastTAK's flags in now matches nothing and exits 0, so the tuning would silently disappear with no error. `tak-database/start.sh` now appends FastTAK's block to `db-utils/postgresql.conf` (what the vendor's `takserver-setup-db.sh` copies into `PGDATA` on the first boot of a fresh database) *and* to the live `$PGDATA/postgresql.conf` (what the server reads on every boot after the first — the vendor's copy step prompts `Type 'erase'` on a database that already exists, which fails closed under this container's no-TTY entrypoint and never runs again after boot one). Because a config-file write is not a startup flag, "it took effect" is no longer implied by the process starting — `start.sh` now polls `SHOW <setting>` against the running server after the vendor entrypoint starts, and fails the container if the values it wanted are not what the server reports back.
+
+**Related:** [DD-053](#dd-053-wal-archiving-disabled) — the same append-and-verify mechanism also disables WAL archiving, and the same first-boot-vs-live-config problem applies there too.
 
 ---
 

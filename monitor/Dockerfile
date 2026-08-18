@@ -14,7 +14,7 @@ WORKDIR /app
 COPY --from=lldap /app/lldap_set_password /usr/local/bin/lldap_set_password
 
 COPY requirements.txt .
-RUN apk add --no-cache openssl curl postgresql17-client age \
+RUN apk add --no-cache openssl curl postgresql18-client age \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY config/ ./config/

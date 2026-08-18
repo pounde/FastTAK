@@ -128,3 +128,6 @@ site/
 
 # Go build output from local `go build ./...` in ldap-proxy (image build is in-container)
 /ldap-proxy/fastak-ldap-proxy
+
+# Subagent-driven-development scratch (briefs, reports, progress ledger)
+.superpowers/

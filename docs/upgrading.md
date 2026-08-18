@@ -1,8 +1,15 @@
 # Upgrading FastTAK
 
 Most of an upgrade is automated. Run `./setup.sh` to pull the new release, then
-`./start.sh` to bring the stack up — `setup.sh` preserves your `.env`, and
-`start.sh` runs `scripts/check-env.sh` as a preflight before anything starts.
+`just upgrade` to finish it — `setup.sh` preserves your `.env`, and `just
+upgrade` migrates anything that needs migrating before bringing the stack up.
+When nothing needs migrating it says so and tells you to run `./start.sh`.
+
+!!! danger "Do not run `./start.sh` first on a TAK Server 5.6 → 5.8 upgrade"
+    Before 5.8 the `cot` database lives in the `tak-database` container's
+    writable layer, not on its volume. `./start.sh` recreates that container on
+    the new image tag, which destroys the CoT history — before any backup of it
+    exists. `setup.sh` prints this reminder at the end of an upgrade run.
 
 This page covers the parts that are **not** automatic: the ones that depend on
 decisions you made, which no script can make for you.
@@ -36,6 +43,114 @@ Check the release notes for the versions you are skipping. FastTAK follows
 semantic versioning, and `fix:` releases will not change behaviour you depend on
 — but a service being *removed* from the stack is worth knowing about in
 advance, because of the next item.
+
+## Upgrading to TAK Server 5.8 (FastTAK v0.29+)
+
+FastTAK v0.29 requires the **hardened** TAK Server bundle, version 5.8 or
+later — `takserver-docker-hardened-5.8-RELEASE-65.zip` or newer from
+[tak.gov](https://tak.gov/products/tak-server). `setup.sh` refuses anything
+older, and `scripts/check-env.sh` refuses a `TAK_VERSION` in `.env` that is
+below the floor or unparseable, because earlier releases put the PostgreSQL
+data directory outside the volume FastTAK mounts and the database would not
+survive a container recreate. See
+[DD-051](decisions.md#dd-051-tak-server-58-hardened-bundle-is-the-supported-floor).
+
+TAK 5.8 moves to PostgreSQL 18, and FastTAK moves `app-db` with it. Both
+databases therefore need migrating.
+
+### Procedure
+
+```bash
+# 1. Take a backup and confirm it exists. `just upgrade` also takes its own
+#    backup before doing anything destructive and aborts if that fails, but
+#    an explicit backup first costs nothing.
+just backup && just backups
+
+# 2. Pull the new FastTAK release and rebuild the TAK images.
+git pull
+./setup.sh takserver-docker-hardened-5.8-RELEASE-65.zip
+
+# 3. Migrate the databases and restart the stack.
+just upgrade
+```
+
+!!! danger "Do not restart the stack between `git pull` and `just upgrade`"
+    `just upgrade` takes its backup through the *running* stack, and it
+    requires `tak-database` and `monitor` to already be up when it starts.
+    Restarting the stack in between breaks that in two ways, and only one of
+    them is recoverable:
+
+    - **`app-db` will not start.** Once `git pull` updates
+      `docker-compose.yml` to name `postgres:18-alpine`, `app-db` fails
+      outright against its still-PostgreSQL-15 volume — an 18 server refuses a
+      15 data directory — and there is then no way to take the backup through a
+      stack that will not start. The data is intact on the volume; only the
+      server refuses it.
+    - **The CoT history is destroyed.** On TAK Server 5.6 the whole `cot`
+      database lives inside the `tak-database` container's writable layer, not
+      on `tak-db-data`. `./setup.sh` has just changed the image tag, so
+      `docker compose up` recreates that container — and the history goes with
+      the old one. Nothing has backed it up yet, so there is no copy to restore
+      from.
+
+    **Recovery, for the `app-db` case only:** `git checkout <previous-tag>`,
+    start the stack, then check back out and re-run `just upgrade`. That gets
+    `app-db` running on 15 again so the backup can be taken.
+
+    It does **not** bring the CoT history back. If the stack has already been
+    recreated on the 5.8 images, `tak-database` starts with a fresh, empty
+    `cot`, and every step after that succeeds on it: the backup dumps the empty
+    database, the archive check passes on a valid dump, the restore runs, and
+    the summary prints `CoT history: migrated`. The message describes the
+    restore that ran, not rows that survived — the rows are already gone.
+    Check `SELECT count(*) FROM cot_router` (or your own row count taken
+    before the upgrade) rather than trusting the summary in this case.
+
+    If the CoT history matters and the stack has already been restarted, stop
+    and look for an older backup archive taken while 5.6 was still running —
+    that is the only remaining copy.
+
+### Disk space
+
+Migrating the CoT database dumps it and restores the dump alongside the
+original, so it needs free space. `just upgrade` requires **1.5× the measured
+`cot` database size** to be free (on the filesystem holding `BACKUP_DIR`)
+before it starts, matching the check in tak.gov's own
+`db-utils/upgrade-db.sh`, and aborts rather than filling the disk partway
+through a restore.
+
+This check does **not** cover `$TMPDIR` (where the decrypted, uncompressed
+dump is extracted — often larger than the live database) or Docker's data
+root (where the restored copy lands). Either can fill independently of the
+check passing.
+
+!!! warning "The stack is down for the whole migration"
+    A multi-GB `cot` database can take a long time to dump and restore, and
+    TAK Server is unavailable throughout. Check the reported size before
+    starting and schedule accordingly. The timings are not yet benchmarked at
+    realistic sizes — see [issue #98](https://github.com/pounde/FastTAK/issues/98).
+
+### Discarding the CoT history
+
+CoT history is **migrated by default**. If it is not worth carrying across for
+this hop:
+
+```bash
+just upgrade --skip-cot
+```
+
+This recreates the `cot` database empty and skips the dump and restore
+entirely, which is much faster. `--skip-cot` only affects CoT history —
+**`app-db` (every LDAP account, Node-RED flow and audit record) is migrated
+either way**, and the pre-upgrade backup is always taken regardless of the
+flag.
+
+### Building the images needs network access
+
+The hardened images install packages from the Rocky, EPEL, Adoptium and PGDG
+repositories during the build. Earlier bundles built from `postgres:15.1` with
+two extra packages, so a build that previously worked behind a restrictive
+egress policy may not any more.
 
 ## What the scripts now handle for you
 
