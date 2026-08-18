@@ -11,7 +11,7 @@ End-to-end: set up FastTAK, create a user, enroll a device, stream video.
 
 ```bash
 cd /path/to/FastTAK
-./setup.sh takserver-docker-5.6-RELEASE-6.zip
+./setup.sh takserver-docker-hardened-5.8-RELEASE-65.zip
 ```
 
 This extracts the TAK Server release into `./tak/`, builds the Docker images, and creates `.env` from the template.

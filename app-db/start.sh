@@ -43,7 +43,19 @@ if [ -x "$GUARD" ]; then
   fi
   echo "[app-db] PGDATA (${DATA_DIR}) is on a mounted volume."
 else
-  echo "[app-db] WARNING: ${GUARD} not found — PGDATA persistence unverified." >&2
+  cat >&2 <<EOF
+[app-db] ERROR: ${GUARD} is missing or not executable.
+
+  The guard is bind-mounted from the host, so a mount that did not land or a
+  stripped execute bit disables the one check that catches a PGDATA that has
+  moved off the volume — while the container still reports a normal startup.
+  Continuing would mean running unverified, so this is fatal.
+
+  Confirm app-db's ./tak-database/check-pgdata-persistent.sh mount in
+  docker-compose.yml (the guard script is shared, not duplicated), and that
+  the file on the host is executable.
+EOF
+  exit 1
 fi
 
 # Clear stale ALTER SYSTEM settings that conflict with command-line args

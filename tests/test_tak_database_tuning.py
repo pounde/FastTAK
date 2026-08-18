@@ -363,6 +363,8 @@ def _run_full(tak: Path, *, bin_dir: Path | None = None, timeout=120, **env):
         "FASTAK_TAK_DIR": str(tak),
         "PGDATA": str(_pgdata(tak)),
         "FASTAK_VERIFY_TIMEOUT": "1",
+        # A missing guard is fatal (test_missing_guard_is_fatal). Tests that
+        # expect the run to reach the end pass a stub guard of their own.
         "FASTAK_GUARD": "/nonexistent",
         "TAK_DB_PASSWORD": "test-pw",
         **env,
@@ -459,6 +461,37 @@ def test_guard_failure_is_fatal(tmp_path):
     assert result.returncode == 1
 
 
+def test_missing_guard_is_fatal(tmp_path):
+    """The guard is bind-mounted from the host, so a mount that did not land or
+    a stripped execute bit silently disables the one check that catches the
+    persistence defect — while the container reports a normal startup. Every
+    other check here fails closed; this one used to warn and continue."""
+    tak = _fake_tak_tree(tmp_path)
+    _vendor_runs_for(tak, 30)
+    bin_dir = tmp_path / "stubbin"
+    _stub_psql(bin_dir, CORRECT_SETTINGS)
+    result = _run_full(tak, bin_dir=bin_dir, FASTAK_GUARD="/nonexistent")
+    assert result.returncode == 1
+    assert "is on a mounted volume" not in result.stdout
+    assert "unverified" not in result.stdout
+    assert "ERROR" in result.stderr
+    assert "/nonexistent" in result.stderr
+
+
+def test_non_executable_guard_is_fatal(tmp_path):
+    """Present but mode 0644 is the likelier form of the same defect: the file
+    exists, so a `test -f` would pass, and the script would run unverified."""
+    tak = _fake_tak_tree(tmp_path)
+    _vendor_runs_for(tak, 30)
+    bin_dir = tmp_path / "stubbin"
+    _stub_psql(bin_dir, CORRECT_SETTINGS)
+    guard, calls = _stub_guard(tmp_path)
+    guard.chmod(0o644)
+    result = _run_full(tak, bin_dir=bin_dir, FASTAK_GUARD=str(guard))
+    assert result.returncode == 1
+    assert not calls.exists()
+
+
 def test_missing_pg_version_is_fatal(tmp_path):
     """PGDATA is trusted without a server round-trip, so before handing it to
     the guard the script confirms it looks like a real cluster directory. A
@@ -510,6 +543,7 @@ def test_connect_timeout_is_set(tmp_path):
     bin_dir = tmp_path / "stubbin"
     seen = tmp_path / "connect-timeout"
     _stub_psql(bin_dir, CORRECT_SETTINGS, record_env_to=seen)
-    result = _run_full(tak, bin_dir=bin_dir)
+    guard, _ = _stub_guard(tmp_path)
+    result = _run_full(tak, bin_dir=bin_dir, FASTAK_GUARD=str(guard))
     assert result.returncode == 0, result.stderr
     assert set(seen.read_text().split()) == {"5"}

@@ -12,6 +12,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 LIB = REPO / "scripts" / "lib-tak-version.sh"
+CALLERS = [REPO / "setup.sh", REPO / "scripts" / "check-env.sh"]
 
 
 def _major_minor(version: str) -> subprocess.CompletedProcess:
@@ -79,3 +80,30 @@ def test_meets_floor_accepts(version, floor):
 )
 def test_meets_floor_rejects(version, floor):
     assert _meets_floor(version, floor).returncode == 1
+
+
+# ── The floor itself ─────────────────────────────────────────────────────
+#
+# Sharing the comparison but not the constant left the two callers able to
+# disagree about which release is the floor — the exact failure the library's
+# header claims sourcing it prevents.
+
+
+def test_library_defines_the_floor():
+    result = subprocess.run(
+        ["/bin/bash", "-c", f'. "{LIB}"; printf "%s" "$TAK_VERSION_FLOOR"'],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout == "5.8"
+
+
+@pytest.mark.parametrize("caller", CALLERS, ids=lambda p: p.name)
+def test_callers_do_not_redefine_the_floor(caller):
+    """Each caller sources the library and uses its value; a local assignment
+    would let one drift from the other."""
+    source = caller.read_text()
+    assert "TAK_VERSION_FLOOR=" not in source
+    assert "$TAK_VERSION_FLOOR" in source
+    assert "lib-tak-version.sh" in source
