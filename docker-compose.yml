@@ -53,11 +53,14 @@ services:
   tak-database:
     image: takserver-database:${TAK_VERSION}
     entrypoint: ["/start.sh"]
-    # TAK 5.8's hardened image runs as postgres:0. FastTAK overrides to root:
-    # the bind-mounted /opt/tak tree is owned by the operator's host uid, and
-    # under rootless Podman container uid 0 maps to the invoking user while
-    # uid 999 maps into the subuid range and owns nothing. Tracked in #97.
-    user: "0:0"
+    # Unlike tak-server, this service does NOT get the root override: postgres
+    # categorically refuses to run as root (pg_ctl: cannot be run as root), and
+    # the 5.8 entrypoint calls pg_ctl directly rather than wrapping it in
+    # `su - postgres` the way 5.6 did. It runs as the image's own postgres:0.
+    # That's safe here because, unlike tak-server, this service does not bind-
+    # mount /opt/tak over the image's copy (see the volumes below) — so there
+    # is no host-owned tree for uid 26 to fail to write, which is the
+    # ownership conflict that motivated the override elsewhere (#97).
     restart: unless-stopped
     logging: *default-logging
     deploy:
@@ -71,7 +74,6 @@ services:
       PG_MAINTENANCE_WORK_MEM: ${PG_MAINTENANCE_WORK_MEM:-}
     volumes:
       - tak-db-data:/var/lib/postgresql/data
-      - *tak-mount
       - ./tak-database/start.sh:/start.sh:ro
       - ./tak-database/check-pgdata-persistent.sh:/opt/fastak/check-pgdata-persistent.sh:ro
     healthcheck:

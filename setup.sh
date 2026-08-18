@@ -164,6 +164,15 @@ else
   echo "  Done."
 fi
 
+# The release zip stores every file mode 0666 — no execute bit, on any file,
+# including the vendor's own *.sh. TAK's Dockerfile.hardened-takserver-db
+# compensates at build time (find /opt/tak -name "*.sh" -exec chmod u=rx), but
+# FastTAK bind-mounts this host-extracted tak/ over /opt/tak in tak-server,
+# shadowing that build-time fix — the container sees the host tree's modes,
+# not the image's. The vendor's own README_hardened_docker.md recommends
+# `chmod -R u+rwX ./tak` for exactly this reason.
+find "$TARGET_DIR/tak" -name "*.sh" -exec chmod u+rx {} +
+
 # Copy scripts into tak/ so file bind mounts overlay correctly on Docker Desktop.
 # Without this, Docker creates empty mountpoints that virtiofs can't resolve.
 # Must run after both fresh-install and upgrade paths since both replace tak/.

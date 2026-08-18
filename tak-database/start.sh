@@ -363,17 +363,37 @@ fi
 echo "[tak-database] Settings verified against the running server."
 
 # ── 4. PGDATA persistence guard ──────────────────────────────────────────
+# Uses $PGDATA rather than `SHOW data_directory`: that setting is restricted
+# to roles with pg_read_all_settings, and martiuser (the role this script's
+# psql calls connect as) does not carry it, so the query silently returns
+# nothing — not a permissions error, since SHOW swallows it. Do not "fix"
+# this back to querying the server; PGDATA is exactly what's needed here
+# (set by the image, used above for LIVE_CONF, and matches what the vendor's
+# own configureInDocker.sh hardcodes for pg_ctl -D). Because that trust is
+# unverified by a live server round-trip, PG_VERSION is checked below to
+# confirm PGDATA really is an initialised cluster directory.
 if [ -x "$GUARD" ]; then
-  DATA_DIR="$(psql_show data_directory)"
+  DATA_DIR="${PGDATA:-}"
   if [ -z "$DATA_DIR" ]; then
     cat >&2 <<EOF
-[tak-database] ERROR: could not read the server's data_directory.
+[tak-database] ERROR: PGDATA is not set.
 
-  SHOW data_directory returned nothing, so the persistence guard cannot run.
+  The persistence guard needs PGDATA to know which directory to check.
   Reporting the volume as verified without having checked it is the silent
   failure this guard exists to remove, so this is fatal.
+EOF
+    stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
+    stop_vendor
+    exit 1
+  fi
+  if [ ! -f "${DATA_DIR}/PG_VERSION" ]; then
+    cat >&2 <<EOF
+[tak-database] ERROR: ${DATA_DIR}/PG_VERSION not found.
 
-  psql stderr: $(psql_stderr)
+  PGDATA is set to ${DATA_DIR}, but it does not look like an initialised
+  PostgreSQL cluster directory. Running the persistence guard against it
+  would be checking the wrong thing, which is the silent failure this guard
+  exists to remove, so this is fatal.
 EOF
     stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
     stop_vendor
