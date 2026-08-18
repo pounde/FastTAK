@@ -103,6 +103,114 @@ print(','.join(unhealthy))
     return 1
 }
 
+# ── Extension pre-creation ────────────────────────────────────────────
+# upgrade_dump_extensions and upgrade_extension_sql are copied verbatim from
+# scripts/upgrade.sh, which points operators at this script when it fails.
+# The two restores must not diverge: keep any change to one in the other.
+#
+# upgrade_dump_extensions <plain-sql-dump>
+#
+# Prints the extensions the dump asks for, one per line, in the dump's own
+# order and deduplicated.
+#
+# Why this exists: every TAK cot dump carries `CREATE EXTENSION IF NOT EXISTS
+# postgis`, postgis is not a trusted extension, and the restore below connects
+# as martiuser (rolsuper=f). The statement therefore fails with "permission
+# denied to create extension" and ON_ERROR_STOP aborts the restore. Creating
+# the extensions as a superuser first turns the dump's own IF NOT EXISTS into
+# a notice.
+#
+# Discovered rather than hardcoded: the set varies by TAK release — this dump
+# also carries pgcrypto, and postgis_topology/fuzzystrmatch appear elsewhere —
+# and a hardcoded `postgis` would put the next release back on this same
+# failure path.
+#
+# Scanning stops at the first COPY: pg_dump writes every CREATE EXTENSION in
+# the pre-data section, ahead of all data, so nothing is missed — and a
+# multi-GB cot dump is not read twice. It also keeps a row of CoT data that
+# happens to begin with the text "CREATE EXTENSION" from being read as one.
+#
+# Names are restricted to [A-Za-z0-9_-], which covers every real extension
+# name and cannot carry a quote, a semicolon or a shell metacharacter — they
+# are interpolated into SQL below.
+upgrade_dump_extensions() {
+    awk '
+      /^[[:space:]]*COPY[[:space:]].*[[:space:]]FROM[[:space:]]+stdin;[[:space:]]*$/ { exit }
+      /^[[:space:]]*CREATE[[:space:]]+EXTENSION[[:space:]]/ {
+        s = $0
+        sub(/^[[:space:]]*CREATE[[:space:]]+EXTENSION[[:space:]]+/, "", s)
+        sub(/^IF[[:space:]]+NOT[[:space:]]+EXISTS[[:space:]]+/, "", s)
+        name = ""
+        if (match(s, /^"[A-Za-z0-9_-]+"/)) {
+          name = substr(s, RSTART + 1, RLENGTH - 2)
+        } else if (match(s, /^[A-Za-z0-9_-]+/)) {
+          name = substr(s, RSTART, RLENGTH)
+        }
+        if (name != "" && !(name in seen)) {
+          seen[name] = 1
+          print name
+        }
+      }
+    ' "$1"
+}
+
+# upgrade_extension_sql <role>  (extension names on stdin, one per line)
+#
+# Prints the SQL that pre-creates those extensions and hands each one to
+# <role>. Returns 1 when stdin held no names, so the caller can skip the psql
+# round-trip entirely.
+#
+# Creating the extension is only half the job. The dump was taken with
+# --no-owner (monitor/app/backup/runner.py), so the restoring role owns
+# whatever the dump creates — which is why the restore runs as martiuser and
+# not as the superuser. But two statements in the dump then act on objects the
+# superuser just created:
+#
+#   COMMENT ON EXTENSION postgis IS '...'   — requires owning the extension
+#   COPY public.spatial_ref_sys ...         — requires INSERT on a table that
+#                                             CREATE EXTENSION created
+#
+# Both fail against a postgres-owned extension; confirmed on a live stack.
+# PostgreSQL has no ALTER EXTENSION ... OWNER TO, so extowner is set directly
+# — a superuser-only UPDATE of one OID column. extconfig is the extension's
+# own list of tables whose *data* pg_dump emits, so it is exactly the set the
+# restore will write to. The result is the state martiuser would have reached
+# had postgis been trusted enough for it to create itself.
+upgrade_extension_sql() {
+    local role="$1" list="" name
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        # `if`, not `[ -n "$list" ] && ...`: this script runs under `set -e`,
+        # where an AND-list whose test fails would exit on the first name.
+        if [ -n "$list" ]; then list="${list}, "; fi
+        list="${list}'${name}'"
+    done
+    [ -n "$list" ] || return 1
+    cat <<EOF
+DO \$fastak\$
+DECLARE
+  target_oid oid;
+  ext_name   text;
+  ext_oid    oid;
+  cfg        oid;
+BEGIN
+  SELECT oid INTO target_oid FROM pg_catalog.pg_roles WHERE rolname = '${role}';
+  IF target_oid IS NULL THEN
+    RAISE EXCEPTION 'role ${role} does not exist on this cluster';
+  END IF;
+  FOREACH ext_name IN ARRAY ARRAY[${list}] LOOP
+    EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I', ext_name);
+    SELECT oid INTO ext_oid FROM pg_catalog.pg_extension WHERE extname = ext_name;
+    UPDATE pg_catalog.pg_extension SET extowner = target_oid WHERE oid = ext_oid;
+    FOR cfg IN SELECT unnest(extconfig) FROM pg_catalog.pg_extension WHERE oid = ext_oid LOOP
+      EXECUTE format('ALTER TABLE %s OWNER TO %I', cfg::regclass, '${role}');
+    END LOOP;
+  END LOOP;
+END
+\$fastak\$;
+EOF
+}
+
 # ── Step 1: decrypt the archive ───────────────────────────────────────
 echo "[restore] decrypting $BACKUP"
 age -d -i "$KEYFILE" "$BACKUP" | tar xz -C "$WORK"
@@ -180,6 +288,26 @@ echo "[restore] restoring cot database"
 # shellcheck disable=SC2016  # vars expand inside the container, not on the host
 "${COMPOSE[@]}" exec -T tak-database \
     sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d postgres -c "DROP DATABASE IF EXISTS cot WITH (FORCE);" -c "CREATE DATABASE cot OWNER martiuser ENCODING '"'"'SQL_ASCII'"'"' TEMPLATE template0;"'
+
+# The dump's extensions, created as a superuser before the unprivileged
+# restore reaches them. See upgrade_dump_extensions and upgrade_extension_sql
+# above for what fails without this and why the ownership handoff is part of it.
+#
+# postgres over the Unix socket, not -h localhost: TAK ships its own
+# pg_hba.conf, and it is `local all all peer` / `host all all 0.0.0.0/0 md5`.
+# Over TCP that means a password FastTAK does not have — .env carries
+# TAK_DB_PASSWORD for martiuser, and nothing for postgres. On the socket, peer
+# matches the container's own uid 26 (postgres), which is what `compose exec`
+# runs as. Verified against a live tak-database container.
+COT_EXTENSIONS="$(upgrade_dump_extensions "$WORK/postgres/cot.sql")"
+if [ -n "$COT_EXTENSIONS" ]; then
+    echo "[restore] pre-creating cot extensions: $(printf '%s' "$COT_EXTENSIONS" | tr '\n' ' ')"
+    printf '%s\n' "$COT_EXTENSIONS" \
+        | upgrade_extension_sql martiuser \
+        | "${COMPOSE[@]}" exec -T tak-database \
+            psql -q -v ON_ERROR_STOP=1 -U postgres -d cot -f -
+fi
+
 # shellcheck disable=SC2016
 "${COMPOSE[@]}" exec -T tak-database \
     sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d cot' \
