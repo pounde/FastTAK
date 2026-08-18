@@ -11,9 +11,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# TAK_VERSION_FLOOR comes from the library too — see its header.
 # shellcheck source=scripts/lib-tak-version.sh
 . "$SCRIPT_DIR/scripts/lib-tak-version.sh"
-TAK_VERSION_FLOOR="5.8"
 TARGET_DIR="$SCRIPT_DIR"
 
 while getopts "d:" opt; do
@@ -57,6 +57,26 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 echo "  TAK Server version: $VERSION"
+
+# A version this parser cannot read is not the same failure as a version below
+# the floor, and the two need different fixes: one is a malformed version.txt,
+# the other is a genuinely old bundle. Reporting an unparseable string as
+# "below 5.8" sends the operator hunting for a newer release they already have.
+# check-env.sh draws the same distinction for TAK_VERSION in .env.
+if ! tak_version_major_minor "$VERSION" >/dev/null; then
+  cat >&2 <<EOF
+
+  ERROR: TAK Server version "$VERSION" could not be parsed.
+
+  Expected the form X.Y or X.Y-anything, e.g. 5.8-RELEASE-65 — the string
+  the release bundle writes to tak/version.txt.
+
+  This says nothing about how old the bundle is. Check
+  $RELEASE_DIR/tak/version.txt, and re-download the bundle if it looks
+  truncated or edited.
+EOF
+  exit 1
+fi
 
 # FastTAK supports the hardened bundle from TAK Server 5.8 onward only. A 5.6
 # bundle would build cleanly but put PGDATA at /var/lib/postgresql/15/data
@@ -127,7 +147,11 @@ build_image "takserver:${VERSION}" "$DOCKERFILE_SERVER"
 
 # ── Set up tak/ directory ────────────────────────────────────────────────────
 echo ""
+# Which closing instruction the operator gets depends on this: an upgrade must
+# go through `just upgrade`, not ./start.sh. See the summary below.
+IS_UPGRADE=false
 if [ -d "$TARGET_DIR/tak" ]; then
+  IS_UPGRADE=true
   echo "▸ Upgrading tak/ directory (preserving certs, config, logs)..."
 
   PRESERVE_DIR=$(mktemp -d)
@@ -251,6 +275,25 @@ echo "  │                                                     │"
 echo "  │ View:  grep TAK_WEBADMIN_PASSWORD .env              │"
 echo "  └─────────────────────────────────────────────────────┘"
 echo ""
-echo "  Start FastTAK:"
-echo "    ./start.sh"
+if [ "$IS_UPGRADE" = true ]; then
+  # ./start.sh here is destructive on a pre-5.8 deployment. It runs
+  # `docker compose up -d`, the tak-database image tag has just changed, so the
+  # container is recreated — and before 5.8 the whole cot database lives in
+  # that container's writable layer rather than on the volume. The CoT history
+  # is gone before any backup exists. `just upgrade` takes the backup first.
+  echo "  Finish the upgrade:"
+  echo "    just upgrade"
+  echo ""
+  echo "  Do NOT run ./start.sh first. Releases before TAK Server 5.8 keep the"
+  echo "  CoT history inside the tak-database container, not on its volume, so"
+  echo "  starting the stack now recreates that container on the new image and"
+  echo "  destroys the history before any backup has been taken."
+  echo ""
+  echo "  \`just upgrade\` takes the backup, migrates the databases and brings"
+  echo "  the stack up. If nothing needs migrating it says so and leaves the"
+  echo "  stack alone. See docs/upgrading.md."
+else
+  echo "  Start FastTAK:"
+  echo "    ./start.sh"
+fi
 echo ""

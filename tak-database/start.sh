@@ -406,7 +406,21 @@ EOF
   fi
   echo "[tak-database] PGDATA (${DATA_DIR}) is on a mounted volume."
 else
-  echo "[tak-database] WARNING: ${GUARD} not found — PGDATA persistence unverified." >&2
+  cat >&2 <<EOF
+[tak-database] ERROR: ${GUARD} is missing or not executable.
+
+  The guard is bind-mounted from the host, so a mount that did not land or a
+  stripped execute bit disables the one check that catches the defect this
+  guard exists for — while the container still reports a normal startup.
+  Continuing would mean running unverified, so this is fatal, like every
+  other check above it.
+
+  Confirm the ./tak-database/check-pgdata-persistent.sh mount in
+  docker-compose.yml, and that the file on the host is executable.
+EOF
+  stop_postgres || echo "[tak-database] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
+  stop_vendor
+  exit 1
 fi
 
 wait "$VENDOR_PID"

@@ -1,8 +1,15 @@
 # Upgrading FastTAK
 
 Most of an upgrade is automated. Run `./setup.sh` to pull the new release, then
-`./start.sh` to bring the stack up — `setup.sh` preserves your `.env`, and
-`start.sh` runs `scripts/check-env.sh` as a preflight before anything starts.
+`just upgrade` to finish it — `setup.sh` preserves your `.env`, and `just
+upgrade` migrates anything that needs migrating before bringing the stack up.
+When nothing needs migrating it says so and tells you to run `./start.sh`.
+
+!!! danger "Do not run `./start.sh` first on a TAK Server 5.6 → 5.8 upgrade"
+    Before 5.8 the `cot` database lives in the `tak-database` container's
+    writable layer, not on its volume. `./start.sh` recreates that container on
+    the new image tag, which destroys the CoT history — before any backup of it
+    exists. `setup.sh` prints this reminder at the end of an upgrade run.
 
 This page covers the parts that are **not** automatic: the ones that depend on
 decisions you made, which no script can make for you.
@@ -67,15 +74,41 @@ git pull
 just upgrade
 ```
 
-!!! warning "Do not restart the stack between `git pull` and `just upgrade`"
+!!! danger "Do not restart the stack between `git pull` and `just upgrade`"
     `just upgrade` takes its backup through the *running* stack, and it
     requires `tak-database` and `monitor` to already be up when it starts.
-    Once `git pull` updates `docker-compose.yml` to name `postgres:18-alpine`,
-    restarting `app-db` fails outright against its still-PostgreSQL-15
-    volume — an 18 server refuses a 15 data directory — and there is then no
-    way to take the backup through a stack that will not start. If this
-    happens, `git checkout <previous-tag>`, start the stack, then check back
-    out and re-run `just upgrade`.
+    Restarting the stack in between breaks that in two ways, and only one of
+    them is recoverable:
+
+    - **`app-db` will not start.** Once `git pull` updates
+      `docker-compose.yml` to name `postgres:18-alpine`, `app-db` fails
+      outright against its still-PostgreSQL-15 volume — an 18 server refuses a
+      15 data directory — and there is then no way to take the backup through a
+      stack that will not start. The data is intact on the volume; only the
+      server refuses it.
+    - **The CoT history is destroyed.** On TAK Server 5.6 the whole `cot`
+      database lives inside the `tak-database` container's writable layer, not
+      on `tak-db-data`. `./setup.sh` has just changed the image tag, so
+      `docker compose up` recreates that container — and the history goes with
+      the old one. Nothing has backed it up yet, so there is no copy to restore
+      from.
+
+    **Recovery, for the `app-db` case only:** `git checkout <previous-tag>`,
+    start the stack, then check back out and re-run `just upgrade`. That gets
+    `app-db` running on 15 again so the backup can be taken.
+
+    It does **not** bring the CoT history back. If the stack has already been
+    recreated on the 5.8 images, `tak-database` starts with a fresh, empty
+    `cot`, and every step after that succeeds on it: the backup dumps the empty
+    database, the archive check passes on a valid dump, the restore runs, and
+    the summary prints `CoT history: migrated`. The message describes the
+    restore that ran, not rows that survived — the rows are already gone.
+    Check `SELECT count(*) FROM cot_router` (or your own row count taken
+    before the upgrade) rather than trusting the summary in this case.
+
+    If the CoT history matters and the stack has already been restarted, stop
+    and look for an older backup archive taken while 5.6 was still running —
+    that is the only remaining copy.
 
 ### Disk space
 

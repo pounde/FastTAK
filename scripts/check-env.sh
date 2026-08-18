@@ -11,9 +11,9 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/lib-env.sh
 . "$SCRIPT_DIR/lib-env.sh"
+# TAK_VERSION_FLOOR comes from the library too — see its header.
 # shellcheck source=scripts/lib-tak-version.sh
 . "$SCRIPT_DIR/lib-tak-version.sh"
-TAK_VERSION_FLOOR="5.8"
 
 ENV_FILE="${1:-.env}"
 DEFAULT_WEBADMIN_PASSWORD="FastTAK-Admin-1!"

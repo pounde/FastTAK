@@ -192,6 +192,39 @@ upgrade_compose_args() {
   printf -- '--env-file\n%s\n' "$env_file"
 }
 
+# upgrade_compose_files <deploy-mode> <explicit-files> [<repo-dir>]
+#
+# Prints the colon-separated compose file list this run must use, or nothing
+# when compose's own auto-load (docker-compose.yml plus
+# docker-compose.override.yml) is already right.
+#
+# Precedence: <explicit-files> — FASTAK_COMPOSE_FILES, which the rehearsal
+# integration test sets to point at an isolated stack — wins outright. It names
+# every file the run needs, so DEPLOY_MODE must not add to it or reorder it.
+#
+# Otherwise DEPLOY_MODE decides, exactly as start.sh and the justfile's up/down
+# recipes do. docker-compose.direct.yml is the only place caddy publishes 1880,
+# 8180 and 8888; base compose publishes 80/443 alone. Omitting it here would
+# leave `compose up -d` at the end of this script recreating caddy without those
+# ports — the Monitor, Node-RED and MediaMTX unreachable off-host after an
+# upgrade that reported success.
+#
+# An explicit file list disables compose's override auto-load, so
+# docker-compose.override.yml is re-appended last and still wins.
+upgrade_compose_files() {
+  local mode="$1" explicit="${2:-}" dir="${3:-$REPO_DIR}" files
+  if [ -n "$explicit" ]; then
+    printf '%s' "$explicit"
+    return 0
+  fi
+  [ "$mode" = "direct" ] || return 0
+  files="docker-compose.yml:docker-compose.direct.yml"
+  if [ -f "$dir/docker-compose.override.yml" ]; then
+    files="${files}:docker-compose.override.yml"
+  fi
+  printf '%s' "$files"
+}
+
 # upgrade_project_name_from_config
 #
 # Reads `docker compose config --format json` on stdin and prints its top-level
@@ -373,8 +406,8 @@ cd "$REPO_DIR" || exit 1
 . "$SCRIPT_DIR/lib-env.sh"
 
 # ── Compose target resolution ────────────────────────────────────────────
-# Defaults are the operator's path: the repo's .env, and whatever compose
-# auto-loads (docker-compose.yml plus docker-compose.override.yml).
+# Defaults are the operator's path: the repo's .env, and the same compose files
+# ./start.sh and `just up` would use for this DEPLOY_MODE.
 #
 # The two overrides exist so the rehearsal integration test can drive this
 # script against an isolated test stack, which runs with -f docker-compose.test.yml
@@ -385,13 +418,21 @@ cd "$REPO_DIR" || exit 1
 # Compose derives the project name from the directory of the *first* -f file,
 # so pointing it outside the repo yields a different project than the operator
 # path does. That is fine here — the name is read back from Compose below
-# rather than assumed — but it does mean the two target different stacks.
+# rather than assumed — but it does mean the two target different stacks. It
+# also takes precedence over DEPLOY_MODE: it already names every file its stack
+# needs. See upgrade_compose_files.
 ENV_FILE="${FASTAK_ENV_FILE:-$REPO_DIR/.env}"
+
+# From the env file, not the environment: nothing on the operator path exports
+# DEPLOY_MODE, so `$DEPLOY_MODE` would read empty and silently mean "subdomain".
+DEPLOY_MODE="$(env_get "$ENV_FILE" DEPLOY_MODE)"
+COMPOSE_FILES="$(upgrade_compose_files "${DEPLOY_MODE:-subdomain}" \
+  "${FASTAK_COMPOSE_FILES:-}" "$REPO_DIR")"
 
 COMPOSE_ARGS=()
 while IFS= read -r _arg; do
   COMPOSE_ARGS+=("$_arg")
-done < <(upgrade_compose_args "$ENV_FILE" "${FASTAK_COMPOSE_FILES:-}")
+done < <(upgrade_compose_args "$ENV_FILE" "$COMPOSE_FILES")
 
 compose() { docker compose "${COMPOSE_ARGS[@]}" "$@"; }
 

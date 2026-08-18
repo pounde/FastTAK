@@ -9,6 +9,7 @@ against a live stack and asserts row counts survive the restore.
 """
 
 import json
+import os
 import shlex
 import subprocess
 import textwrap
@@ -177,6 +178,176 @@ def test_compose_args_never_empty_under_set_u():
     )
     assert result.returncode == 0
     assert result.stdout == "--env-file /e/.env "
+
+
+# ── Compose file selection (DEPLOY_MODE) ─────────────────────────────────
+#
+# docker-compose.direct.yml is the only place caddy publishes 1880 / 8180 /
+# 8888; base compose publishes 80/443 alone. This script ends with
+# `compose up -d --build --remove-orphans`, so leaving the overlay out recreates
+# caddy without those ports — the Monitor, Node-RED and MediaMTX unreachable
+# off-host after an upgrade that printed "Upgrade Complete". start.sh and the
+# justfile's up/down recipes all select the overlay the same way.
+
+
+def _compose_files(mode: str, explicit: str = "", repo: str = "/repo"):
+    return _call("upgrade_compose_files", mode, explicit, repo)
+
+
+def test_subdomain_mode_leaves_compose_to_auto_load():
+    """The default: docker-compose.yml plus docker-compose.override.yml, which
+    compose loads on its own. Naming them explicitly would gain nothing."""
+    result = _compose_files("subdomain")
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
+def test_direct_mode_selects_the_direct_overlay(tmp_path):
+    result = _compose_files("direct", "", str(tmp_path))
+    assert result.returncode == 0
+    assert result.stdout == "docker-compose.yml:docker-compose.direct.yml"
+
+
+def test_direct_mode_reappends_an_existing_override_last(tmp_path):
+    """An explicit file list disables compose's override auto-load, so the
+    operator's override has to be named again — and last, so it still wins."""
+    (tmp_path / "docker-compose.override.yml").write_text("services: {}\n")
+    result = _compose_files("direct", "", str(tmp_path))
+    assert result.stdout == (
+        "docker-compose.yml:docker-compose.direct.yml:docker-compose.override.yml"
+    )
+
+
+@pytest.mark.parametrize("mode", ["subdomain", "direct", ""])
+def test_explicit_compose_files_win_over_deploy_mode(mode, tmp_path):
+    """FASTAK_COMPOSE_FILES — which the rehearsal integration test sets to an
+    isolated stack — names every file that run needs. DEPLOY_MODE must not add
+    the direct overlay's production port bindings to it."""
+    (tmp_path / "docker-compose.override.yml").write_text("services: {}\n")
+    result = _compose_files(mode, "/tmp/t/docker-compose.yml:/tmp/t/test.yml", str(tmp_path))
+    assert result.returncode == 0
+    assert result.stdout == "/tmp/t/docker-compose.yml:/tmp/t/test.yml"
+
+
+def test_direct_mode_reaches_compose_args_as_f_flags(tmp_path):
+    """End to end through both helpers: the -f flags precede --env-file."""
+    result = _bash(
+        'upgrade_compose_args "/repo/.env" '
+        f'"$(upgrade_compose_files direct "" {shlex.quote(str(tmp_path))})"'
+    )
+    assert result.stdout.split("\n")[:-1] == [
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "docker-compose.direct.yml",
+        "--env-file",
+        "/repo/.env",
+    ]
+
+
+# ── The whole script, with Docker stubbed ────────────────────────────────
+#
+# The compose arguments are built outside the FASTAK_UPGRADE_LIB_ONLY section,
+# so the helpers above cannot show that the script actually uses them. These
+# run scripts/upgrade.sh for real against a stub `docker` that records every
+# invocation and reports both volumes absent — which reaches "nothing to
+# migrate" and exits 0 without touching anything.
+
+
+def _stub_docker(tmp_path):
+    """A `docker` that logs its argv and answers the read-only probes."""
+    bin_dir = tmp_path / "stubbin"
+    bin_dir.mkdir()
+    log = tmp_path / "docker-calls"
+    docker = bin_dir / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> {shlex.quote(str(log))}\n'
+        'case "$*" in\n'
+        "  info) exit 0 ;;\n"
+        '  *"config --format json"*) printf \'{"name":"fasttak"}\' ;;\n'
+        '  *"volume inspect"*) exit 1 ;;\n'  # absent: a fresh install
+        "esac\n"
+        "exit 0\n"
+    )
+    docker.chmod(0o755)
+    # Only its presence is checked, in the preflight loop.
+    age = bin_dir / "age"
+    age.write_text("#!/bin/sh\nexit 0\n")
+    age.chmod(0o755)
+    return bin_dir, log
+
+
+def _env_file(tmp_path, deploy_mode):
+    """The minimum scripts/check-env.sh accepts."""
+    path = tmp_path / "test.env"
+    path.write_text(
+        "SERVER_ADDRESS=tak.test.invalid\n"
+        "TAK_VERSION=5.8-RELEASE-65\n"
+        "TAK_WEBADMIN_PASSWORD=not-the-documented-default\n"
+        "TOKENS_API_SECRET=0123456789abcdef\n"
+        f"DEPLOY_MODE={deploy_mode}\n"
+        f"BACKUP_DIR={tmp_path}/backups\n"
+    )
+    return path
+
+
+def _run_upgrade(tmp_path, deploy_mode, **env):
+    bin_dir, log = _stub_docker(tmp_path)
+    result = subprocess.run(
+        ["/bin/bash", str(UPGRADE), "--yes"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FASTAK_ENV_FILE": str(_env_file(tmp_path, deploy_mode)),
+            **env,
+        },
+    )
+    return result, log.read_text() if log.exists() else ""
+
+
+def test_direct_mode_runs_compose_with_the_direct_overlay(tmp_path):
+    """The regression: upgrade.sh passed --env-file and nothing else, so
+    compose auto-loaded base + override and dropped docker-compose.direct.yml
+    — the only file publishing caddy's 1880 / 8180 / 8888. The final
+    `compose up -d` then recreated caddy without them and printed
+    "Upgrade Complete"."""
+    result, calls = _run_upgrade(tmp_path, "direct")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Nothing to migrate" in result.stdout
+    compose_calls = [c for c in calls.splitlines() if c.startswith("compose ")]
+    assert compose_calls, calls
+    for call in compose_calls:
+        assert "-f docker-compose.yml" in call
+        assert "-f docker-compose.direct.yml" in call
+        assert "--env-file" in call
+
+
+def test_subdomain_mode_leaves_compose_to_auto_load_end_to_end(tmp_path):
+    result, calls = _run_upgrade(tmp_path, "subdomain")
+    assert result.returncode == 0, result.stdout + result.stderr
+    compose_calls = [c for c in calls.splitlines() if c.startswith("compose ")]
+    assert compose_calls, calls
+    for call in compose_calls:
+        assert "-f " not in call
+        assert "--env-file" in call
+
+
+def test_explicit_compose_files_still_win_end_to_end(tmp_path):
+    """The rehearsal integration test sets FASTAK_COMPOSE_FILES; DEPLOY_MODE
+    must not add the direct overlay's production port bindings to it."""
+    result, calls = _run_upgrade(
+        tmp_path, "direct", FASTAK_COMPOSE_FILES="/t/docker-compose.yml:/t/test.yml"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    compose_calls = [c for c in calls.splitlines() if c.startswith("compose ")]
+    assert compose_calls, calls
+    for call in compose_calls:
+        assert "-f /t/docker-compose.yml -f /t/test.yml" in call
+        assert "docker-compose.direct.yml" not in call
 
 
 # ── Argument parsing ─────────────────────────────────────────────────────

@@ -1,10 +1,18 @@
-# scripts/lib-tak-version.sh — TAK Server version parsing. Sourced, never executed.
+# scripts/lib-tak-version.sh — TAK Server version parsing and the supported
+# floor. Sourced, never executed.
 #
-# setup.sh enforces the version floor against a release bundle's tak/version.txt;
-# check-env.sh enforces it against TAK_VERSION in .env. Both source this file so
-# they cannot disagree about what "5.8 or later" means.
+# setup.sh enforces the floor against a release bundle's tak/version.txt;
+# check-env.sh enforces it against TAK_VERSION in .env. Both source this file,
+# which carries the floor itself as well as the comparison, so they cannot
+# disagree about what "5.8 or later" means or about which release is the floor.
 #
 # shellcheck shell=bash
+
+# The oldest TAK Server release FastTAK supports. Earlier releases place the
+# PostgreSQL data directory outside the volume FastTAK mounts, so the database
+# does not survive a container recreate. See DD-051.
+# shellcheck disable=SC2034  # read by setup.sh and check-env.sh, which source this
+TAK_VERSION_FLOOR="5.8"
 
 # tak_version_major_minor <version-string>
 #
