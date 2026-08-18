@@ -189,26 +189,110 @@ below mirror that script.
    must exist and be empty before restore. We drop and recreate each one,
    then pipe the dump in. `psql -h localhost` is required because Unix
    socket auth in these images falls through to peer auth and rejects
-   `martiuser`/`fastak`.
+   `martiuser`/`fastak`. Every `psql` that reads a dump gets
+   `-v ON_ERROR_STOP=1` — without it, `psql` reports each statement error to
+   stderr and still exits 0, so a restore that failed on every row would
+   otherwise look identical to one that succeeded.
+
+   `cot` is created `ENCODING 'SQL_ASCII' TEMPLATE template0`, matching TAK
+   Server's own cluster (`monitor/app/backup/manifest.py` documents this —
+   `SHOW server_version` comes back as bytes from it). `TEMPLATE template0`
+   is required: a database whose encoding differs from `template1`'s cannot
+   be cloned from `template1`.
 
    ```bash
    # cot (TAK Server)
    docker compose exec -T tak-database \
-       sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -h localhost -U martiuser -d postgres \
+       sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d postgres \
               -c "DROP DATABASE IF EXISTS cot WITH (FORCE);" \
-              -c "CREATE DATABASE cot OWNER martiuser;"'
+              -c "CREATE DATABASE cot OWNER martiuser ENCODING '\''SQL_ASCII'\'' TEMPLATE template0;"'
+   ```
+
+   **Before restoring the dump, pre-create its extensions as a superuser.**
+   Every `cot` dump carries `CREATE EXTENSION IF NOT EXISTS postgis`, but
+   PostGIS is not a trusted extension and `martiuser` (who runs the restore
+   below) is not a superuser — restoring straight through fails with
+   `permission denied to create extension "postgis"`. Restoring wholesale as
+   `postgres` instead isn't a fix either: the dumps are taken with
+   `pg_dump --no-owner`, specifically so the restoring role ends up owning
+   what it restores, and a `postgres`-owned PostGIS would leave TAK Server
+   without write access to its own spatial tables. See
+   [DD-054](decisions.md#dd-054-restoring-cot-pre-creates-extensions-as-superuser-then-reassigns-ownership)
+   for the full reasoning, including why ownership has to be handed to
+   `martiuser` explicitly and not just the extension created.
+
+   The extension set varies by TAK release (this dump also carries
+   `pgcrypto`; `postgis_topology`/`fuzzystrmatch` appear on others), so
+   discover it from the dump rather than hardcoding `postgis`:
+
+   ```bash
+   COT_EXTENSIONS=$(awk '
+     /^[[:space:]]*COPY[[:space:]].*[[:space:]]FROM[[:space:]]+stdin;[[:space:]]*$/ { exit }
+     /^[[:space:]]*CREATE[[:space:]]+EXTENSION[[:space:]]/ {
+       s = $0
+       sub(/^[[:space:]]*CREATE[[:space:]]+EXTENSION[[:space:]]+/, "", s)
+       sub(/^IF[[:space:]]+NOT[[:space:]]+EXISTS[[:space:]]+/, "", s)
+       name = ""
+       if (match(s, /^"[A-Za-z0-9_-]+"/)) { name = substr(s, RSTART + 1, RLENGTH - 2) }
+       else if (match(s, /^[A-Za-z0-9_-]+/)) { name = substr(s, RSTART, RLENGTH) }
+       if (name != "" && !(name in seen)) { seen[name] = 1; print name }
+     }
+   ' /tmp/restore/postgres/cot.sql)
+   echo "Extensions in this dump: $COT_EXTENSIONS"
+   ```
+
+   Then build the SQL that creates every name in `$COT_EXTENSIONS` and hands
+   it to `martiuser`, and run it — over the Unix socket as `postgres` (peer
+   auth matches the container's own uid, which is what `docker compose exec`
+   runs as; over TCP there is no password FastTAK has for the `postgres`
+   role):
+
+   ```bash
+   EXT_LIST=$(printf "'%s'," $COT_EXTENSIONS)
+   EXT_LIST=${EXT_LIST%,}   # trailing comma off
+
+   docker compose exec -T tak-database psql -q -v ON_ERROR_STOP=1 -U postgres -d cot <<SQL
+   DO \$fastak\$
+   DECLARE
+     target_oid oid;
+     ext_name   text;
+     ext_oid    oid;
+     cfg        oid;
+   BEGIN
+     SELECT oid INTO target_oid FROM pg_catalog.pg_roles WHERE rolname = 'martiuser';
+     FOREACH ext_name IN ARRAY ARRAY[$EXT_LIST] LOOP
+       EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I', ext_name);
+       SELECT oid INTO ext_oid FROM pg_catalog.pg_extension WHERE extname = ext_name;
+       UPDATE pg_catalog.pg_extension SET extowner = target_oid WHERE oid = ext_oid;
+       FOR cfg IN SELECT unnest(extconfig) FROM pg_catalog.pg_extension WHERE oid = ext_oid LOOP
+         EXECUTE format('ALTER TABLE %s OWNER TO %I', cfg::regclass, 'martiuser');
+       END LOOP;
+     END LOOP;
+   END
+   \$fastak\$;
+   SQL
+   ```
+
+   This is `upgrade_extension_sql` from `scripts/upgrade.sh` /
+   `tests-integration/restore.sh` written out longhand for a shell doing the
+   substitution itself rather than the script's `awk`/`printf`. If this step
+   and either script ever disagree, the scripts are canonical — copy their
+   `upgrade_dump_extensions`/`upgrade_extension_sql` functions verbatim
+   rather than reconciling by hand.
+
+   ```bash
    docker compose exec -T tak-database \
-       sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -h localhost -U martiuser -d cot' \
+       sh -c 'PGPASSWORD="$TAK_DB_PASSWORD" psql -v ON_ERROR_STOP=1 -h localhost -U martiuser -d cot' \
        < /tmp/restore/postgres/cot.sql
 
    # app-db (lldap, nodered, fastak)
    for db in lldap nodered fastak; do
        docker compose exec -T app-db \
-           sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -h localhost -U fastak -d postgres \
+           sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -v ON_ERROR_STOP=1 -h localhost -U fastak -d postgres \
                   -c \"DROP DATABASE IF EXISTS $db WITH (FORCE);\" \
                   -c \"CREATE DATABASE $db OWNER fastak;\""
        docker compose exec -T app-db \
-           sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -h localhost -U fastak -d $db" \
+           sh -c "PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -v ON_ERROR_STOP=1 -h localhost -U fastak -d $db" \
            < /tmp/restore/postgres/$db.sql
    done
    ```
@@ -219,8 +303,8 @@ below mirror that script.
    (`docker compose stop lldap nodered monitor`) before this step and
    start them again after.
 
-   For the exact procedure used by the integration test, see
-   `tests-integration/restore.sh` in the repo.
+   This mirrors `tests-integration/restore.sh` in the repo exactly — treat
+   that script as canonical if this doc and the script ever disagree.
 
 9. **Start the rest of the stack**
 
