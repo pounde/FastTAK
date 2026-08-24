@@ -33,7 +33,6 @@ testpaths = ["tests"]
 markers = [
     "integration: integration tests requiring a running Docker stack",
     "slow: tests that take > 30s (e.g. full backup/restore cycle)",
-    "destructive: tests that stop the stack and delete Docker volumes (e.g. the upgrade rehearsal) — excluded from the shared test-up stack, run via `just test-upgrade` against their own isolated stack",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

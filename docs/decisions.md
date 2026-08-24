@@ -4,12 +4,78 @@ Significant architectural and design decisions, with reasoning. Newest first.
 
 ---
 
+## DD-055: No Automated Cross-Major Database Upgrade (Yet)
+
+**Decision:** FastTAK ships no `scripts/upgrade.sh` and no `just upgrade`.
+Crossing the TAK Server 5.8 boundary is a documented fresh install of the
+databases — `just backup`, `docker compose down -v`, `./start.sh` — with the
+certificates and `CoreConfig.xml` surviving because they are host files under
+`tak/`, not volume contents. See [upgrading.md](upgrading.md).
+
+**Why the automation was removed:** it was written to carry a pre-5.8
+deployment across the 5.6 → 5.8 hop without losing data, and that hop turns
+out not to need it.
+
+- There is exactly one pre-5.8 deployment in existence, and its `cot` data is
+  expendable.
+- The thing its operator actually cares about — the CA and every issued client
+  cert — lives in `tak/certs/` on the host and was never at risk. `setup.sh`
+  already preserves it across an upgrade.
+- The rest of `app-db` (LLDAP accounts, audit history) is acceptable to lose,
+  and a backup archive is taken first either way.
+
+Against that, the script was ~900 lines that had to stop the stack, delete
+Docker volumes and restore from a backup archive to be exercised at all. It
+produced four of the six Critical defects found in its own branch, and left
+[#99](https://github.com/pounde/FastTAK/issues/99),
+[#100](https://github.com/pounde/FastTAK/issues/100) and
+[#101](https://github.com/pounde/FastTAK/issues/101) open. Its integration
+rehearsal needed a second, isolated Docker stack and a `destructive` pytest
+marker so it would not demolish the shared one. That is a large, permanently
+load-bearing surface bought to protect data that nobody needs protected.
+
+**Why it will come back, and not before:** the version that returns should be
+smaller, and it should be aimed at an ordinary migration rather than this one.
+Two things have to happen first:
+
+1. [#96](https://github.com/pounde/FastTAK/issues/96) consolidates the stack's
+   four entry points (`start.sh`, `reconfig.sh`, `just up`, `setup.sh`). An
+   upgrade path added before that consolidation is a fifth entry point that
+   has to agree with the other four about compose-file selection and `.env`
+   semantics — which is precisely where this script's defects clustered.
+2. The target becomes the PostgreSQL 18 → 19 bump, where the data volume
+   persists across the hop and the job is a normal `pg_upgrade`-shaped
+   migration. The 5.6 → 5.8 case was harder than anything that follows it,
+   because before 5.8 the `cot` database lived in the `tak-database`
+   container's writable layer rather than on its volume.
+
+**What was kept:** the fixes to `tests-integration/restore.sh` developed
+alongside the script — `ON_ERROR_STOP=1`, `ENCODING 'SQL_ASCII' TEMPLATE
+template0`, and the extension pre-creation of [DD-054](#dd-054-restoring-cot-pre-creates-extensions-as-superuser-then-reassigns-ownership).
+They fix real defects in the existing restore path, which the fresh-install
+route now leans on more than before. The `.env`-reader consolidation
+(`scripts/lib-env.sh`, `scripts/env-get.sh`) was kept for the same reason: it
+fixes a live `DEPLOY_MODE` quoting defect in `start.sh` and the justfile,
+independent of any upgrade.
+
+**Alternatives considered:**
+
+- Keep the script but stop testing it destructively. Rejected — an untested
+  destructive path is worse than none. An operator who trusts a summary line
+  that says `CoT history: migrated` when nothing migrated is in a worse
+  position than one who was told plainly that the data does not carry across.
+- Keep it behind an undocumented flag until #96 lands. Rejected — the
+  maintenance cost is in the code and its test stack, not in the
+  documentation, so hiding it saves nothing.
+
+---
+
 ## DD-054: Restoring `cot` Pre-Creates Extensions as Superuser, Then Reassigns Ownership
 
-**Decision:** Restoring the `cot` database — in `just upgrade` and in
-`tests-integration/restore.sh` alike — pre-creates every extension the dump
-requires as the `postgres` superuser, over the Unix socket, *before* handing
-the dump to `martiuser` to restore. It then reassigns each extension's
+**Decision:** Restoring the `cot` database — `tests-integration/restore.sh`,
+and the by-hand procedure in `docs/backup-and-restore.md` — pre-creates every
+extension the dump requires as the `postgres` superuser, over the Unix socket,
+*before* handing the dump to `martiuser` to restore. It then reassigns each extension's
 ownership (`pg_extension.extowner`) and the ownership of any tables in its
 `extconfig` (e.g. PostGIS's `spatial_ref_sys`) to `martiuser`, rather than
 leaving them owned by `postgres`.
@@ -58,11 +124,11 @@ before the other) and build the ownership-handoff SQL from what they find.
 works right up until the first dump that touches `extconfig`, then fails
 mid-restore with the data already dropped.
 
-**Kept in sync in two places:** `scripts/upgrade.sh` and
-`tests-integration/restore.sh` each carry their own copy of this logic
-(`upgrade_dump_extensions` / `upgrade_extension_sql`) because the restore
-step runs inline in both, not through a shared library. A change to one must
-be mirrored in the other.
+**Kept in sync in two places:** `tests-integration/restore.sh` carries this
+logic as `upgrade_dump_extensions` / `upgrade_extension_sql`, and
+`docs/backup-and-restore.md` spells the same SQL out longhand for an operator
+restoring by hand. The script is canonical; a change to it has to be mirrored
+in the doc.
 
 ---
 
@@ -301,6 +367,9 @@ migration.
 duplicate `setup.sh` and `start.sh` and become a third thing to keep in sync.
 Documenting the rules and trusting the checklist — rejected on the evidence
 above.
+
+One was written anyway, for the 5.6 → 5.8 hop, and then removed for the reason
+this decision already gave. See [DD-055](#dd-055-no-automated-cross-major-database-upgrade-yet).
 
 ---
 

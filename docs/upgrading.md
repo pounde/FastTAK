@@ -1,24 +1,13 @@
 # Upgrading FastTAK
 
-Most of an upgrade is automated. Run `./setup.sh` to pull the new release, then
-`just upgrade` to finish it — `setup.sh` preserves your `.env`, and `just
-upgrade` migrates anything that needs migrating before bringing the stack up.
-When nothing needs migrating it says so and tells you how to bring the stack
-back up.
+Most upgrades are a `git pull` and a restart. `./setup.sh` pulls the new
+release and preserves your `.env`, your certificates and your `CoreConfig.xml`;
+`./start.sh` brings the stack back up on the new images.
 
-!!! danger "Do not run `./start.sh` first on a TAK Server 5.6 → 5.8 upgrade"
-    Before 5.8 the `cot` database lives in the `tak-database` container's
-    writable layer, not on its volume. `./start.sh` recreates that container on
-    the new image tag, which destroys the CoT history — before any backup of it
-    exists. `setup.sh` prints this reminder at the end of an upgrade run.
-
-    If the stack is **stopped** rather than removed — `docker compose stop`, a
-    plain `docker stop`, or a daemon restart that did not resume it — the
-    history is still inside those containers, and `just upgrade` will refuse to
-    run because it takes its backup through the running stack. Resume them with
-    `docker compose start`, which restarts the existing containers in place.
-    `./start.sh` and `docker compose up` would recreate them instead, and the
-    history would be gone before the backup was taken.
+Crossing the **TAK Server 5.8 boundary** is the exception. It starts both
+databases empty, and it is not reversible — read
+[Upgrading to TAK Server 5.8](#upgrading-to-tak-server-58-fasttak-v029) in full
+before you begin.
 
 This page covers the parts that are **not** automatic: the ones that depend on
 decisions you made, which no script can make for you.
@@ -64,95 +53,119 @@ data directory outside the volume FastTAK mounts and the database would not
 survive a container recreate. See
 [DD-051](decisions.md#dd-051-tak-server-58-hardened-bundle-is-the-supported-floor).
 
-TAK 5.8 moves to PostgreSQL 18, and FastTAK moves `app-db` with it. Both
-databases therefore need migrating.
+TAK 5.8 moves to PostgreSQL 18, and FastTAK moves `app-db` with it. Neither
+existing volume can be started on the new images — an 18 server refuses a 15
+data directory outright — so **this upgrade starts both databases empty**.
+FastTAK does not migrate them for you. There is no `just upgrade`; the
+automation that used to be here was removed, and why is recorded in
+[DD-055](decisions.md#dd-055-no-automated-cross-major-database-upgrade-yet).
+
+Read [What survives and what does not](#what-survives-and-what-does-not) before
+you start.
 
 ### Procedure
 
 ```bash
-# 1. Take a backup and confirm it exists. `just upgrade` also takes its own
-#    backup before doing anything destructive and aborts if that fails, but
-#    an explicit backup first costs nothing.
+# 1. Take a backup and confirm it is on disk. This is the only copy of the old
+#    databases; nothing below restores it for you. BACKUP_DIR (default
+#    ./backups) is a host directory, so step 3 does not touch it — but copy the
+#    archive off the host anyway if the deployment matters.
 just backup && just backups
 
-# 2. Pull the new FastTAK release and rebuild the TAK images.
+# 2. Pull the new FastTAK release and rebuild the TAK images from the hardened
+#    bundle. This preserves .env, tak/certs/, CoreConfig.xml and
+#    UserAuthenticationFile.xml, and updates TAK_VERSION in .env.
 git pull
 ./setup.sh takserver-docker-hardened-5.8-RELEASE-65.zip
 
-# 3. Migrate the databases and restart the stack.
-just upgrade
+# 3. Remove the old database volumes. THIS IS THE IRREVERSIBLE STEP.
+docker compose down -v
+
+# 4. Start the stack. Both databases initialise empty.
+./start.sh
 ```
 
-!!! danger "Do not restart the stack between `git pull` and `just upgrade`"
-    `just upgrade` takes its backup through the *running* stack, and it
-    requires `tak-database` and `monitor` to already be up when it starts.
-    Restarting the stack in between breaks that in two ways, and only one of
-    them is recoverable:
+`setup.sh` prints this same sequence at the end of an upgrade run.
 
-    - **`app-db` will not start.** Once `git pull` updates
-      `docker-compose.yml` to name `postgres:18-alpine`, `app-db` fails
-      outright against its still-PostgreSQL-15 volume — an 18 server refuses a
-      15 data directory — and there is then no way to take the backup through a
-      stack that will not start. The data is intact on the volume; only the
-      server refuses it.
-    - **The CoT history is destroyed.** On TAK Server 5.6 the whole `cot`
-      database lives inside the `tak-database` container's writable layer, not
-      on `tak-db-data`. `./setup.sh` has just changed the image tag, so
-      `docker compose up` recreates that container — and the history goes with
-      the old one. Nothing has backed it up yet, so there is no copy to restore
-      from.
+!!! warning "`-v` is the whole point of step 3"
+    Without it the old volumes stay and `app-db` will not start at all: an 18
+    server refuses a PostgreSQL 15 data directory, and the container restart-
+    loops. Nothing is corrupted by the attempt — it just does not come up until
+    the volume is gone.
 
-    **Recovery, for the `app-db` case only:** `git checkout <previous-tag>`,
-    start the stack, then check back out and re-run `just upgrade`. That gets
-    `app-db` running on 15 again so the backup can be taken.
+### What survives and what does not
 
-    It does **not** bring the CoT history back. If the stack has already been
-    recreated on the 5.8 images, `tak-database` starts with a fresh, empty
-    `cot`, and every step after that succeeds on it: the backup dumps the empty
-    database, the archive check passes on a valid dump, the restore runs, and
-    the summary prints `CoT history: migrated`. The message describes the
-    restore that ran, not rows that survived — the rows are already gone.
-    Check `SELECT count(*) FROM cot_router` (or your own row count taken
-    before the upgrade) rather than trusting the summary in this case.
+The dividing line is the host filesystem. Everything under `tak/` is a bind
+mount and is untouched by `down -v`; everything in a named Docker volume is
+removed.
 
-    If the CoT history matters and the stack has already been restarted, stop
-    and look for an older backup archive taken while 5.6 was still running —
-    that is the only remaining copy.
+**Survives** — host files under `tak/`, preserved by `setup.sh`:
 
-### Disk space
+| What | Where |
+| ---- | ----- |
+| The CA (`ca.pem`, `ca-do-not-share.key`) and every issued client cert | `tak/certs/` |
+| `CoreConfig.xml` — your whole TAK Server configuration | `tak/CoreConfig.xml` |
+| `UserAuthenticationFile.xml` | `tak/UserAuthenticationFile.xml` |
+| `.env`, including every generated secret | repository root |
+| Backup archives | `$BACKUP_DIR` (default `./backups`) |
 
-Migrating the CoT database dumps it and restores the dump alongside the
-original, so it needs free space. `just upgrade` requires **1.5× the measured
-`cot` database size** to be free (on the filesystem holding `BACKUP_DIR`)
-before it starts, matching the check in tak.gov's own
-`db-utils/upgrade-db.sh`, and aborts rather than filling the disk partway
-through a restore.
+Enrolled ATAK/WinTAK clients keep working: they authenticate with certificates
+issued by a CA that did not change.
 
-This check does **not** cover `$TMPDIR` (where the decrypted, uncompressed
-dump is extracted — often larger than the live database) or Docker's data
-root (where the restored copy lands). Either can fill independently of the
-check passing.
+**Lost** — named volumes removed by `down -v`:
 
-!!! warning "The stack is down for the whole migration"
-    A multi-GB `cot` database can take a long time to dump and restore, and
-    TAK Server is unavailable throughout. Check the reported size before
-    starting and schedule accordingly. The timings are not yet benchmarked at
-    realistic sizes — see [issue #98](https://github.com/pounde/FastTAK/issues/98).
+| What | Volume |
+| ---- | ------ |
+| The `cot` database — all CoT history and mission data | `tak-db-data` |
+| The `lldap`, `nodered` and `fastak` databases — LDAP accounts and groups, Node-RED's own store, the Monitor's audit and health history | `app-db-data` |
+| Node-RED flows and installed palette nodes | `nodered-data` |
+| Caddy's Let's Encrypt certificates and ACME account | `caddy-data` |
 
-### Discarding the CoT history
+!!! note "On a pre-5.8 deployment the `cot` database was never on that volume"
+    That is the persistence defect
+    [DD-051](decisions.md#dd-051-tak-server-58-hardened-bundle-is-the-supported-floor)
+    describes: before 5.8, PGDATA sat inside the `tak-database` container's
+    writable layer rather than on `tak-db-data`. Step 2 changes the image tag,
+    so the CoT history ends with that container whether or not you pass `-v`.
+    The `-v` is what clears `app-db-data`.
 
-CoT history is **migrated by default**. If it is not worth carrying across for
-this hop:
+Two of the losses recover on their own:
 
-```bash
-just upgrade --skip-cot
-```
+- **`webadmin`.** `init-identity` recreates it from `TAK_WEBADMIN_PASSWORD` in
+  `.env` on every boot and joins it to the gate groups, so admin access to the
+  Monitor and to TAK Server comes back by itself. **Every other human account
+  has to be recreated by hand** — they were in LLDAP, which is now empty.
+- **Caddy's TLS certificates.** Caddy re-issues on the next start. In
+  subdomain mode that means a fresh ACME order per hostname, which counts
+  against [Let's Encrypt's rate limits](https://letsencrypt.org/docs/rate-limits/)
+  — relevant if you have already been reissuing today.
 
-This recreates the `cot` database empty and skips the dump and restore
-entirely, which is much faster. `--skip-cot` only affects CoT history —
-**`app-db` (every LDAP account, Node-RED flow and audit record) is migrated
-either way**, and the pre-upgrade backup is always taken regardless of the
-flag.
+Node-RED's flows and the pre-installed `node-red-contrib-postgresql` /
+`node-red-contrib-tak` palette are re-provisioned from the image on first
+boot, but any flow **you** built is in the backup archive and nowhere else.
+
+### Restoring the app-db databases afterwards (optional)
+
+If the LLDAP accounts, Node-RED flows or audit history are worth recovering,
+`tests-integration/restore.sh` can put the `lldap`, `nodered` and `fastak`
+databases back from the archive taken at step 1, and
+[Backup and restore](backup-and-restore.md) documents the by-hand equivalent.
+This is optional. Skip it if the data is expendable — that is the case this
+procedure is written for.
+
+!!! danger "A pre-v0.29 archive carries a below-floor `TAK_VERSION`"
+    `restore.sh` replaces `.env` wholesale with the archive's copy, because
+    the restored databases' role passwords have to match. An archive taken
+    before v0.29 also carries `TAK_VERSION=5.6-RELEASE-6` in that copy — so
+    the restore asks Compose for `takserver-database:5.6-RELEASE-6`, which
+    does not exist on a 5.8 host, and every later `./start.sh` fails the
+    version floor. Nothing reconciles it for you. See
+    [issue #99](https://github.com/pounde/FastTAK/issues/99); until it is
+    fixed, re-set `TAK_VERSION` in `.env` by hand after any such restore.
+
+    Restoring only the `cot` database has the same problem and none of the
+    benefit — the whole premise of this upgrade is that the CoT history does
+    not carry across.
 
 ### Building the images needs network access
 

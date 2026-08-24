@@ -104,9 +104,8 @@ print(','.join(unhealthy))
 }
 
 # ── Extension pre-creation ────────────────────────────────────────────
-# upgrade_dump_extensions and upgrade_extension_sql are copied verbatim from
-# scripts/upgrade.sh, which points operators at this script when it fails.
-# The two restores must not diverge: keep any change to one in the other.
+# See DD-054. docs/backup-and-restore.md spells the same SQL out longhand for
+# an operator restoring by hand; this script is canonical if the two disagree.
 #
 # upgrade_dump_extensions <plain-sql-dump>
 #

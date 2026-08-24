@@ -2,12 +2,11 @@
 
 scripts/lib-env.sh implements Compose's own dotenv semantics — notably
 stripping surrounding quotes. `grep '^KEY=' .env | cut -d= -f2` does not, and
-that difference is not cosmetic: with `DEPLOY_MODE="direct"` in .env,
-scripts/upgrade.sh (env_get) selected docker-compose.direct.yml while start.sh
-and the justfile's up/down recipes (grep | cut) saw `"direct"`, matched
-nothing, and fell through to subdomain. caddy then came up without the Monitor,
-Node-RED and MediaMTX port publishings — from a start, or an upgrade, that
-reported success.
+that difference is not cosmetic: with `DEPLOY_MODE="direct"` in .env, Compose
+resolved `direct` for its own variable substitution while start.sh and the
+justfile's up/down recipes (grep | cut) saw `"direct"`, matched nothing, and
+fell through to subdomain. caddy then came up without the Monitor, Node-RED and
+MediaMTX port publishings — from a start that reported success.
 
 `cut -d= -f2` also truncates any value containing `=`, which every generated
 secret can contain.
@@ -34,7 +33,7 @@ READERS = [
     REPO / "justfile",
     REPO / "scripts" / "check-env.sh",
     REPO / "scripts" / "ensure-secrets.sh",
-    REPO / "scripts" / "upgrade.sh",
+    REPO / "video-cot.sh",
 ]
 
 # `grep '^KEY=' <file> | cut -d= -f2` — the reader this replaced, in any of its
@@ -75,7 +74,6 @@ def test_no_second_env_reader(path):
         REPO / "start.sh",
         REPO / "justfile",
         REPO / "reconfig.sh",
-        REPO / "scripts" / "upgrade.sh",
     ],
     ids=lambda p: p.name,
 )

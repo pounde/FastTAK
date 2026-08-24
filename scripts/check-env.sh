@@ -46,12 +46,12 @@ if [ -z "$SERVER_ADDRESS" ] || [ "$SERVER_ADDRESS" = "tak.example.com" ]; then
 fi
 
 # ── DEPLOY_MODE ────────────────────────────────────────────────────────────
-# Every consumer — start.sh, the justfile's up/down recipes, scripts/upgrade.sh,
-# init-config — tests for "direct" and treats everything else as "subdomain". So
-# a typo does not fail: DEPLOY_MODE=dirct silently drops
-# docker-compose.direct.yml, caddy comes up without the Monitor, Node-RED and
-# MediaMTX port publishings, and the start or the upgrade reports success. This
-# is the one place that can tell a typo from a choice.
+# Every consumer — start.sh, the justfile's up/down recipes, init-config —
+# tests for "direct" and treats everything else as "subdomain". So a typo does
+# not fail: DEPLOY_MODE=dirct silently drops docker-compose.direct.yml, caddy
+# comes up without the Monitor, Node-RED and MediaMTX port publishings, and the
+# start reports success. This is the one place that can tell a typo from a
+# choice.
 #
 # Empty stays valid: it is the documented "unset means subdomain" default that
 # every consumer already spells `${DEPLOY_MODE:-subdomain}`.

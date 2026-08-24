@@ -1,13 +1,14 @@
-"""setup.sh tells an upgrade to run `just upgrade`, not `./start.sh`.
+"""setup.sh tells an upgrade to clear the volumes first, not just `./start.sh`.
 
-On a TAK Server 5.6 → 5.8 upgrade `./start.sh` is destructive and
-unrecoverable: it runs `docker compose up -d`, the tak-database image tag has
-just changed, so the container is recreated — and before 5.8 the whole `cot`
-database lives in that container's writable layer rather than on the volume.
-The CoT history is destroyed before `just upgrade` has taken any backup of it.
+Crossing the TAK Server 5.8 boundary changes the PostgreSQL major under both
+databases, so the old volumes cannot be started on the new images. The upgrade
+route is `just backup` → `docker compose down -v` → `./start.sh`: the databases
+come back empty, while the CA, the issued client certs and CoreConfig.xml live
+on the host under tak/ and are preserved. An operator handed the plain fresh
+install instruction would start onto volumes the new server refuses.
 
-setup.sh already knows which branch it took (tak/ existed or it did not), so
-the closing instruction has to differ between them.
+setup.sh already knows which branch it took (tak/ or .env existed, or neither),
+so the closing instruction has to differ between them.
 
 These tests run setup.sh end to end with a stub `docker` on PATH — no daemon,
 no images, no network.
@@ -100,8 +101,7 @@ def upgrade_without_tak_dir(tmp_path):
     A forced clean re-extract removes tak/, and a tak/ on a mount that did not
     land is simply missing. The .env, the volumes and the containers are still
     there in both cases, so this is an upgrade — and calling it a fresh install
-    hands a live pre-5.8 deployment the ./start.sh instruction that destroys its
-    CoT history.
+    hands a live deployment a bare ./start.sh onto stale volumes.
     """
     target = tmp_path / "no-tak-dir"
     target.mkdir(parents=True)
@@ -113,26 +113,41 @@ def upgrade_without_tak_dir(tmp_path):
 
 
 def test_env_without_tak_dir_is_still_an_upgrade(upgrade_without_tak_dir):
-    assert "just upgrade" in upgrade_without_tak_dir
-    assert "Do NOT run ./start.sh" in upgrade_without_tak_dir
+    assert "docker compose down -v" in upgrade_without_tak_dir
 
 
-def test_fresh_install_still_says_start_sh(fresh):
+def test_fresh_install_just_says_start_sh(fresh):
     assert "./start.sh" in fresh
-    assert "just upgrade" not in fresh
+    assert "docker compose down -v" not in fresh
 
 
-def test_upgrade_says_just_upgrade(upgrade):
-    assert "just upgrade" in upgrade
+def test_upgrade_gives_the_whole_sequence_in_order(upgrade):
+    """Backup, then drop the volumes, then start — in that order. Dropping the
+    volumes before the backup leaves nothing to have backed up."""
+    backup = upgrade.index("just backup")
+    down = upgrade.index("docker compose down -v")
+    start = upgrade.index("./start.sh")
+    assert backup < down < start
 
 
-def test_upgrade_warns_against_start_sh(upgrade):
-    """The warning has to name the consequence — an operator who reads
-    "run just upgrade instead" as a style preference runs ./start.sh."""
-    assert "Do NOT run ./start.sh" in upgrade
+def test_upgrade_says_the_databases_are_not_carried_across(upgrade):
+    """An operator who reads `down -v` as routine tidying loses data they
+    thought was migrating. Name the consequence."""
     lowered = upgrade.lower()
-    assert "cot history" in lowered
-    assert "destroy" in lowered
+    assert "cot history is not carried across" in lowered
+    assert "empty" in lowered
+
+
+def test_upgrade_says_the_certificates_survive(upgrade):
+    """The other half of the split, and the half that decides whether the
+    operator goes through with it."""
+    lowered = upgrade.lower()
+    assert "certificates" in lowered
+    assert "preserved" in lowered
+
+
+def test_upgrade_points_at_the_full_procedure(upgrade):
+    assert "docs/upgrading.md" in upgrade
 
 
 def test_the_two_paths_do_not_give_the_same_instruction(fresh, upgrade):
