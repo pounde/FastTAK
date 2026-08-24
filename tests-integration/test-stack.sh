@@ -49,4 +49,9 @@ trap cleanup EXIT INT TERM
 # test downstream that needs docker compose access. The glob fallback in
 # conftest picks the newest /tmp/fastak-test-* dir, which is always the
 # currently active stack.
-uv run pytest tests-integration/ -v
+#
+# -m "not destructive" excludes the upgrade rehearsal: it stops the stack
+# and deletes volumes, which would demolish the shared stack every other
+# test here depends on. It runs separately, in its own stack, via
+# test-upgrade-stack.sh (see `just test-upgrade` / `just test-integration`).
+uv run pytest tests-integration/ -v -m "not destructive"

@@ -51,7 +51,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.integration, pytest.mark.slow]
+pytestmark = [pytest.mark.integration, pytest.mark.slow, pytest.mark.destructive]
 
 REPO = Path(__file__).resolve().parents[1]
 SENTINEL = "fastak_upgrade_rehearsal"

@@ -19,9 +19,35 @@ test:
     fi
     uv run pytest tests/ -v
 
-# Run full test suite: unit tests first, then stand up stack and validate
+# Run full suite: unit tests, the shared-stack suite, then the isolated destructive upgrade rehearsal
 test-integration: test
-    ./tests-integration/test-stack.sh
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "=== [1/2] Integration suite (shared stack) ==="
+    phase1=0
+    ./tests-integration/test-stack.sh || phase1=$?
+    echo ""
+    echo "=== [2/2] Upgrade rehearsal (isolated stack) ==="
+    phase2=0
+    ./tests-integration/test-upgrade-stack.sh || phase2=$?
+    echo ""
+    if [ "$phase1" -eq 0 ]; then
+        echo "[1/2] Integration suite (shared stack): PASSED"
+    else
+        echo "[1/2] Integration suite (shared stack): FAILED (exit ${phase1})"
+    fi
+    if [ "$phase2" -eq 0 ]; then
+        echo "[2/2] Upgrade rehearsal (isolated stack): PASSED"
+    else
+        echo "[2/2] Upgrade rehearsal (isolated stack): FAILED (exit ${phase2})"
+    fi
+    if [ "$phase1" -ne 0 ] || [ "$phase2" -ne 0 ]; then
+        exit 1
+    fi
+
+# Run the destructive upgrade rehearsal alone, against its own isolated stack
+test-upgrade:
+    ./tests-integration/test-upgrade-stack.sh
 
 # Stand up an isolated test stack (detached — stays running until test-down)
 test-up:
@@ -32,9 +58,9 @@ test-up:
 test-up-fg:
     ./tests-integration/test-setup.sh --foreground
 
-# Run test assertions against the running test stack
+# Run test assertions against the running test stack (excludes the destructive upgrade rehearsal — see `just test-upgrade`)
 test-run:
-    uv run pytest tests-integration/ -v
+    uv run pytest tests-integration/ -v -m "not destructive"
 
 # Tear down the test stack
 test-down:
