@@ -39,8 +39,12 @@ fi
 
 # ── Read old values ─────────────────────────────────────────────────────
 
-OLD_ADDRESS=$(grep '^SERVER_ADDRESS=' "$ENV_FILE" | cut -d= -f2)
-OLD_MODE=$(grep '^DEPLOY_MODE=' "$ENV_FILE" | cut -d= -f2)
+# Through the shared reader, not `grep | cut`: that kept the quotes Compose's
+# dotenv parser strips, so a DEPLOY_MODE="direct" already in .env compared
+# unequal to "direct" here and this script re-issued the server certs for a mode
+# change that was not one.
+OLD_ADDRESS=$("$SCRIPT_DIR/scripts/env-get.sh" "$ENV_FILE" SERVER_ADDRESS)
+OLD_MODE=$("$SCRIPT_DIR/scripts/env-get.sh" "$ENV_FILE" DEPLOY_MODE)
 
 if [ "$OLD_ADDRESS" = "$NEW_ADDRESS" ] && [ "$OLD_MODE" = "$NEW_MODE" ]; then
     echo "No changes — already set to $NEW_ADDRESS ($NEW_MODE)"

@@ -14,6 +14,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # TAK_VERSION_FLOOR comes from the library too — see its header.
 # shellcheck source=scripts/lib-tak-version.sh
 . "$SCRIPT_DIR/scripts/lib-tak-version.sh"
+# The shared .env reader, so this script agrees with check-env.sh, start.sh and
+# scripts/upgrade.sh about what a key's value is — quoted values included.
+# shellcheck source=scripts/lib-env.sh
+. "$SCRIPT_DIR/scripts/lib-env.sh"
 TARGET_DIR="$SCRIPT_DIR"
 
 while getopts "d:" opt; do
@@ -149,9 +153,19 @@ build_image "takserver:${VERSION}" "$DOCKERFILE_SERVER"
 echo ""
 # Which closing instruction the operator gets depends on this: an upgrade must
 # go through `just upgrade`, not ./start.sh. See the summary below.
+#
+# Either marker means an existing deployment. tak/ alone is not enough: a forced
+# clean re-extract removes it, and a tak/ on a mount that did not land is simply
+# missing — in both cases the .env, the volumes and the containers are still
+# there, and calling that a fresh install hands a live pre-5.8 deployment the
+# ./start.sh instruction that destroys its CoT history. .env is the same marker
+# the TAK_VERSION branch below already uses.
 IS_UPGRADE=false
-if [ -d "$TARGET_DIR/tak" ]; then
+if [ -d "$TARGET_DIR/tak" ] || [ -f "$TARGET_DIR/.env" ]; then
   IS_UPGRADE=true
+fi
+
+if [ -d "$TARGET_DIR/tak" ]; then
   echo "▸ Upgrading tak/ directory (preserving certs, config, logs)..."
 
   PRESERVE_DIR=$(mktemp -d)
@@ -169,7 +183,14 @@ if [ -d "$TARGET_DIR/tak" ]; then
 
   echo "  Application files updated. Certs, config, and logs preserved."
 else
-  echo "▸ Fresh install — extracting tak/ directory..."
+  if [ "$IS_UPGRADE" = true ]; then
+    # .env without tak/: an existing deployment whose tak/ is gone. Extract it
+    # fresh — there is nothing left to preserve — but the closing instruction
+    # below still has to be the upgrade one.
+    echo "▸ Extracting tak/ directory (existing .env — nothing to preserve)..."
+  else
+    echo "▸ Fresh install — extracting tak/ directory..."
+  fi
   cp -a "$RELEASE_DIR/tak" "$TARGET_DIR/tak"
 
   # The tak.gov release may contain cert files from their build process.
@@ -228,7 +249,7 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
   fill_secret TAK_WEBADMIN_PASSWORD "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
 else
   # Upgrade: update TAK_VERSION if changed
-  CURRENT_VERSION=$(grep '^TAK_VERSION=' "$TARGET_DIR/.env" | cut -d= -f2)
+  CURRENT_VERSION=$(env_get "$TARGET_DIR/.env" TAK_VERSION)
   if [ "$CURRENT_VERSION" != "$VERSION" ]; then
     sed -i.bak "s/^TAK_VERSION=.*/TAK_VERSION=${VERSION}/" "$TARGET_DIR/.env"
     rm -f "$TARGET_DIR/.env.bak"
@@ -247,7 +268,7 @@ if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$TARGET_DIR/.env"; then
 fi
 
 # ── Verify ───────────────────────────────────────────────────────────────────
-ENV_VERSION=$(grep '^TAK_VERSION=' "$TARGET_DIR/.env" | cut -d= -f2)
+ENV_VERSION=$(env_get "$TARGET_DIR/.env" TAK_VERSION)
 if [ "$ENV_VERSION" != "$VERSION" ]; then
   echo ""
   echo "  ⚠ WARNING: .env has TAK_VERSION=${ENV_VERSION} but images are ${VERSION}"

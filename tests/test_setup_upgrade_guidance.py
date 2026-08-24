@@ -93,6 +93,30 @@ def upgrade(tmp_path):
     return result.stdout
 
 
+@pytest.fixture
+def upgrade_without_tak_dir(tmp_path):
+    """An existing deployment whose tak/ is gone: .env is all that is left.
+
+    A forced clean re-extract removes tak/, and a tak/ on a mount that did not
+    land is simply missing. The .env, the volumes and the containers are still
+    there in both cases, so this is an upgrade — and calling it a fresh install
+    hands a live pre-5.8 deployment the ./start.sh instruction that destroys its
+    CoT history.
+    """
+    target = tmp_path / "no-tak-dir"
+    target.mkdir(parents=True)
+    env = (REPO / ".env.example").read_text()
+    (target / ".env").write_text(env.replace("TAK_VERSION=", "TAK_VERSION=5.8-RELEASE-64"))
+    result = _run_setup(tmp_path, target)
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def test_env_without_tak_dir_is_still_an_upgrade(upgrade_without_tak_dir):
+    assert "just upgrade" in upgrade_without_tak_dir
+    assert "Do NOT run ./start.sh" in upgrade_without_tak_dir
+
+
 def test_fresh_install_still_says_start_sh(fresh):
     assert "./start.sh" in fresh
     assert "just upgrade" not in fresh

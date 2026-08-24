@@ -389,3 +389,41 @@ def test_below_floor_tak_version_still_gets_floor_message_not_parse_message(tmp_
     stderr_lower = result.stderr.lower()
     assert "could not be parsed" not in stderr_lower
     assert "could not parse" not in stderr_lower
+
+
+# ── DEPLOY_MODE ────────────────────────────────────────────────────────────
+#
+# Not a rule that varies by DEPLOY_MODE — a rule about DEPLOY_MODE's own value.
+# Every consumer (start.sh, the justfile's up/down recipes, scripts/upgrade.sh)
+# tests for "direct" and treats everything else as "subdomain", so a typo does
+# not fail anywhere: it silently drops docker-compose.direct.yml, caddy comes up
+# without the Monitor / Node-RED / MediaMTX publishings, and the start or the
+# upgrade reports success.
+
+DEPLOY_MODE_BASE = "SERVER_ADDRESS=tak.mydomain.com\nTAK_WEBADMIN_PASSWORD=secret-pw\n"
+
+
+@pytest.mark.parametrize("value", ["direct", "subdomain", '"direct"', "'subdomain'", ""])
+def test_known_deploy_mode_passes(value, tmp_path):
+    """Quoted forms included: the validator reads .env the way Compose does,
+    and `DEPLOY_MODE="direct"` is a direct deployment."""
+    result = _run(f"{DEPLOY_MODE_BASE}DEPLOY_MODE={value}\n", tmp_path)
+    assert result.returncode == 0, result.stderr
+
+
+def test_absent_deploy_mode_passes(tmp_path):
+    """Unset is the documented default — every consumer spells it
+    ${DEPLOY_MODE:-subdomain}."""
+    result = _run(DEPLOY_MODE_BASE, tmp_path)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("value", ["dirct", "Direct", "SUBDOMAIN", "port", "direct-mode"])
+def test_unknown_deploy_mode_fails_and_names_the_value(value, tmp_path):
+    """Case included: the consumers compare with `=`, so `Direct` is a typo
+    that silently means subdomain."""
+    result = _run(f"{DEPLOY_MODE_BASE}DEPLOY_MODE={value}\n", tmp_path)
+    assert result.returncode == 1
+    assert value in result.stderr
+    assert "deploy_mode" in result.stderr.lower()
+    assert "direct" in result.stderr and "subdomain" in result.stderr

@@ -131,6 +131,49 @@ upgrade_cot_summary() {
   fi
 }
 
+# upgrade_start_guidance <tak-db-state>
+#
+# How to bring the stack up, given what tak-db-data holds. Two callers below —
+# the "nothing to migrate" exit and the "services not running" preflight — both
+# leave the operator at a stack that is not running, and on a pre-5.8 layout the
+# wrong command there destroys the CoT history before any backup of it exists.
+#
+# "empty" is the pre-5.8 marker (see upgrade_volume_pg_major): the volume holds
+# no data directory, so the live cot database is in the tak-database container's
+# writable layer. `compose ps -q` does not list stopped containers, so the
+# preflight fires identically whether the containers were removed or merely
+# stopped — and in the stopped case that history is still there, intact, while
+# ./setup.sh has already bumped TAK_VERSION. `./start.sh` and `docker compose
+# up` both recreate the container on the new image tag and take the history with
+# the old one; `docker compose start` resumes the existing container and never
+# recreates it. So this advice cannot be one fixed string.
+upgrade_start_guidance() {
+  if [ "${1:-}" = empty ]; then
+    cat <<'EOF'
+  ⚠  Resume the stack with `docker compose start` — NOT with the start
+     script, and NOT with `docker compose up`.
+
+     This deployment is still on the pre-5.8 layout: tak-db-data holds no
+     data directory, so the whole cot database lives inside the tak-database
+     container. If that container is stopped rather than removed, the CoT
+     history is still in it — and anything that RECREATES the container
+     (the start script, `docker compose up`, `--force-recreate`) destroys
+     that history: ./setup.sh has already changed the image tag it would be
+     recreated on, and nothing has backed the history up yet.
+
+     `docker compose start` resumes the existing containers in place. If it
+     reports there is nothing to start, the containers were already removed
+     and that history is already gone — see docs/upgrading.md.
+EOF
+  else
+    cat <<'EOF'
+  Bring the stack up with ./start.sh — or, if the containers are stopped
+  rather than removed, with `docker compose start`, which resumes them in
+  place instead of recreating them.
+EOF
+  fi
+}
+
 # upgrade_plan <app-current> <app-target> <cot-current> <cot-target> <skip-cot>
 #
 # Prints "<migrate-app-db> <cot-major-stale> <nothing-to-migrate>", each
@@ -578,7 +621,23 @@ EOF
 
 if [ "$NOTHING_TO_MIGRATE" = true ]; then
   echo ""
-  echo "  Nothing to migrate. Start the stack with ./start.sh"
+  echo "  Nothing to migrate."
+  # Reachable with TAK_DB_STATE=empty: the probe prints nothing for both
+  # "absent" and "empty", so upgrade_plan sees no cot major to move either way.
+  # An empty tak-db-data is the pre-5.8 layout, where the cot database is still
+  # inside the container — so this exit must not send the operator to a command
+  # that recreates it.
+  if [ "$TAK_DB_STATE" = empty ]; then
+    echo ""
+    echo "  ⚠  tak-db-data holds no data directory, so this deployment is still"
+    echo "     on the pre-5.8 layout: the cot database is inside the tak-database"
+    echo "     container and will not survive that container being recreated."
+    echo "     No database major changed, so this run migrates nothing — treat"
+    echo "     the CoT history as unprotected until it is on the volume. See"
+    echo "     docs/upgrading.md."
+  fi
+  echo ""
+  upgrade_start_guidance "$TAK_DB_STATE"
   exit 0
 fi
 
@@ -621,7 +680,9 @@ if [ -n "$MISSING_SERVICES" ]; then
   echo "ERROR: these services are not running:${MISSING_SERVICES}" >&2
   echo "" >&2
   echo "  This upgrade restores from a backup it takes through the running" >&2
-  echo "  stack, so the stack must be up first. Bring it up with ./start.sh" >&2
+  echo "  stack, so the stack must be up first." >&2
+  echo "" >&2
+  upgrade_start_guidance "$TAK_DB_STATE" >&2
   echo "" >&2
   echo "  If app-db will not start, its volume is still on PostgreSQL" >&2
   echo "  ${APP_DB_CURRENT:-15} and the new image refuses it. Check out the" >&2

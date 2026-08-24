@@ -24,6 +24,32 @@ PG_PID=$!
 
 until pg_isready -U "$POSTGRES_USER" -q; do sleep 1; done
 
+# stop_postgres [<data-directory>]
+#
+# The fatal branches below exit while that backgrounded postgres is still
+# running. PID 1 leaving without stopping it means Docker SIGKILLs the
+# postmaster: crash recovery on the next boot, and `restart: unless-stopped`
+# loops the container through it. tak-database/start.sh stops the postmaster on
+# every fatal branch; this mirrors it.
+#
+# Prefers the directory the running server reported over $PGDATA, because the
+# two disagreeing is exactly what the guard below exists to catch — and pg_ctl
+# defaults to $PGDATA. Returns pg_ctl's status so callers warn rather than
+# assume a clean shutdown happened.
+stop_postgres() {
+  local dir="${1:-${PGDATA:-}}" err status
+  if [ -n "$dir" ]; then
+    err="$(pg_ctl -D "$dir" stop -m fast 2>&1 >/dev/null)"
+  else
+    err="$(pg_ctl stop -m fast 2>&1 >/dev/null)"
+  fi
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "[app-db] pg_ctl stop: ${err:-(no output)}" >&2
+  fi
+  return "$status"
+}
+
 # ── PGDATA persistence guard ────────────────────────────────────────────
 # Catches the class of defect that reached review here: a postgres image
 # moving PGDATA out from under docker-compose.yml's volume mount, silently.
@@ -36,9 +62,11 @@ if [ -x "$GUARD" ]; then
   DATA_DIR="$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SHOW data_directory;" 2>/dev/null | tr -d '[:space:]')"
   if [ -z "$DATA_DIR" ]; then
     echo "[app-db] ERROR: could not read the server's data_directory; the persistence guard cannot run." >&2
+    stop_postgres || echo "[app-db] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
     exit 1
   fi
   if ! "$GUARD" "$DATA_DIR"; then
+    stop_postgres "$DATA_DIR" || echo "[app-db] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
     exit 1
   fi
   echo "[app-db] PGDATA (${DATA_DIR}) is on a mounted volume."
@@ -55,6 +83,7 @@ else
   docker-compose.yml (the guard script is shared, not duplicated), and that
   the file on the host is executable.
 EOF
+  stop_postgres || echo "[app-db] WARNING: pg_ctl stop failed; PostgreSQL was not shut down cleanly." >&2
   exit 1
 fi
 

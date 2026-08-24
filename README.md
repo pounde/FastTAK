@@ -16,7 +16,7 @@ A Docker Compose stack for deploying and managing the TAK ecosystem:
 ## Prerequisites
 
 1. **Docker Engine** and **Docker Compose v2** (v2.20+) installed
-2. **Official TAK Server release** ZIP from [tak.gov](https://tak.gov)
+2. **Official TAK Server release** ZIP from [tak.gov](https://tak.gov) — the **hardened** bundle, 5.8 or later (`takserver-docker-hardened-5.8-RELEASE-65.zip` or newer). Earlier releases put the PostgreSQL data directory outside the volume FastTAK mounts, so `setup.sh` refuses them ([DD-051](docs/decisions.md#dd-051-tak-server-58-hardened-bundle-is-the-supported-floor)).
 3. **DNS** (subdomain mode only) — required for Let's Encrypt TLS and subdomain routing. Your FQDN and subdomains must resolve to the host's public IP. Not needed for direct mode.
 
 ## Deployment Modes
@@ -33,7 +33,7 @@ FastTAK supports two deployment modes, controlled by `DEPLOY_MODE` in `.env`:
 git clone https://github.com/pounde/FastTAK.git FastTAK && cd FastTAK
 
 # One-time setup (builds images, extracts tak/, generates secrets)
-./setup.sh takserver-docker-5.6-RELEASE-6.zip
+./setup.sh takserver-docker-hardened-5.8-RELEASE-65.zip
 
 # Set SERVER_ADDRESS to your IP or hostname, pick a DEPLOY_MODE
 vim .env
@@ -50,30 +50,23 @@ The fastest path to a working stack is `DEPLOY_MODE=direct` with `SERVER_ADDRESS
 
 For the full end-to-end walkthrough (user enrollment, video streaming), see [docs/quickstart-walkthrough.md](docs/quickstart-walkthrough.md).
 
-### Manual setup
+### What `setup.sh` does
 
-If you prefer to run each step yourself:
+There is no hand-run equivalent — use `setup.sh`. It:
 
-```bash
-git clone https://github.com/pounde/FastTAK.git FastTAK && cd FastTAK
+1. Verifies the bundle is the hardened one and at or above the 5.8 floor
+2. Extracts `tak/`, strips the vendor's build-time certs, and fixes the file
+   modes the release ZIP ships (nothing in it is executable)
+3. Copies FastTAK's `healthcheck.sh` and `register-api-cert.sh` into `tak/`
+4. Builds `takserver` and `takserver-database` from the bundle's **hardened**
+   Dockerfiles
+5. Creates `.env` from `.env.example` and generates every required secret
 
-# 1. Extract the tak.gov ZIP and copy tak/ into this directory
-unzip takserver-docker-5.6-RELEASE-6.zip
-cp -r takserver-docker-5.6-RELEASE-6/tak ./tak
-
-# 2. Build Docker images (from the extracted release directory)
-docker build -t takserver-database:5.6-RELEASE-6 -f takserver-docker-5.6-RELEASE-6/docker/Dockerfile.takserver-db takserver-docker-5.6-RELEASE-6
-docker build -t takserver:5.6-RELEASE-6 -f takserver-docker-5.6-RELEASE-6/docker/Dockerfile.takserver takserver-docker-5.6-RELEASE-6
-
-# 3. Create .env and generate secrets
-cp .env.example .env
-# Edit .env: set SERVER_ADDRESS and DEPLOY_MODE, then generate each empty
-# secret with the command shown in the comment above it (e.g., openssl rand -hex 16).
-# All empty fields must be filled — the stack will not start without them.
-
-# 4. Start
-docker compose up -d --build
-```
+The README used to document these as manual `unzip` + `docker build` steps
+against `Dockerfile.takserver-db`. That path bypassed the version floor and
+reproduced the un-persisted-`PGDATA` defect DD-051 exists to prevent, and the
+database entrypoint now refuses to start on a `PGDATA` that is not a mount
+point — so it no longer works at all.
 
 ### Changing configuration
 
@@ -277,26 +270,37 @@ docker compose up -d
 
 ### TAK Server updates
 
-TAK Server images are built locally from the tak.gov release ZIP. `setup.sh` handles extraction, image builds, and updating `TAK_VERSION` in `.env`:
+TAK Server images are built locally from the tak.gov release ZIP. `setup.sh`
+handles extraction, image builds, and updating `TAK_VERSION` in `.env`; `just
+upgrade` finishes the job — it takes a backup first, migrates any database whose
+PostgreSQL major changed, and brings the stack back up.
 
 ```bash
-# 1. Download the new release ZIP from tak.gov
-# 2. Run setup (rebuilds images, updates .env)
-./setup.sh takserver-docker-X.X-RELEASE-N.zip
-
-# 3. Restart with new images
-docker compose down
-docker compose up -d --build
+just backup && just backups                              # 1. and confirm it exists
+git pull                                                 # 2. the new FastTAK release
+./setup.sh takserver-docker-hardened-X.Y-RELEASE-N.zip   # 3. rebuild images, update .env
+just upgrade                                             # 4. migrate, then start
 ```
 
-`docker compose down` is needed because the local images are rebuilt — a rolling update isn't possible.
+> [!CAUTION]
+> Do not restart the stack between `setup.sh` and `just upgrade` — no
+> `./start.sh`, no `docker compose down`, no `docker compose up`. Before TAK
+> Server 5.8 the whole `cot` database lives inside the `tak-database`
+> container rather than on its volume, and `setup.sh` has just changed the
+> image tag: recreating that container destroys the CoT history before
+> anything has backed it up. `just upgrade` takes the backup first. If the
+> stack is merely stopped, `docker compose start` resumes it without
+> recreating anything.
+
+Full procedure, including disk-space requirements and how to discard the CoT
+history deliberately: [docs/upgrading.md](docs/upgrading.md).
 
 ## Testing
 
 Run a full greenfield integration test (setup → start → verify → teardown):
 
 ```bash
-./start.sh --test takserver-docker-5.6-RELEASE-6.zip
+./start.sh --test takserver-docker-hardened-5.8-RELEASE-65.zip
 ```
 
 This builds from scratch, starts the full stack, runs automated checks, and tears everything down. Requires the tak.gov release ZIP.
@@ -305,6 +309,8 @@ This builds from scratch, starts the full stack, runs automated checks, and tear
 
 ```bash
 # Stop services (preserves databases and ./tak/ .env config)
+# On TAK Server 5.8+ only — earlier releases keep the cot database inside the
+# tak-database container, where `down` destroys it. See docs/upgrading.md.
 docker compose down
 
 # Full reset (destroys database data, keeps ./tak/ certs and .env config)

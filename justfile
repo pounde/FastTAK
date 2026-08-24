@@ -84,7 +84,12 @@ setup-dev:
 up *services:
     #!/bin/bash
     set -euo pipefail
-    DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2 || true)
+    # Via the shared reader, not `grep | cut`: that kept the quotes Compose's
+    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here and
+    # as `direct` in scripts/upgrade.sh — this recipe then dropped
+    # docker-compose.direct.yml and brought caddy up without the Monitor,
+    # Node-RED and MediaMTX publishings.
+    DEPLOY_MODE=$(scripts/env-get.sh .env DEPLOY_MODE)
     DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
     # Split --capture out of the positional args (rest are service names).
     capture=false
@@ -140,7 +145,12 @@ up *services:
 down *services:
     #!/bin/bash
     set -euo pipefail
-    DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env 2>/dev/null | cut -d= -f2 || true)
+    # Via the shared reader, not `grep | cut`: that kept the quotes Compose's
+    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here and
+    # as `direct` in scripts/upgrade.sh — this recipe then dropped
+    # docker-compose.direct.yml and brought caddy up without the Monitor,
+    # Node-RED and MediaMTX publishings.
+    DEPLOY_MODE=$(scripts/env-get.sh .env DEPLOY_MODE)
     DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
     if [ "$DEPLOY_MODE" = "direct" ]; then
       export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"

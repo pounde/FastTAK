@@ -25,12 +25,20 @@ DATA_DIR = "/var/lib/postgresql/data"
 
 
 def _stub_bin(tmp_path: Path) -> Path:
-    """docker-entrypoint.sh, pg_isready and psql, enough for start.sh to run.
+    """docker-entrypoint.sh, pg_isready, psql and pg_ctl, enough for start.sh
+    to run.
 
     `exec sleep` so the sleep *is* the backgrounded PID the script waits on.
     """
     bin_dir = tmp_path / "stubbin"
     bin_dir.mkdir()
+
+    # pg_ctl records its argv so a test can assert the fatal branches shut
+    # PostgreSQL down instead of leaving Docker to kill it.
+    pg_ctl_log = shlex.quote(str(tmp_path / "pg_ctl-calls"))
+    pg_ctl = bin_dir / "pg_ctl"
+    pg_ctl.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {pg_ctl_log}\nexit 0\n')
+    pg_ctl.chmod(0o755)
 
     entry = bin_dir / "docker-entrypoint.sh"
     entry.write_text("#!/bin/sh\nexec sleep 1\n")
@@ -121,3 +129,38 @@ def test_neither_database_entrypoint_warns_and_continues(script):
     """The regression in one line: the string that used to follow a missing
     guard. Both entrypoints had it."""
     assert "persistence unverified" not in script.read_text()
+
+
+# ── Shutting PostgreSQL down on the way out ──────────────────────────────
+#
+# The guard branches exit while the postgres backgrounded at the top of the
+# script is still running. PID 1 leaving without stopping it means Docker
+# SIGKILLs the postmaster — crash recovery on the next boot, and
+# `restart: unless-stopped` loops the container through it. tak-database's
+# entrypoint stops it on every fatal branch; this one used to just exit.
+
+
+def _pg_ctl_calls(tmp_path: Path) -> str:
+    log = tmp_path / "pg_ctl-calls"
+    return log.read_text() if log.exists() else ""
+
+
+def test_guard_failure_stops_postgres_first(tmp_path):
+    guard, _ = _stub_guard(tmp_path, exit_code=1)
+    result = _run(tmp_path, str(guard))
+    assert result.returncode == 1
+    assert "stop -m fast" in _pg_ctl_calls(tmp_path)
+    assert DATA_DIR in _pg_ctl_calls(tmp_path)
+
+
+def test_missing_guard_stops_postgres_first(tmp_path):
+    result = _run(tmp_path, "/nonexistent")
+    assert result.returncode == 1
+    assert "stop -m fast" in _pg_ctl_calls(tmp_path)
+
+
+def test_a_successful_start_does_not_stop_postgres(tmp_path):
+    guard, _ = _stub_guard(tmp_path)
+    result = _run(tmp_path, str(guard))
+    assert result.returncode == 0, result.stderr
+    assert "stop" not in _pg_ctl_calls(tmp_path)
