@@ -14,8 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # TAK_VERSION_FLOOR comes from the library too — see its header.
 # shellcheck source=scripts/lib-tak-version.sh
 . "$SCRIPT_DIR/scripts/lib-tak-version.sh"
-# The shared .env reader, so this script agrees with check-env.sh, start.sh and
-# scripts/upgrade.sh about what a key's value is — quoted values included.
+# The shared .env reader, so this script agrees with check-env.sh and start.sh
+# about what a key's value is — quoted values included.
 # shellcheck source=scripts/lib-env.sh
 . "$SCRIPT_DIR/scripts/lib-env.sh"
 TARGET_DIR="$SCRIPT_DIR"
@@ -151,14 +151,14 @@ build_image "takserver:${VERSION}" "$DOCKERFILE_SERVER"
 
 # ── Set up tak/ directory ────────────────────────────────────────────────────
 echo ""
-# Which closing instruction the operator gets depends on this: an upgrade must
-# go through `just upgrade`, not ./start.sh. See the summary below.
+# Which closing instruction the operator gets depends on this: an upgrade has to
+# clear the old volumes before starting. See the summary below.
 #
 # Either marker means an existing deployment. tak/ alone is not enough: a forced
 # clean re-extract removes it, and a tak/ on a mount that did not land is simply
 # missing — in both cases the .env, the volumes and the containers are still
-# there, and calling that a fresh install hands a live pre-5.8 deployment the
-# ./start.sh instruction that destroys its CoT history. .env is the same marker
+# there, and calling that a fresh install would tell a live deployment to start
+# straight onto volumes the new images may not accept. .env is the same marker
 # the TAK_VERSION branch below already uses.
 IS_UPGRADE=false
 if [ -d "$TARGET_DIR/tak" ] || [ -f "$TARGET_DIR/.env" ]; then
@@ -297,22 +297,20 @@ echo "  │ View:  grep TAK_WEBADMIN_PASSWORD .env              │"
 echo "  └─────────────────────────────────────────────────────┘"
 echo ""
 if [ "$IS_UPGRADE" = true ]; then
-  # ./start.sh here is destructive on a pre-5.8 deployment. It runs
-  # `docker compose up -d`, the tak-database image tag has just changed, so the
-  # container is recreated — and before 5.8 the whole cot database lives in
-  # that container's writable layer rather than on the volume. The CoT history
-  # is gone before any backup exists. `just upgrade` takes the backup first.
+  # An upgrade across the 5.8 boundary starts the databases fresh: the old
+  # volumes were written by an earlier PostgreSQL major, and a new server
+  # refuses them. What the operator actually cares about — the CA, every issued
+  # client cert, CoreConfig.xml — is on the host under tak/ and survives.
   echo "  Finish the upgrade:"
-  echo "    just upgrade"
+  echo "    just backup && just backups   # keep a copy of the old databases"
+  echo "    docker compose down -v        # discard the old database volumes"
+  echo "    ./start.sh"
   echo ""
-  echo "  Do NOT run ./start.sh first. Releases before TAK Server 5.8 keep the"
-  echo "  CoT history inside the tak-database container, not on its volume, so"
-  echo "  starting the stack now recreates that container on the new image and"
-  echo "  destroys the history before any backup has been taken."
-  echo ""
-  echo "  \`just upgrade\` takes the backup, migrates the databases and brings"
-  echo "  the stack up. If nothing needs migrating it says so and leaves the"
-  echo "  stack alone. See docs/upgrading.md."
+  echo "  The databases start empty. The CoT history is NOT carried across, and"
+  echo "  neither are the LLDAP accounts, Node-RED flows or audit history."
+  echo "  Your certificates, CoreConfig.xml and UserAuthenticationFile.xml live"
+  echo "  on the host under tak/ and are preserved. webadmin is recreated from"
+  echo "  .env on the next boot. See docs/upgrading.md."
 else
   echo "  Start FastTAK:"
   echo "    ./start.sh"

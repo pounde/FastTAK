@@ -394,11 +394,10 @@ def test_below_floor_tak_version_still_gets_floor_message_not_parse_message(tmp_
 # ── DEPLOY_MODE ────────────────────────────────────────────────────────────
 #
 # Not a rule that varies by DEPLOY_MODE — a rule about DEPLOY_MODE's own value.
-# Every consumer (start.sh, the justfile's up/down recipes, scripts/upgrade.sh)
-# tests for "direct" and treats everything else as "subdomain", so a typo does
-# not fail anywhere: it silently drops docker-compose.direct.yml, caddy comes up
-# without the Monitor / Node-RED / MediaMTX publishings, and the start or the
-# upgrade reports success.
+# Every consumer (start.sh, the justfile's up/down recipes) tests for "direct"
+# and treats everything else as "subdomain", so a typo does not fail anywhere:
+# it silently drops docker-compose.direct.yml, caddy comes up without the
+# Monitor / Node-RED / MediaMTX publishings, and the start reports success.
 
 DEPLOY_MODE_BASE = "SERVER_ADDRESS=tak.mydomain.com\nTAK_WEBADMIN_PASSWORD=secret-pw\n"
 

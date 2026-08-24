@@ -271,29 +271,18 @@ docker compose up -d
 ### TAK Server updates
 
 TAK Server images are built locally from the tak.gov release ZIP. `setup.sh`
-handles extraction, image builds, and updating `TAK_VERSION` in `.env`; `just
-upgrade` finishes the job — it takes a backup first, migrates any database whose
-PostgreSQL major changed, and brings the stack back up.
-
-```bash
-just backup && just backups                              # 1. and confirm it exists
-git pull                                                 # 2. the new FastTAK release
-./setup.sh takserver-docker-hardened-X.Y-RELEASE-N.zip   # 3. rebuild images, update .env
-just upgrade                                             # 4. migrate, then start
-```
+handles extraction, image builds, and updating `TAK_VERSION` in `.env`, then
+prints the sequence to finish with.
 
 > [!CAUTION]
-> Do not restart the stack between `setup.sh` and `just upgrade` — no
-> `./start.sh`, no `docker compose down`, no `docker compose up`. Before TAK
-> Server 5.8 the whole `cot` database lives inside the `tak-database`
-> container rather than on its volume, and `setup.sh` has just changed the
-> image tag: recreating that container destroys the CoT history before
-> anything has backed it up. `just upgrade` takes the backup first. If the
-> stack is merely stopped, `docker compose start` resumes it without
-> recreating anything.
+> Upgrading **onto TAK Server 5.8** is not an ordinary restart. The PostgreSQL
+> major changes under both databases, so they start empty: the CoT history, the
+> LLDAP accounts, the Node-RED flows and the Monitor's audit history do not
+> carry across. Your CA, your issued client certs and `CoreConfig.xml` do —
+> they are host files under `tak/`. Take a backup first.
 
-Full procedure, including disk-space requirements and how to discard the CoT
-history deliberately: [docs/upgrading.md](docs/upgrading.md).
+Full procedure, and exactly what survives:
+[docs/upgrading.md](docs/upgrading.md).
 
 ## Testing
 

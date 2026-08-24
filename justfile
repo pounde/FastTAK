@@ -19,35 +19,9 @@ test:
     fi
     uv run pytest tests/ -v
 
-# Run full suite: unit tests, the shared-stack suite, then the isolated destructive upgrade rehearsal
+# Run full suite: unit tests, then the integration suite against a built stack
 test-integration: test
-    #!/usr/bin/env bash
-    set -uo pipefail
-    echo "=== [1/2] Integration suite (shared stack) ==="
-    phase1=0
-    ./tests-integration/test-stack.sh || phase1=$?
-    echo ""
-    echo "=== [2/2] Upgrade rehearsal (isolated stack) ==="
-    phase2=0
-    ./tests-integration/test-upgrade-stack.sh || phase2=$?
-    echo ""
-    if [ "$phase1" -eq 0 ]; then
-        echo "[1/2] Integration suite (shared stack): PASSED"
-    else
-        echo "[1/2] Integration suite (shared stack): FAILED (exit ${phase1})"
-    fi
-    if [ "$phase2" -eq 0 ]; then
-        echo "[2/2] Upgrade rehearsal (isolated stack): PASSED"
-    else
-        echo "[2/2] Upgrade rehearsal (isolated stack): FAILED (exit ${phase2})"
-    fi
-    if [ "$phase1" -ne 0 ] || [ "$phase2" -ne 0 ]; then
-        exit 1
-    fi
-
-# Run the destructive upgrade rehearsal alone, against its own isolated stack
-test-upgrade:
-    ./tests-integration/test-upgrade-stack.sh
+    ./tests-integration/test-stack.sh
 
 # Stand up an isolated test stack (detached — stays running until test-down)
 test-up:
@@ -58,9 +32,9 @@ test-up:
 test-up-fg:
     ./tests-integration/test-setup.sh --foreground
 
-# Run test assertions against the running test stack (excludes the destructive upgrade rehearsal — see `just test-upgrade`)
+# Run test assertions against the running test stack
 test-run:
-    uv run pytest tests-integration/ -v -m "not destructive"
+    uv run pytest tests-integration/ -v
 
 # Tear down the test stack
 test-down:
@@ -85,10 +59,10 @@ up *services:
     #!/bin/bash
     set -euo pipefail
     # Via the shared reader, not `grep | cut`: that kept the quotes Compose's
-    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here and
-    # as `direct` in scripts/upgrade.sh — this recipe then dropped
-    # docker-compose.direct.yml and brought caddy up without the Monitor,
-    # Node-RED and MediaMTX publishings.
+    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here
+    # while Compose itself resolved the same line to `direct` — this recipe
+    # then dropped docker-compose.direct.yml and brought caddy up without the
+    # Monitor, Node-RED and MediaMTX publishings.
     DEPLOY_MODE=$(scripts/env-get.sh .env DEPLOY_MODE)
     DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
     # Split --capture out of the positional args (rest are service names).
@@ -146,10 +120,10 @@ down *services:
     #!/bin/bash
     set -euo pipefail
     # Via the shared reader, not `grep | cut`: that kept the quotes Compose's
-    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here and
-    # as `direct` in scripts/upgrade.sh — this recipe then dropped
-    # docker-compose.direct.yml and brought caddy up without the Monitor,
-    # Node-RED and MediaMTX publishings.
+    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here
+    # while Compose itself resolved the same line to `direct` — this recipe
+    # then dropped docker-compose.direct.yml and brought caddy up without the
+    # Monitor, Node-RED and MediaMTX publishings.
     DEPLOY_MODE=$(scripts/env-get.sh .env DEPLOY_MODE)
     DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
     if [ "$DEPLOY_MODE" = "direct" ]; then
@@ -180,8 +154,3 @@ backup-prune keep="":
     else
         docker compose exec -T monitor python -m app.backup prune
     fi
-
-# Pass --skip-cot to discard the CoT history instead of migrating it.
-# Upgrade an existing deployment (database majors, then restart the stack).
-upgrade *args:
-    ./scripts/upgrade.sh {{args}}

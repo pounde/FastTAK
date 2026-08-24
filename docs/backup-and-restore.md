@@ -273,12 +273,12 @@ below mirror that script.
    SQL
    ```
 
-   This is `upgrade_extension_sql` from `scripts/upgrade.sh` /
-   `tests-integration/restore.sh` written out longhand for a shell doing the
-   substitution itself rather than the script's `awk`/`printf`. If this step
-   and either script ever disagree, the scripts are canonical — copy their
-   `upgrade_dump_extensions`/`upgrade_extension_sql` functions verbatim
-   rather than reconciling by hand.
+   This is `upgrade_extension_sql` from `tests-integration/restore.sh`
+   written out longhand for a shell doing the substitution itself rather than
+   the script's `awk`/`printf`. If this step and the script ever disagree, the
+   script is canonical — copy its
+   `upgrade_dump_extensions`/`upgrade_extension_sql` functions verbatim rather
+   than reconciling by hand.
 
    ```bash
    docker compose exec -T tak-database \

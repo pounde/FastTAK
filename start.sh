@@ -7,12 +7,12 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
-# The shared .env reader, so this script, scripts/check-env.sh and
-# scripts/upgrade.sh resolve a value identically. It follows Compose's own
-# dotenv semantics — notably stripping surrounding quotes, which the
-# `grep | cut -d= -f2` this replaced did not: `DEPLOY_MODE="direct"` read as
-# `"direct"` here, matched nothing, and silently selected the subdomain compose
-# files while upgrade.sh selected the direct ones.
+# The shared .env reader, so this script and scripts/check-env.sh resolve a
+# value identically. It follows Compose's own dotenv semantics — notably
+# stripping surrounding quotes, which the `grep | cut -d= -f2` this replaced did
+# not: `DEPLOY_MODE="direct"` read as `"direct"` here, matched nothing, and
+# silently selected the subdomain compose files — while Compose, parsing the
+# same .env for its own variable substitution, had resolved it to `direct`.
 [ -r "$SCRIPT_DIR/scripts/lib-env.sh" ] || {
   echo "ERROR: scripts/lib-env.sh is missing; cannot read .env." >&2
   exit 1

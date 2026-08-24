@@ -14,7 +14,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Defaults ─────────────────────────────────────────────────────────────
 
-SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d= -f2)
+# Via the shared reader, not `grep | cut`: that keeps the surrounding quotes
+# Compose's dotenv parser strips, so SERVER_ADDRESS="tak.example.com" would be
+# handed to openssl and ffmpeg with the quotes still on it.
+SERVER_ADDRESS=$("$SCRIPT_DIR/scripts/env-get.sh" "$SCRIPT_DIR/.env" SERVER_ADDRESS)
 CERT_DIR="$SCRIPT_DIR/tak/certs/files"
 CERT_NAME="svc_fasttakapi"  # auto-bootstrapped admin cert; reaches all clients
 CERT_PASS="atakatak" # TAK Server default cert password

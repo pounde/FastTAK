@@ -10,10 +10,10 @@
 #
 # The second reader is the defect: the recipes read
 # `grep '^KEY=' .env | cut -d= -f2`, which keeps the quotes Compose's dotenv
-# parser strips. `DEPLOY_MODE="direct"` therefore selected the direct overlay in
-# scripts/upgrade.sh (env_get) and the subdomain one in the justfile and
-# start.sh — caddy brought up without the Monitor, Node-RED and MediaMTX port
-# publishings, by an upgrade that reported success.
+# parser strips. Compose itself therefore resolved `DEPLOY_MODE="direct"` to
+# `direct`, while the justfile and start.sh read it as `"direct"`, matched
+# nothing and fell through to subdomain — caddy came up without the Monitor,
+# Node-RED and MediaMTX port publishings, from a start that reported success.
 #
 # An absent file or key prints the empty string and exits 0: every caller has a
 # documented default for that, and a lookup that fails the recipe's `set -e`
