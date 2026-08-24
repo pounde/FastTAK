@@ -213,11 +213,12 @@ def _app_db_volume(project: str) -> str:
     return names[0] if names else f"{project}_app-db-data"
 
 
-def _wait_app_db_healthy(project: str, timeout: int = 90) -> None:
+def _wait_service_healthy(project: str, service: str, timeout: int = 90) -> None:
+    """Poll `docker inspect`'s Health.Status for `service` until healthy."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         cid_out = subprocess.run(
-            _compose_base_args(project) + ["ps", "-q", "app-db"],
+            _compose_base_args(project) + ["ps", "-q", service],
             capture_output=True,
             text=True,
             env=_compose_env(),
@@ -237,14 +238,69 @@ def _wait_app_db_healthy(project: str, timeout: int = 90) -> None:
             if status == "healthy":
                 return
         time.sleep(3)
+    raise AssertionError(f"{service} did not become healthy within {timeout}s")
+
+
+def _wait_app_db_healthy(project: str, timeout: int = 90) -> None:
+    _wait_service_healthy(project, "app-db", timeout)
+
+
+def _wait_fastak_schema(project: str, timeout: int = 60) -> None:
+    """Wait for the monitor to (re-)create the fastak_events table.
+
+    monitor/app/main.py's FastAPI lifespan calls app.audit.init_schema()
+    once at process startup, which issues the `CREATE TABLE IF NOT EXISTS
+    fastak_events (...)` in monitor/app/audit.py. Restarting the monitor
+    container re-runs that startup path against the fresh, schema-less
+    app-db. Polling for the table itself (rather than sleeping a fixed
+    amount, or hand-creating the table here) tracks whatever that startup
+    path actually does, so it won't drift if init_schema's timing or
+    contents change.
+    """
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        last = _app_db_sql(
+            project,
+            "fastak",
+            "SELECT to_regclass('public.fastak_events') IS NOT NULL",
+        )
+        if last == "t":
+            return
+        time.sleep(2)
     raise AssertionError(
-        f"app-db did not become healthy within {timeout}s under the legacy-major override"
+        f"fastak_events did not appear in app-db's fastak database within "
+        f"{timeout}s after restarting monitor (last check returned {last!r})"
     )
 
 
 def _force_app_db_legacy(project: str) -> None:
     """Recreate app-db on postgres:15-alpine against a fresh volume. See the
-    module docstring, point 1, for why this is necessary."""
+    module docstring, point 1, for why this is necessary.
+
+    A fresh volume means app-db/start.sh creates the lldap/nodered/fastak
+    databases (see that script) but none of the schema inside them, notably
+    no fastak_events table. upgrade.sh's backup step needs fastak_events to
+    exist (it audits via app.audit.record_event) or it fails before doing
+    anything destructive — correctly, but before this test gets to exercise
+    anything. Rather than hand-create that schema here (drifting the moment
+    audit.py changes), restart the monitor so it recreates its own schema
+    against the legacy app-db (monitor/app/main.py's FastAPI lifespan calls
+    app.audit.init_schema() on every startup), then wait on that specific
+    table rather than a fixed sleep.
+
+    lldap is deliberately left alone: restarting it hits an unrelated,
+    pre-existing quirk in the lldap/lldap image — it derives its signing
+    key from a key_seed on first boot but then refuses to start against an
+    existing server_key file on any later boot ("A key_seed was given, but
+    a key file already exists... aborting"), regardless of app-db. That's
+    orthogonal to this test and out of scope to fix here (would mean
+    touching docker-compose.yml or the lldap image config). It's also
+    unnecessary for what this test checks: upgrade.sh's backup/restore of
+    the lldap database is a plain pg_dump/restore that doesn't care whether
+    LLDAP's own tables exist, and the test's own _seed() creates its
+    sentinel table directly.
+    """
     env = _compose_env()
 
     remove = subprocess.run(
@@ -281,6 +337,21 @@ def _force_app_db_legacy(project: str) -> None:
     assert version.startswith("15"), (
         f"expected app-db on PostgreSQL 15, server_version_num={version}"
     )
+
+    # monitor was connected to the old app-db; restart it so its FastAPI
+    # lifespan re-runs init_schema() against the fresh one. See the
+    # docstring above for why lldap is not restarted here too.
+    restart = subprocess.run(
+        _compose_base_args(project) + ["restart", "monitor"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert restart.returncode == 0, (
+        f"could not restart monitor after downgrading app-db:\n{restart.stdout}\n{restart.stderr}"
+    )
+
+    _wait_fastak_schema(project)
 
 
 def _run_upgrade(project: str, *flags: str) -> subprocess.CompletedProcess:

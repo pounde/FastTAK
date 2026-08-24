@@ -56,8 +56,10 @@ class TestTakProxies:
 # Helpers for cot_router seeding
 # ---------------------------------------------------------------------------
 # TAK Server's PostgreSQL uses peer auth on the Unix socket, so we cannot
-# connect as 'martiuser' directly from a subprocess.  Running psql under the
-# 'postgres' OS user (which owns the socket) bypasses this.
+# connect as 'martiuser' directly from a subprocess. The tak-database
+# container itself runs as the 'postgres' OS user (which owns the socket),
+# and `compose exec` lands us in that user's shell already, so peer auth
+# matches without any extra su/sudo step.
 
 
 def _psql(compose_cmd: list[str], sql: str) -> None:
@@ -74,10 +76,7 @@ def _psql(compose_cmd: list[str], sql: str) -> None:
             "exec",
             "-T",
             "tak-database",
-            "su",
-            "-s",
-            "/bin/sh",
-            "postgres",
+            "sh",
             "-c",
             f'psql -d cot -c "{sql}"',
         ],
