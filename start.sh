@@ -7,6 +7,19 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
+# The shared .env reader, so this script, scripts/check-env.sh and
+# scripts/upgrade.sh resolve a value identically. It follows Compose's own
+# dotenv semantics — notably stripping surrounding quotes, which the
+# `grep | cut -d= -f2` this replaced did not: `DEPLOY_MODE="direct"` read as
+# `"direct"` here, matched nothing, and silently selected the subdomain compose
+# files while upgrade.sh selected the direct ones.
+[ -r "$SCRIPT_DIR/scripts/lib-env.sh" ] || {
+  echo "ERROR: scripts/lib-env.sh is missing; cannot read .env." >&2
+  exit 1
+}
+# shellcheck source=scripts/lib-env.sh
+. "$SCRIPT_DIR/scripts/lib-env.sh"
+
 TEST=false
 ZIP=""
 PASS=0
@@ -81,12 +94,12 @@ if $TEST; then
   assert "$CERT_COUNT" "0" "Clean cert directory"
   assert_file ".env" ".env created"
 
-  DB_PASS=$(grep '^TAK_DB_PASSWORD=' .env | cut -d= -f2)
-  LDAP_PASS=$(grep '^LDAP_BIND_PASSWORD=' .env | cut -d= -f2)
+  DB_PASS=$(env_get .env TAK_DB_PASSWORD)
+  LDAP_PASS=$(env_get .env LDAP_BIND_PASSWORD)
   assert_not "$DB_PASS" "" "TAK_DB_PASSWORD generated"
   assert_not "$LDAP_PASS" "" "LDAP_BIND_PASSWORD generated"
 
-  TAK_VER=$(grep '^TAK_VERSION=' .env | cut -d= -f2)
+  TAK_VER=$(env_get .env TAK_VERSION)
   if docker image inspect "takserver:${TAK_VER}" > /dev/null 2>&1; then pass "Image: takserver:${TAK_VER}"; else fail "Image: takserver:${TAK_VER}"; fi
   if docker image inspect "takserver-database:${TAK_VER}" > /dev/null 2>&1; then pass "Image: takserver-database:${TAK_VER}"; else fail "Image: takserver-database:${TAK_VER}"; fi
 
@@ -121,8 +134,8 @@ fi
 # START
 # ═══════════════════════════════════════════════════════════════════════════
 
-SERVER_ADDRESS=$(grep '^SERVER_ADDRESS=' .env | cut -d= -f2)
-DEPLOY_MODE=$(grep '^DEPLOY_MODE=' .env | cut -d= -f2)
+SERVER_ADDRESS=$(env_get .env SERVER_ADDRESS)
+DEPLOY_MODE=$(env_get .env DEPLOY_MODE)
 DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
 
 # Set compose file based on deploy mode. An explicit COMPOSE_FILE disables
@@ -250,11 +263,11 @@ log ""
 log "Ports"
 log "─────"
 
-TAKSERVER_ADMIN_PORT=$(grep '^TAKSERVER_ADMIN_PORT=' .env | cut -d= -f2)
+TAKSERVER_ADMIN_PORT=$(env_get .env TAKSERVER_ADMIN_PORT)
 TAKSERVER_ADMIN_PORT="${TAKSERVER_ADMIN_PORT:-8446}"
-MEDIAMTX_PORT=$(grep '^MEDIAMTX_PORT=' .env | cut -d= -f2)
+MEDIAMTX_PORT=$(env_get .env MEDIAMTX_PORT)
 MEDIAMTX_PORT="${MEDIAMTX_PORT:-8888}"
-NODERED_PORT=$(grep '^NODERED_PORT=' .env | cut -d= -f2)
+NODERED_PORT=$(env_get .env NODERED_PORT)
 NODERED_PORT="${NODERED_PORT:-1880}"
 
 assert_port 8089 "CoT TLS"
@@ -326,7 +339,7 @@ else
   echo "  ⚠️  $FAIL checks failed ($PASS/$TOTAL passed)"
 fi
 
-WA_PASS=$(grep '^TAK_WEBADMIN_PASSWORD=' .env | cut -d= -f2)
+WA_PASS=$(env_get .env TAK_WEBADMIN_PASSWORD)
 WA_MASKED="${WA_PASS:0:4}***"
 
 echo ""
@@ -337,11 +350,11 @@ echo ""
 echo "  TAK Server:  https://${SERVER_ADDRESS}:${TAKSERVER_ADMIN_PORT}"
 echo "               webadmin / ${WA_MASKED}"
 if [ "$DEPLOY_MODE" = "direct" ]; then
-  MONITOR_PORT_OUT=$(grep '^MONITOR_PORT=' .env | cut -d= -f2)
+  MONITOR_PORT_OUT=$(env_get .env MONITOR_PORT)
   MONITOR_PORT_OUT="${MONITOR_PORT_OUT:-8180}"
   echo "  Monitor:     https://${SERVER_ADDRESS}:${MONITOR_PORT_OUT}"
 else
-  MONITOR_SUB=$(grep '^MONITOR_SUBDOMAIN=' .env | cut -d= -f2)
+  MONITOR_SUB=$(env_get .env MONITOR_SUBDOMAIN)
   MONITOR_SUB="${MONITOR_SUB:-monitor}"
   echo "  Monitor:     https://${MONITOR_SUB}.${SERVER_ADDRESS}"
 fi

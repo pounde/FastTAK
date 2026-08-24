@@ -350,6 +350,149 @@ def test_explicit_compose_files_still_win_end_to_end(tmp_path):
         assert "docker-compose.direct.yml" not in call
 
 
+# ── "Bring the stack up" guidance ────────────────────────────────────────
+#
+# The recurring defect: a message that tells the operator to run ./start.sh
+# while a pre-5.8 tak-database container is stopped but not removed. Its cot
+# database is in that container's writable layer, ./setup.sh has already bumped
+# the image tag, and `./start.sh` / `docker compose up` recreate the container —
+# destroying the CoT history before any backup exists, after which every
+# subsequent step succeeds against an empty database and the summary says
+# "CoT history: migrated". `docker compose start` resumes the container instead.
+#
+# TAK_DB_STATE=empty is the pre-5.8 marker, and it is the state in which no
+# message may name ./start.sh.
+
+
+def test_pre58_guidance_never_says_start_sh():
+    """The assertion that stops this recurring."""
+    result = _call("upgrade_start_guidance", "empty")
+    assert result.returncode == 0, result.stderr
+    assert "./start.sh" not in result.stdout
+    assert "docker compose start" in result.stdout
+
+
+@pytest.mark.parametrize("state", ["absent", "15", "18"])
+def test_guidance_elsewhere_still_points_at_start_sh(state):
+    """Once tak-db-data holds a data directory, a recreate is safe and
+    ./start.sh is the right instruction again."""
+    result = _call("upgrade_start_guidance", state)
+    assert result.returncode == 0, result.stderr
+    assert "./start.sh" in result.stdout
+    # Stopped-but-not-removed is worth naming in every state: it is the case
+    # `compose ps -q` cannot see.
+    assert "docker compose start" in result.stdout
+
+
+# ── The pre-5.8 layout, end to end ───────────────────────────────────────
+#
+# The helper above is only as good as its callers, and both callers are outside
+# the FASTAK_UPGRADE_LIB_ONLY section. These run the real script against a
+# `docker` that reports the pre-5.8 shape: tak-db-data present but holding no
+# PG_VERSION.
+
+ABSENT = None
+
+
+def _stub_docker_volumes(tmp_path, *, app_db, tak_db):
+    """A `docker` that answers the volume probes per volume.
+
+    `app_db`/`tak_db` are a PostgreSQL major, "__NO_PG_VERSION__" for the
+    pre-5.8 shape, or ABSENT for no volume at all. `compose ps -q` prints
+    nothing, so every service reads as not running.
+    """
+
+    def answer(value):
+        return "exit 1" if value is ABSENT else "exit 0"
+
+    bin_dir = tmp_path / "stubbin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text(
+        textwrap.dedent(f"""        #!/bin/sh
+        case "$1 $2" in
+          "volume inspect")
+            case "$3" in
+              *app-db-data*) {answer(app_db)} ;;
+              *tak-db-data*) {answer(tak_db)} ;;
+            esac
+            exit 1
+            ;;
+          "volume ls") exit 0 ;;
+        esac
+        case "$1" in
+          info) exit 0 ;;
+          run)
+            case "$*" in
+              *app-db-data*) printf '%s\n' {shlex.quote(str(app_db))} ;;
+              *tak-db-data*) printf '%s\n' {shlex.quote(str(tak_db))} ;;
+            esac
+            exit 0
+            ;;
+          compose)
+            case "$*" in
+              *"config --format json"*) printf '{{"name":"fasttak"}}' ;;
+            esac
+            exit 0
+            ;;
+        esac
+        exit 0
+        """)
+    )
+    docker.chmod(0o755)
+    age = bin_dir / "age"
+    age.write_text("#!/bin/sh\nexit 0\n")
+    age.chmod(0o755)
+    return bin_dir
+
+
+def _run_upgrade_against(tmp_path, *, app_db, tak_db):
+    bin_dir = _stub_docker_volumes(tmp_path, app_db=app_db, tak_db=tak_db)
+    return subprocess.run(
+        ["/bin/bash", str(UPGRADE), "--yes"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "FASTAK_ENV_FILE": str(_env_file(tmp_path, "direct")),
+        },
+    )
+
+
+def test_nothing_to_migrate_on_a_pre58_layout_does_not_say_start_sh(tmp_path):
+    """No major changed — the cot probe reads the same "" for an empty volume
+    as for an absent one — so this exits 0 with the containers still holding
+    the only copy of the CoT history."""
+    result = _run_upgrade_against(tmp_path, app_db=ABSENT, tak_db="__NO_PG_VERSION__")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Nothing to migrate" in result.stdout
+    assert "./start.sh" not in result.stdout
+    assert "docker compose start" in result.stdout
+    assert "pre-5.8" in result.stdout
+
+
+def test_services_not_running_on_a_pre58_layout_does_not_say_start_sh(tmp_path):
+    """The reachable path: containers stopped, not removed. `compose ps -q`
+    does not list them, so this preflight fires while the 5.6 cot database is
+    still intact inside the stopped container."""
+    result = _run_upgrade_against(tmp_path, app_db="15", tak_db="__NO_PG_VERSION__")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "are not running" in result.stderr
+    assert "./start.sh" not in result.stderr
+    assert "docker compose start" in result.stderr
+
+
+def test_services_not_running_elsewhere_still_says_start_sh(tmp_path):
+    """A tak-db-data that holds a data directory survives a recreate, so the
+    ordinary instruction is still the right one."""
+    result = _run_upgrade_against(tmp_path, app_db="15", tak_db="15")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "are not running" in result.stderr
+    assert "./start.sh" in result.stderr
+
+
 # ── Argument parsing ─────────────────────────────────────────────────────
 
 

@@ -3,13 +3,22 @@
 Most of an upgrade is automated. Run `./setup.sh` to pull the new release, then
 `just upgrade` to finish it — `setup.sh` preserves your `.env`, and `just
 upgrade` migrates anything that needs migrating before bringing the stack up.
-When nothing needs migrating it says so and tells you to run `./start.sh`.
+When nothing needs migrating it says so and tells you how to bring the stack
+back up.
 
 !!! danger "Do not run `./start.sh` first on a TAK Server 5.6 → 5.8 upgrade"
     Before 5.8 the `cot` database lives in the `tak-database` container's
     writable layer, not on its volume. `./start.sh` recreates that container on
     the new image tag, which destroys the CoT history — before any backup of it
     exists. `setup.sh` prints this reminder at the end of an upgrade run.
+
+    If the stack is **stopped** rather than removed — `docker compose stop`, a
+    plain `docker stop`, or a daemon restart that did not resume it — the
+    history is still inside those containers, and `just upgrade` will refuse to
+    run because it takes its backup through the running stack. Resume them with
+    `docker compose start`, which restarts the existing containers in place.
+    `./start.sh` and `docker compose up` would recreate them instead, and the
+    history would be gone before the backup was taken.
 
 This page covers the parts that are **not** automatic: the ones that depend on
 decisions you made, which no script can make for you.

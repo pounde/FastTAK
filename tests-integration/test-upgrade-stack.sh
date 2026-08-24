@@ -26,6 +26,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ── Cleanup on exit ──────────────────────────────────────────────────
+# Installed BEFORE test-setup.sh runs, not after: under `set -euo pipefail`
+# a setup failure exits this script on the spot, and a trap installed below
+# it would not exist yet — leaving the half-built stack running with no
+# teardown and no message. test-down.sh tears down every fastak-test-*
+# stack and is a no-op when there is none, so it is safe to arm this early.
+# shellcheck disable=SC2317
+cleanup() {
+    echo ""
+    echo "=== Cleaning up ==="
+    "${SCRIPT_DIR}/test-down.sh" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 # ── Setup ────────────────────────────────────────────────────────────
 PROJECT=$("${SCRIPT_DIR}/test-setup.sh" | tail -n 1)
 
@@ -41,15 +55,6 @@ if [ -f "$STATE_FILE" ]; then
     export BACKUP_DIR="${TEST_DIR}/backups"
     export HOST_ENV_FILE="${ENV_FILE}"
 fi
-
-# ── Cleanup on exit ──────────────────────────────────────────────────
-# shellcheck disable=SC2317
-cleanup() {
-    echo ""
-    echo "=== Cleaning up ==="
-    "${SCRIPT_DIR}/test-down.sh" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
 
 # ── Run the rehearsal ────────────────────────────────────────────────
 # -m destructive (not the filename) so a future destructive test file is

@@ -3,8 +3,10 @@
 # Exits 0 on success, 1 with a clear error message on failure.
 # Usage: ./scripts/check-env.sh <path-to-.env>
 #
-# Rules apply unconditionally — DEPLOY_MODE is not consulted.
-# Security defaults are universal; DEPLOY_MODE stays a pure routing/cert choice (DD-029).
+# Every rule below applies unconditionally: none of them varies by DEPLOY_MODE.
+# Security defaults are universal; DEPLOY_MODE stays a pure routing/cert choice
+# (DD-029). DEPLOY_MODE's own *value* is validated — that is not the same thing
+# as varying a rule by it.
 
 set -u
 
@@ -31,6 +33,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 SERVER_ADDRESS=$(get_env_value SERVER_ADDRESS)
+DEPLOY_MODE=$(get_env_value DEPLOY_MODE)
 WEBADMIN_PASSWORD=$(get_env_value TAK_WEBADMIN_PASSWORD)
 TOKENS_API_SECRET=$(get_env_value TOKENS_API_SECRET)
 TAK_VERSION=$(get_env_value TAK_VERSION)
@@ -41,6 +44,36 @@ if [ -z "$SERVER_ADDRESS" ] || [ "$SERVER_ADDRESS" = "tak.example.com" ]; then
   echo "Edit $ENV_FILE and set SERVER_ADDRESS to your IP, hostname, or FQDN." >&2
   exit 1
 fi
+
+# ── DEPLOY_MODE ────────────────────────────────────────────────────────────
+# Every consumer — start.sh, the justfile's up/down recipes, scripts/upgrade.sh,
+# init-config — tests for "direct" and treats everything else as "subdomain". So
+# a typo does not fail: DEPLOY_MODE=dirct silently drops
+# docker-compose.direct.yml, caddy comes up without the Monitor, Node-RED and
+# MediaMTX port publishings, and the start or the upgrade reports success. This
+# is the one place that can tell a typo from a choice.
+#
+# Empty stays valid: it is the documented "unset means subdomain" default that
+# every consumer already spells `${DEPLOY_MODE:-subdomain}`.
+case "$DEPLOY_MODE" in
+  ""|direct|subdomain) ;;
+  *)
+    cat >&2 <<EOF
+ERROR: DEPLOY_MODE=$DEPLOY_MODE in $ENV_FILE is not a known deployment mode.
+
+Valid values are:
+  direct      port-based routing through Caddy with self-signed TLS
+  subdomain   subdomain routing with Let's Encrypt TLS (the default when unset)
+
+Nothing rejects an unknown value at runtime — every consumer reads "not direct"
+as subdomain — so "$DEPLOY_MODE" would come up in subdomain mode without the
+direct overlay's Monitor, Node-RED and MediaMTX ports, and report success.
+
+Set DEPLOY_MODE to direct or subdomain in $ENV_FILE.
+EOF
+    exit 1
+    ;;
+esac
 
 # ── TAK_WEBADMIN_PASSWORD ──────────────────────────────────────────────────
 # Empty is permitted — it's the existing "skip webadmin user creation" escape
