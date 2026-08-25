@@ -221,10 +221,12 @@ registration API, but removes its public port bindings. ATAK clients that
 need to view video feeds would need a VPN — see the optional Tailscale
 section below.
 
-Create `docker-compose.local.yml` in the FastTAK directory:
+Create `docker-compose.override.yml` in the FastTAK directory. Compose loads
+that filename automatically, and FastTAK's entry points re-append it last in
+every mode, so it cannot be dropped:
 
 ```bash
-cat > ~/FastTAK/docker-compose.local.yml <<'EOF'
+cat > ~/FastTAK/docker-compose.override.yml <<'EOF'
 # Deployment-specific override — not tracked in git.
 #
 # - Binds tak-server's 8446 (enrollment) to the host. In subdomain mode the
@@ -243,18 +245,19 @@ services:
 EOF
 ```
 
-Tell Docker Compose to layer this file on top of the base:
+Nothing further is needed — Compose picks `docker-compose.override.yml` up on
+its own.
 
-```bash
-echo "COMPOSE_FILE=docker-compose.yml:docker-compose.local.yml" >> ~/FastTAK/.env.override
-```
+!!! warning "Do not set `COMPOSE_FILE` to a differently-named file"
+    An earlier version of this guide used `docker-compose.local.yml` with
+    `COMPOSE_FILE` exported from `~/.bashrc`. That silently breaks: `./start.sh`
+    and `just up` overwrite `COMPOSE_FILE` whenever they need the direct-mode or
+    capture overlay, so the file is dropped and MediaMTX's public ports come
+    back — unauthenticated — with the stack reporting success.
 
-Source it in your shell init (or export it each session):
-
-```bash
-echo 'export $(grep -v "^#" ~/FastTAK/.env.override | xargs)' >> ~/.bashrc
-source ~/.bashrc
-```
+    If you followed that pattern, rename the file to
+    `docker-compose.override.yml` and remove the `COMPOSE_FILE` export from your
+    shell init.
 
 ## 9. Run setup.sh
 
@@ -404,13 +407,13 @@ Add tag ownership and a restrictive ACL. Open
 
 ### MediaMTX over Tailscale
 
-Because MediaMTX's public ports are removed via `docker-compose.local.yml`,
+Because MediaMTX's public ports are removed via `docker-compose.override.yml`,
 video is only reachable through the Docker network — or, with the Tailscale
 interface present, from inside the tailnet by binding MediaMTX to the
 Tailscale IP.
 
 To expose MediaMTX on the Tailscale interface (but still not publicly), edit
-`docker-compose.local.yml` to bind the ports to the Tailscale IP instead of
+`docker-compose.override.yml` to bind the ports to the Tailscale IP instead of
 all interfaces:
 
 ```yaml
