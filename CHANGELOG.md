@@ -2,6 +2,100 @@
 
 <!-- version list -->
 
+## v0.29.0 (2026-08-25)
+
+### Bug Fixes
+
+- **ci**: Let the pre-commit shellcheck hook follow sourced files
+  ([`1ae9ccd`](https://github.com/pounde/FastTAK/commit/1ae9ccdda6357a5858781d694446588ec37dacba))
+
+- **database**: Apply tuning via postgresql.conf and verify it took effect
+  ([`e13688c`](https://github.com/pounde/FastTAK/commit/e13688c1d43a7283448bd6f110b7f91a99b57a1c))
+
+- **database**: Harden CoreConfig rewrite and shutdown reporting in start.sh
+  ([`46085a0`](https://github.com/pounde/FastTAK/commit/46085a0b940bb3b0eff58f7bc0971a0a6bb72259))
+
+- **database**: Let tak-database start under TAK 5.8
+  ([`e0c82fe`](https://github.com/pounde/FastTAK/commit/e0c82fe78b448b854046aed57c832ac5f3b769a5))
+
+- **database**: Pin app-db PGDATA and wire the persistence guard into it
+  ([`01c2b23`](https://github.com/pounde/FastTAK/commit/01c2b232025522f24cb05562af339f031224c69d))
+
+- **database**: Write tuning to the live config, not just the vendor's copy
+  ([`92a49f7`](https://github.com/pounde/FastTAK/commit/92a49f716495a90920a6d32aae68161d2a616b01))
+
+- **preflight**: Distinguish unparseable TAK_VERSION from below-floor
+  ([`7fa35be`](https://github.com/pounde/FastTAK/commit/7fa35bed91cd8e9bb63376d48707355359786d6d))
+
+- **setup**: Abort on failed docker build instead of masking it
+  ([`395531f`](https://github.com/pounde/FastTAK/commit/395531ff86ed40f490510901142b7e7491e84129))
+
+- **tak-server**: Match TAK processes via /proc, not pgrep
+  ([`b44d767`](https://github.com/pounde/FastTAK/commit/b44d7677287ee6b3cc64111de2904b6caa384e05))
+
+- **test**: Repair su regression and flaky legacy-app-db rehearsal helper
+  ([`37b4f09`](https://github.com/pounde/FastTAK/commit/37b4f09c7364e9eda222349371e9e983a6eec318))
+
+- **upgrade**: Create the cot dump's extensions as a superuser
+  ([`fafd39b`](https://github.com/pounde/FastTAK/commit/fafd39bec91dceb4525d7dccf8c7d19e3b0dcfa8))
+
+- **upgrade**: Keep the direct-mode ports and the CoT history
+  ([`ec8a452`](https://github.com/pounde/FastTAK/commit/ec8a452aa7dcc0acade64d26b39158b05a3a6099))
+
+- **upgrade**: Restore CoT from what was destroyed, not from a version gap
+  ([`6a31e62`](https://github.com/pounde/FastTAK/commit/6a31e62873b079d9056c6a7b37e6e607d7574ffa))
+
+- **upgrade**: Stop advising the command that destroys the CoT history
+  ([`b777bbb`](https://github.com/pounde/FastTAK/commit/b777bbb045ff4fe16df7bb43c00815c91ad36450))
+
+- **upgrade**: Take the project name from Compose and stop psql lying
+  ([`3617940`](https://github.com/pounde/FastTAK/commit/3617940992deb995890150da452c1556c5ed2c21))
+
+### Documentation
+
+- Document the 5.8 upgrade, disk headroom, and DD-051..054
+  ([`3902cf4`](https://github.com/pounde/FastTAK/commit/3902cf4483144fee94b42dbf895881438940a038))
+
+- Settle the docs on a 5.8 floor
+  ([`d23460e`](https://github.com/pounde/FastTAK/commit/d23460e3a899b3f7ac580be20a98c4a4488f79d4))
+
+### Features
+
+- **database**: Add a guard asserting PGDATA is on a mounted volume
+  ([`e868f84`](https://github.com/pounde/FastTAK/commit/e868f8467b2961af537476529594d6275e8922de))
+
+- **preflight**: Reject a TAK_VERSION below the 5.8 floor
+  ([`1a28887`](https://github.com/pounde/FastTAK/commit/1a288872d55937b71ed86c8999c85ccb3bd46d88))
+
+- **setup**: Add TAK Server version parsing and floor comparison
+  ([`94fc669`](https://github.com/pounde/FastTAK/commit/94fc6690125fdd4724c418e7b25b92b7214a879b))
+
+- **setup**: Require the hardened TAK Server 5.8 bundle or later
+  ([`d2a8e98`](https://github.com/pounde/FastTAK/commit/d2a8e98d3e43e01255e758721cdef315bd17bafe))
+
+- **stack**: Move app-db and the monitor's pg client to PostgreSQL 18
+  ([`4b9c535`](https://github.com/pounde/FastTAK/commit/4b9c53577f102e575da4919817ff4211009d1108))
+
+- **upgrade**: Add just upgrade with PostgreSQL major migration
+  ([`c98cfd1`](https://github.com/pounde/FastTAK/commit/c98cfd12d402fb8b89bc496fdd83974925392702))
+
+### Refactoring
+
+- Drop the automated cross-major database upgrade
+  ([`869093c`](https://github.com/pounde/FastTAK/commit/869093ccb870d953e391c38de9f1d127d8ded4f4))
+
+### Testing
+
+- Isolate the destructive upgrade rehearsal from the shared test stack
+  ([`a5db6b2`](https://github.com/pounde/FastTAK/commit/a5db6b20805a7cbc14facfd5c7ce3ea0500d819d))
+
+- **database**: Strengthen proof that pgdata guard requires exact mount match
+  ([`ee15033`](https://github.com/pounde/FastTAK/commit/ee15033c5949acd539b8193ff10bacaba79dce42))
+
+- **upgrade**: Rehearse just upgrade against a live stack
+  ([`d3ae36f`](https://github.com/pounde/FastTAK/commit/d3ae36fcc278ea2a6131b14613c325641fb165ff))
+
+
 ## v0.28.4 (2026-08-14)
 
 ### Bug Fixes
