@@ -102,3 +102,39 @@ Docker Compose. Enabling federation in the TAK admin UI will **not** make it
 reachable — the listener stays isolated inside the container. See DD-046 in
 [decisions.md](decisions.md) for the reasoning, and issue #72 for what proper
 support would require.
+
+
+## Deployment-specific overrides
+
+Anything you need to change for one deployment — extra published ports, removed
+ports, different memory caps — belongs in `docker-compose.override.yml` at the
+repository root, not in `docker-compose.yml`.
+
+Compose loads that filename automatically, and FastTAK's entry points
+(`./start.sh`, `just up`) append it last when they assemble `COMPOSE_FILE` for
+direct mode or the capture overlay, so your settings win in every mode.
+
+```yaml
+# docker-compose.override.yml — not tracked in git
+services:
+  mediamtx:
+    ports: !reset []          # remove MediaMTX's public bindings entirely
+  tak-server:
+    deploy:
+      resources:
+        limits:
+          memory: 24G         # raise a cap for a larger deployment
+```
+
+`!reset` clears a list the base file set; a plain list would merge with it.
+
+!!! warning "Do not use a differently-named file with `COMPOSE_FILE`"
+    Setting `COMPOSE_FILE` in your shell to point at, say,
+    `docker-compose.local.yml` appears to work, but `./start.sh` and `just up`
+    overwrite that variable whenever they need the direct-mode or capture
+    overlay. Your file is then silently dropped — the stack comes up without
+    it and reports success. If your override removes a published port, that
+    port comes back.
+
+    `docker-compose.override.yml` has no such failure mode, because it is
+    re-appended by name in every branch.

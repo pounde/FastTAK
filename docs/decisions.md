@@ -2,80 +2,12 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
----
-
-## DD-055: No Automated Cross-Major Database Upgrade (Yet)
-
-**Decision:** FastTAK ships no `scripts/upgrade.sh` and no `just upgrade`.
-Crossing the TAK Server 5.8 boundary is a documented fresh install of the
-databases — `just backup`, `docker compose down -v`, `./start.sh` — with the
-certificates and `CoreConfig.xml` surviving because they are host files under
-`tak/`, not volume contents. See [upgrading.md](upgrading.md).
-
-**Why the automation was removed:** it was written to carry a pre-5.8
-deployment across the 5.6 → 5.8 hop without losing data, and that hop turns
-out not to need it.
-
-- There is exactly one pre-5.8 deployment in existence, and its `cot` data is
-  expendable.
-- The thing its operator actually cares about — the CA and every issued client
-  cert — lives in `tak/certs/` on the host and was never at risk. `setup.sh`
-  already preserves it across an upgrade.
-- The rest of `app-db` (LLDAP accounts, audit history) is acceptable to lose,
-  and a backup archive is taken first either way.
-
-Against that, the script was ~900 lines that had to stop the stack, delete
-Docker volumes and restore from a backup archive to be exercised at all. It
-produced four of the six Critical defects found in its own branch, and left
-[#99](https://github.com/pounde/FastTAK/issues/99),
-[#100](https://github.com/pounde/FastTAK/issues/100) and
-[#101](https://github.com/pounde/FastTAK/issues/101) open. Its integration
-rehearsal needed a second, isolated Docker stack and a `destructive` pytest
-marker so it would not demolish the shared one. That is a large, permanently
-load-bearing surface bought to protect data that nobody needs protected.
-
-**Why it will come back, and not before:** the version that returns should be
-smaller, and it should be aimed at an ordinary migration rather than this one.
-Two things have to happen first:
-
-1. [#96](https://github.com/pounde/FastTAK/issues/96) consolidates the stack's
-   four entry points (`start.sh`, `reconfig.sh`, `just up`, `setup.sh`). An
-   upgrade path added before that consolidation is a fifth entry point that
-   has to agree with the other four about compose-file selection and `.env`
-   semantics — which is precisely where this script's defects clustered.
-2. The target becomes the PostgreSQL 18 → 19 bump, where the data volume
-   persists across the hop and the job is a normal `pg_upgrade`-shaped
-   migration. The 5.6 → 5.8 case was harder than anything that follows it,
-   because before 5.8 the `cot` database lived in the `tak-database`
-   container's writable layer rather than on its volume.
-
-**What was kept:** the fixes to `tests-integration/restore.sh` developed
-alongside the script — `ON_ERROR_STOP=1`, `ENCODING 'SQL_ASCII' TEMPLATE
-template0`, and the extension pre-creation of [DD-054](#dd-054-restoring-cot-pre-creates-extensions-as-superuser-then-reassigns-ownership).
-They fix real defects in the existing restore path, which the fresh-install
-route now leans on more than before. The `.env`-reader consolidation
-(`scripts/lib-env.sh`, `scripts/env-get.sh`) was kept for the same reason: it
-fixes a live `DEPLOY_MODE` quoting defect in `start.sh` and the justfile,
-independent of any upgrade.
-
-**Alternatives considered:**
-
-- Keep the script but stop testing it destructively. Rejected — an untested
-  destructive path is worse than none. An operator who trusts a summary line
-  that says `CoT history: migrated` when nothing migrated is in a worse
-  position than one who was told plainly that the data does not carry across.
-- Keep it behind an undocumented flag until #96 lands. Rejected — the
-  maintenance cost is in the code and its test stack, not in the
-  documentation, so hiding it saves nothing.
-
----
-
 ## DD-054: Restoring `cot` Pre-Creates Extensions as Superuser, Then Reassigns Ownership
 
 **Decision:** Restoring the `cot` database — `tests-integration/restore.sh`,
 and the by-hand procedure in `docs/backup-and-restore.md` — pre-creates every
 extension the dump requires as the `postgres` superuser, over the Unix socket,
-*before* handing the dump to `martiuser` to restore. It then reassigns each extension's
+_before_ handing the dump to `martiuser` to restore. It then reassigns each extension's
 ownership (`pg_extension.extowner`) and the ownership of any tables in its
 `extconfig` (e.g. PostGIS's `spatial_ref_sys`) to `martiuser`, rather than
 leaving them owned by `postgres`.
@@ -97,7 +29,7 @@ statements later in the same dump act on objects the superuser just created —
 EXTENSION` created as `postgres`. Both fail against a `postgres`-owned
 extension; confirmed against a live stack. PostgreSQL has no `ALTER EXTENSION
 ... OWNER TO`, so `extowner` is set directly — a superuser-only `UPDATE` of one
-OID column — and `extconfig` (the extension's own list of tables whose *data*
+OID column — and `extconfig` (the extension's own list of tables whose _data_
 `pg_dump` emits) gives the exact table set that needs the same treatment. The
 result is the state `martiuser` would have reached had PostGIS been trusted
 enough to create itself.
@@ -229,7 +161,7 @@ and safer than tolerating a configuration that loses data quietly.
   exactly the case a warning does not adequately cover.
 
 **Note:** PGDATA location and the container user are properties of the
-*hardened Dockerfile*, not of TAK 5.8 itself. A future standard bundle could
+_hardened Dockerfile_, not of TAK 5.8 itself. A future standard bundle could
 reintroduce the same problem, which is why
 `tak-database/check-pgdata-persistent.sh` stays in place even though 5.8's
 hardened image gets PGDATA right.
@@ -269,7 +201,7 @@ tak-server waits on ldap-proxy being healthy. That upgrade path needs explicit
 handling rather than being left to fail loudly at the worst moment.
 
 **Residual:** search authorization is binary — any connection that completed
-*any* successful bind may search, and the proxy still relays as the admin
+_any_ successful bind may search, and the proxy still relays as the admin
 service account. That raises the bar from "anyone" to "anyone with a valid
 credential", not to "only what you are entitled to see". A user's own password,
 or a 15-minute enrollment token, is enough to enumerate the directory.
@@ -283,6 +215,7 @@ authorization rules verified only when someone ran them by hand. `just test` now
 runs them and CI installs Go from `ldap-proxy/go.mod`, so they gate every push.
 Locally they are skipped with a warning when Go is absent, because the image
 builds in-container and a contributor need not have a toolchain installed.
+
 ---
 
 ## DD-049: The monitor reaches Docker through a path-allowlisting proxy
@@ -367,9 +300,6 @@ migration.
 duplicate `setup.sh` and `start.sh` and become a third thing to keep in sync.
 Documenting the rules and trusting the checklist — rejected on the evidence
 above.
-
-One was written anyway, for the 5.6 → 5.8 hop, and then removed for the reason
-this decision already gave. See [DD-055](#dd-055-no-automated-cross-major-database-upgrade-yet).
 
 ---
 
@@ -926,7 +856,7 @@ point, and the 18 entrypoint hard-fails on start rather than silently using
 the wrong directory. Pinning `PGDATA` to the mount keeps it exactly equal to
 what's mounted, which is what `tak-database/check-pgdata-persistent.sh`'s
 exact-match guard requires — that guard does **not** accept a mount at
-PGDATA's *parent*. A future PostgreSQL major may move the default PGDATA path
+PGDATA's _parent_. A future PostgreSQL major may move the default PGDATA path
 again; re-check this pin when it does.
 
 ---
@@ -1199,7 +1129,7 @@ These were chosen based on observed idle/startup footprint plus safety margin, a
 
 **Why:** Per-table tuning (`ALTER TABLE cot_router SET (autovacuum_vacuum_scale_factor = 0.05)`) is more precise but couples us to TAK Server's schema — table names could change across versions. The CoT tables are the dominant workload, so global settings effectively tune for them.
 
-**Amended 2026-08-18:** the original mechanism — `pg_ctl -o` startup flags injected by `tak-database/start.sh` — no longer exists. TAK 5.8 dropped those flags entirely; the `sed` that used to splice FastTAK's flags in now matches nothing and exits 0, so the tuning would silently disappear with no error. `tak-database/start.sh` now appends FastTAK's block to `db-utils/postgresql.conf` (what the vendor's `takserver-setup-db.sh` copies into `PGDATA` on the first boot of a fresh database) *and* to the live `$PGDATA/postgresql.conf` (what the server reads on every boot after the first — the vendor's copy step prompts `Type 'erase'` on a database that already exists, which fails closed under this container's no-TTY entrypoint and never runs again after boot one). Because a config-file write is not a startup flag, "it took effect" is no longer implied by the process starting — `start.sh` now polls `SHOW <setting>` against the running server after the vendor entrypoint starts, and fails the container if the values it wanted are not what the server reports back.
+**Amended 2026-08-18:** the original mechanism — `pg_ctl -o` startup flags injected by `tak-database/start.sh` — no longer exists. TAK 5.8 dropped those flags entirely; the `sed` that used to splice FastTAK's flags in now matches nothing and exits 0, so the tuning would silently disappear with no error. `tak-database/start.sh` now appends FastTAK's block to `db-utils/postgresql.conf` (what the vendor's `takserver-setup-db.sh` copies into `PGDATA` on the first boot of a fresh database) _and_ to the live `$PGDATA/postgresql.conf` (what the server reads on every boot after the first — the vendor's copy step prompts `Type 'erase'` on a database that already exists, which fails closed under this container's no-TTY entrypoint and never runs again after boot one). Because a config-file write is not a startup flag, "it took effect" is no longer implied by the process starting — `start.sh` now polls `SHOW <setting>` against the running server after the vendor entrypoint starts, and fails the container if the values it wanted are not what the server reports back.
 
 **Related:** [DD-053](#dd-053-wal-archiving-disabled) — the same append-and-verify mechanism also disables WAL archiving, and the same first-boot-vs-live-config problem applies there too.
 
