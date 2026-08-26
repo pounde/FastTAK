@@ -92,7 +92,10 @@ jobs:
 
       - name: Install python-semantic-release
         if: steps.check.outputs.release_worthy == 'true'
-        run: pip install python-semantic-release
+        # GitPython 3.1.60 removed Actor.name_email_regex, which every
+        # python-semantic-release config load reads. Upstream #1476; the fix
+        # is unreleased. Drop the GitPython pin once a release carries it.
+        run: pip install "python-semantic-release==10.6.1" "GitPython<3.1.60"
 
       - name: Run semantic-release
         if: steps.check.outputs.release_worthy == 'true'
