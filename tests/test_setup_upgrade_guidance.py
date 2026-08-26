@@ -1,20 +1,22 @@
-"""setup.sh tells an upgrade to clear the volumes first, not just `./start.sh`.
+"""setup.sh describes an upgrade honestly instead of prescribing a sequence.
 
-Crossing the TAK Server 5.8 boundary changes the PostgreSQL major under both
-databases, so the old volumes cannot be started on the new images. The upgrade
-route is `just backup` → `docker compose down -v` → `./start.sh`: the databases
-come back empty, while the CA, the issued client certs and CoreConfig.xml live
-on the host under tak/ and are preserved. An operator handed the plain fresh
-install instruction would start onto volumes the new server refuses.
+FastTAK has no path that carries the databases across a TAK Server version
+change. The 5.6 → 5.8 move was done by hand, once, as a fresh start; the
+migration tooling built for it was deleted in 869093c. So the closing
+instruction cannot be a procedure — it says what changed, tells the operator to
+back up, and states that nothing carries the databases across. See #109.
 
-setup.sh already knows which branch it took (tak/ or .env existed, or neither),
-so the closing instruction has to differ between them.
+Two things decide which closing instruction an operator gets: whether this is an
+existing deployment (tak/ or .env was there), and whether TAK_VERSION actually
+changed. A re-run with the same bundle changes nothing and must not imply
+otherwise.
 
 These tests run setup.sh end to end with a stub `docker` on PATH — no daemon,
 no images, no network.
 """
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -70,6 +72,20 @@ def _run_setup(tmp_path: Path, target: Path) -> subprocess.CompletedProcess:
     )
 
 
+def _env_at_version(version: str) -> str:
+    """.env.example with TAK_VERSION set to `version`.
+
+    Replacing the whole line, not the key: .env.example ships a value, so
+    substituting the key alone leaves the old one appended to the new.
+    """
+    return re.sub(
+        r"^TAK_VERSION=.*$",
+        f"TAK_VERSION={version}",
+        (REPO / ".env.example").read_text(),
+        flags=re.M,
+    )
+
+
 @pytest.fixture
 def fresh(tmp_path):
     result = _run_setup(tmp_path, tmp_path / "target")
@@ -87,8 +103,19 @@ def upgrade(tmp_path):
     target = tmp_path / "existing"
     (target / "tak").mkdir(parents=True)
     (target / "tak" / "version.txt").write_text("5.8-RELEASE-64\n")
-    env = (REPO / ".env.example").read_text()
-    (target / ".env").write_text(env.replace("TAK_VERSION=", "TAK_VERSION=5.8-RELEASE-64"))
+    (target / ".env").write_text(_env_at_version("5.8-RELEASE-64"))
+    result = _run_setup(tmp_path, target)
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.fixture
+def unchanged(tmp_path):
+    """An existing deployment already on the bundle's version — a re-run."""
+    target = tmp_path / "unchanged"
+    (target / "tak").mkdir(parents=True)
+    (target / "tak" / "version.txt").write_text(f"{VERSION}\n")
+    (target / ".env").write_text(_env_at_version(VERSION))
     result = _run_setup(tmp_path, target)
     assert result.returncode == 0, result.stderr
     return result.stdout
@@ -105,45 +132,54 @@ def upgrade_without_tak_dir(tmp_path):
     """
     target = tmp_path / "no-tak-dir"
     target.mkdir(parents=True)
-    env = (REPO / ".env.example").read_text()
-    (target / ".env").write_text(env.replace("TAK_VERSION=", "TAK_VERSION=5.8-RELEASE-64"))
+    (target / ".env").write_text(_env_at_version("5.8-RELEASE-64"))
     result = _run_setup(tmp_path, target)
     assert result.returncode == 0, result.stderr
     return result.stdout
 
 
 def test_env_without_tak_dir_is_still_an_upgrade(upgrade_without_tak_dir):
-    assert "docker compose down -v" in upgrade_without_tak_dir
+    """.env alone means a live deployment: volumes and containers are still
+    there, so this cannot get the bare fresh-install instruction."""
+    assert "TAK Server 5.8-RELEASE-64 → 5.8-RELEASE-65" in upgrade_without_tak_dir
 
 
 def test_fresh_install_just_says_start_sh(fresh):
     assert "./start.sh" in fresh
-    assert "docker compose down -v" not in fresh
+    assert "back up" not in fresh.lower()
 
 
-def test_upgrade_gives_the_whole_sequence_in_order(upgrade):
-    """Backup, then drop the volumes, then start — in that order. Dropping the
-    volumes before the backup leaves nothing to have backed up."""
-    backup = upgrade.index("just backup")
-    down = upgrade.index("docker compose down -v")
-    start = upgrade.index("./start.sh")
-    assert backup < down < start
+def test_upgrade_never_advises_destroying_the_volumes(upgrade):
+    """The old guidance ended in `docker compose down -v`, which described the
+    by-hand 5.6 → 5.8 move as though it were supported. It never was."""
+    assert "down -v" not in upgrade
 
 
-def test_upgrade_says_the_databases_are_not_carried_across(upgrade):
-    """An operator who reads `down -v` as routine tidying loses data they
-    thought was migrating. Name the consequence."""
-    lowered = upgrade.lower()
-    assert "cot history is not carried across" in lowered
-    assert "empty" in lowered
+def test_upgrade_reports_what_changed(upgrade):
+    assert "TAK Server 5.8-RELEASE-64 → 5.8-RELEASE-65" in upgrade
 
 
-def test_upgrade_says_the_certificates_survive(upgrade):
-    """The other half of the split, and the half that decides whether the
-    operator goes through with it."""
-    lowered = upgrade.lower()
-    assert "certificates" in lowered
-    assert "preserved" in lowered
+def test_upgrade_says_to_back_up_first(upgrade):
+    """The backup is the only thing standing between the operator and a server
+    that refuses the old volumes."""
+    flat = " ".join(upgrade.split()).lower()
+    assert "back up before you start" in flat
+    assert upgrade.index("just backup") < upgrade.index("./start.sh")
+
+
+def test_upgrade_says_no_path_carries_the_databases(upgrade):
+    """An operator who reads a version bump as routine needs to know that the
+    databases are on their own. Normalised: setup.sh wraps these lines."""
+    flat = " ".join(upgrade.split()).lower()
+    assert "no supported path for carrying them across" in flat
+    assert "no automated migration" in flat
+
+
+def test_an_unchanged_bundle_is_not_treated_as_an_upgrade(unchanged):
+    """Re-running setup.sh with the same bundle changes nothing. Implying
+    otherwise is what made the old guidance fire on every existing deployment."""
+    assert "back up before you start" not in unchanged.lower()
+    assert "./start.sh" in unchanged
 
 
 def test_upgrade_points_at_the_full_procedure(upgrade):

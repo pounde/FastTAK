@@ -1,11 +1,32 @@
 # Upgrading FastTAK
 
-Most upgrades are a `git pull` and a restart. `./setup.sh` pulls the new
-release and preserves your `.env`, your certificates and your `CoreConfig.xml`;
-`./start.sh` brings the stack back up on the new images.
+There are two kinds of upgrade, and only one of them is supported today.
 
-This page covers the parts that are **not** automatic: the ones that depend on
-decisions you made, which no script can make for you.
+**A FastTAK upgrade** — same TAK Server release, new FastTAK code — is a `git
+pull` and a restart. `./start.sh` brings the stack back up on the new images,
+and the databases come with it.
+
+**A TAK Server upgrade** — a new release ZIP from tak.gov — has no supported
+path yet. `./setup.sh <new-zip>` will extract the new release, rebuild the
+images and preserve your `.env`, certificates and `CoreConfig.xml`, but nothing
+carries the *databases* across a TAK Server version change: no migration, no
+schema handling, no verification that the new server accepts the old volumes.
+
+!!! warning "Before running `setup.sh` against a new TAK Server release"
+    Take a backup first (`just backup && just backups`) and keep it somewhere
+    off the host. If the new server refuses the existing volumes, your options
+    are to restore that backup onto the old release or to start the databases
+    fresh — and starting fresh loses the CoT history, the LLDAP accounts, the
+    Node-RED flows and the audit history. Your certificates, `CoreConfig.xml`
+    and `UserAuthenticationFile.xml` live on the host under `tak/` and are
+    preserved either way.
+
+Building that path — new ZIP, `git pull`, one command that updates every piece —
+is tracked in [#109](https://github.com/pounde/FastTAK/issues/109).
+
+The rest of this page covers the parts that are **not** automatic even for a
+FastTAK upgrade: the ones that depend on decisions you made, which no script can
+make for you.
 
 ## Before you upgrade
 

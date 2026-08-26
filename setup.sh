@@ -151,8 +151,8 @@ build_image "takserver:${VERSION}" "$DOCKERFILE_SERVER"
 
 # ── Set up tak/ directory ────────────────────────────────────────────────────
 echo ""
-# Which closing instruction the operator gets depends on this: an upgrade has to
-# clear the old volumes before starting. See the summary below.
+# Which closing instruction the operator gets depends on this. See the summary
+# below.
 #
 # Either marker means an existing deployment. tak/ alone is not enough: a forced
 # clean re-extract removes it, and a tak/ on a mount that did not land is simply
@@ -250,6 +250,7 @@ if [ ! -f "$TARGET_DIR/.env" ]; then
 else
   # Upgrade: update TAK_VERSION if changed
   CURRENT_VERSION=$(env_get "$TARGET_DIR/.env" TAK_VERSION)
+  PREVIOUS_VERSION="$CURRENT_VERSION"
   if [ "$CURRENT_VERSION" != "$VERSION" ]; then
     sed -i.bak "s/^TAK_VERSION=.*/TAK_VERSION=${VERSION}/" "$TARGET_DIR/.env"
     rm -f "$TARGET_DIR/.env.bak"
@@ -296,21 +297,20 @@ echo "  │                                                     │"
 echo "  │ View:  grep TAK_WEBADMIN_PASSWORD .env              │"
 echo "  └─────────────────────────────────────────────────────┘"
 echo ""
-if [ "$IS_UPGRADE" = true ]; then
-  # An upgrade across the 5.8 boundary starts the databases fresh: the old
-  # volumes were written by an earlier PostgreSQL major, and a new server
-  # refuses them. What the operator actually cares about — the CA, every issued
-  # client cert, CoreConfig.xml — is on the host under tak/ and survives.
-  echo "  Finish the upgrade:"
-  echo "    just backup && just backups   # keep a copy of the old databases"
-  echo "    docker compose down -v        # discard the old database volumes"
+if [ "$IS_UPGRADE" = true ] && [ "${PREVIOUS_VERSION:-$VERSION}" != "$VERSION" ]; then
+  # The TAK Server version changed under an existing deployment. FastTAK has no
+  # procedure for carrying the databases across that, so say so rather than
+  # advising a sequence. See docs/upgrading.md and issue #109.
+  echo "  TAK Server ${PREVIOUS_VERSION} → ${VERSION}"
+  echo ""
+  echo "  Back up before you start — the databases were written by the old"
+  echo "  server, and FastTAK has no supported path for carrying them across a"
+  echo "  TAK Server version change:"
+  echo "    just backup && just backups"
   echo "    ./start.sh"
   echo ""
-  echo "  The databases start empty. The CoT history is NOT carried across, and"
-  echo "  neither are the LLDAP accounts, Node-RED flows or audit history."
-  echo "  Your certificates, CoreConfig.xml and UserAuthenticationFile.xml live"
-  echo "  on the host under tak/ and are preserved. webadmin is recreated from"
-  echo "  .env on the next boot. See docs/upgrading.md."
+  echo "  If the new server refuses the existing volumes, there is no automated"
+  echo "  migration. See docs/upgrading.md before going further."
 else
   echo "  Start FastTAK:"
   echo "    ./start.sh"

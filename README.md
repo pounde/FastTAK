@@ -269,11 +269,11 @@ docker compose up -d
 ### TAK Server updates
 
 TAK Server images are built locally from the tak.gov release ZIP. `setup.sh`
-handles extraction, image builds, and updating `TAK_VERSION` in `.env`, then
-prints the sequence to finish with.
+handles extraction, image builds, and updating `TAK_VERSION` in `.env`.
 
-Full procedure, and exactly what survives:
-[docs/upgrading.md](docs/upgrading.md).
+**Moving an existing deployment to a new TAK Server release is not yet
+supported.** Nothing carries the databases across a version change. Back up
+first, and read [docs/upgrading.md](docs/upgrading.md) before you start.
 
 ## Testing
 
@@ -289,8 +289,9 @@ This builds from scratch, starts the full stack, runs automated checks, and tear
 
 ```bash
 # Stop services (preserves databases and ./tak/ .env config)
-# On TAK Server 5.8+ only — earlier releases keep the cot database inside the
-# tak-database container, where `down` destroys it. See docs/upgrading.md.
+# 5.8 is the supported floor, and its hardened image lands PGDATA in the mounted
+# volume — earlier releases kept cot inside the container, where `down` destroyed
+# it. See docs/decisions.md DD-051.
 docker compose down
 
 # Full reset (destroys database data, keeps ./tak/ certs and .env config)
