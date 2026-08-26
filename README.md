@@ -257,6 +257,25 @@ On first boot, FastTAK pre-installs `node-red-contrib-postgresql` and `node-red-
 
 ## Updating
 
+### FastTAK updates
+
+New FastTAK code on the same TAK Server release:
+
+```bash
+git pull
+./start.sh
+```
+
+`start.sh` rebuilds the images FastTAK builds itself (the monitor is built from
+source, so this is what carries new code into the running container), removes
+containers for services that no longer exist in the compose file, and provisions
+any secret a newer release requires but your `.env` does not have yet. The
+databases are untouched.
+
+See [docs/upgrading.md](docs/upgrading.md) for the parts that are not automatic
+— chiefly the Monitor's admin-group gate, which can lock you out if the account
+you log in with is not in `ADMIN_GROUP`.
+
 ### Component updates (LLDAP, MediaMTX, Node-RED)
 
 Edit the version pin in `.env`, then pull and restart:
