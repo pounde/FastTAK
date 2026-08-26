@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.29.2 (2026-08-26)
+
+### Bug Fixes
+
+- **setup**: Stop advertising an upgrade path that does not exist
+  ([`d1c8cdf`](https://github.com/pounde/FastTAK/commit/d1c8cdf3bdc72add12c76e9c8ada5ccf0ddece72))
+
+### Documentation
+
+- **readme**: Document how to update FastTAK itself
+  ([`f3e55d8`](https://github.com/pounde/FastTAK/commit/f3e55d8d89fc3fc20aa6253cb809426c3ca94ed7))
+
+
 ## v0.29.1 (2026-08-26)
 
 ### Bug Fixes
