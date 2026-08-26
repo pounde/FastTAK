@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.29.1 (2026-08-26)
+
+### Bug Fixes
+
+- **start**: Stop reporting failures on a healthy stack
+  ([`d324671`](https://github.com/pounde/FastTAK/commit/d3246713262423a259cdb457718de255ffd09545))
+
+### Chores
+
+- **ci**: Pin gitPython version
+  ([`5bb7f06`](https://github.com/pounde/FastTAK/commit/5bb7f06d29b0a682bc6e66bd3ada1050e1c0afc5))
+
+
 ## v0.29.0 (2026-08-25)
 
 ### Bug Fixes
