@@ -129,6 +129,13 @@ disabled in the JDK TLS policy, DoD/WCF trust anchors, package minimisation,
 GPG-verified package sources, and the file-integrity healthchecks. What is
 given up, on `tak-server` only, is the non-root process user.
 
+**Consequence worth knowing:** because `tak-database` uses the image's own
+`/opt/tak`, which ships `CoreConfig.example.xml` but no `CoreConfig.xml`, TAK's
+`SchemaManager` logs two `WARN` lines on every boot as it falls through to the
+example. `tak-database/start.sh` patches the DB password into whichever of the
+two exists, so the connection succeeds and the schema upgrade runs normally.
+The warnings are expected, not a fault.
+
 **Tracked in** [#97](https://github.com/pounde/FastTAK/issues/97), sequenced
 behind [#69](https://github.com/pounde/FastTAK/issues/69) — moving cert-exec
 off the monitor removes most of the code that forces the override.

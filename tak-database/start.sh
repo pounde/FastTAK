@@ -107,6 +107,19 @@ commit_tmp() {
 
 # ── 1. CoreConfig DB password ────────────────────────────────────────────
 # tak-database starts before init-config and needs the password immediately.
+#
+# This service does NOT bind-mount /opt/tak (see docker-compose.yml and
+# DD-052), so it works against the image's own copy — which ships
+# CoreConfig.example.xml but no CoreConfig.xml. The loop below therefore
+# patches only the example, and both TAK's takserver-setup-db.sh and its
+# SchemaManager fall back to it. That fallback is expected and logs two WARN
+# lines on every boot:
+#
+#     WARN  com.bbn.tak.schema.SchemaManager -  Trying current directory /opt/tak/db-utils
+#     WARN  com.bbn.tak.schema.SchemaManager -  Trying /opt/tak/CoreConfig.example.xml
+#
+# They are not a failure. The connection succeeds on the patched example, and
+# the schema upgrade runs normally.
 patch_coreconfig_password() {
   local target="$1"
   local tmp="${target}.fastak.tmp"

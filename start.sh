@@ -66,6 +66,33 @@ assert_file() { if [ -f "$1" ]; then pass "$2"; else fail "$2"; fi; }
 assert_grep() { if grep -q "$1" "$2" 2>/dev/null; then pass "$3"; else fail "$3"; fi; }
 assert_port() { if nc -z localhost "$1" 2>/dev/null; then pass "Port $1 ($2)"; else fail "Port $1 ($2)"; fi; }
 
+# A condition that is legitimately absent rather than broken. Not counted as a
+# failure — a start script that reports "5 checks failed" on a healthy stack
+# trains the operator to ignore it.
+note() { if $VERBOSE; then echo "  – $1"; fi; }
+
+# Verify a port only if this deployment actually publishes it. Which ports are
+# published depends on DEPLOY_MODE (docker-compose.direct.yml adds the UI
+# ports) and on the operator's docker-compose.override.yml, which may remove
+# some deliberately. Asking compose is the only reading that stays true across
+# both.
+assert_published_port() {
+  _svc="$1"; _cport="$2"; _label="$3"
+  _mapping=$(docker compose port "$_svc" "$_cport" 2>/dev/null | head -1)
+  if [ -n "$_mapping" ]; then
+    assert_port "${_mapping##*:}" "$_label"
+    return
+  fi
+  # No runtime mapping. Distinguish "deliberately not published" from "the
+  # service is not running" — the latter would otherwise read as a config
+  # choice and pass silently.
+  if [ -z "$(docker compose ps -q "$_svc" 2>/dev/null)" ]; then
+    fail "$_label — $_svc is not running"
+  else
+    note "$_label not published by this compose configuration"
+  fi
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TEST MODE — greenfield setup
 # ═══════════════════════════════════════════════════════════════════════════
@@ -254,7 +281,15 @@ assert_file "tak/certs/files/root-ca.pem" "Root CA"
 assert_file "tak/certs/files/ca.pem" "Intermediate CA"
 assert_file "tak/certs/files/takserver.jks" "Server cert"
 assert_file "tak/certs/files/svc_fasttakapi.p12" "API service cert"
-assert_file "tak/certs/files/svc_nodered.p12" "Node-RED service cert"
+# svc_nodered is NOT created at bootstrap — init-identity's SERVICE_ACCOUNTS
+# is just svc_fasttakapi. The monitor writes these PEMs when a data-mode
+# service account is created, so on a fresh install the file is absent and
+# that is correct.
+if [ -f "tak/certs/files/svc_nodered.p12" ]; then
+  pass "Node-RED service cert"
+else
+  note "Node-RED service cert not present (created on demand via the Monitor)"
+fi
 assert_file "tak/certs/files/ca-signing.jks" "CA signing keystore"
 if ./certs.sh ca-info > /dev/null 2>&1; then pass "certs.sh ca-info"; else fail "certs.sh ca-info"; fi
 if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs.sh list"; fi
@@ -270,12 +305,12 @@ MEDIAMTX_PORT="${MEDIAMTX_PORT:-8888}"
 NODERED_PORT=$(env_get .env NODERED_PORT)
 NODERED_PORT="${NODERED_PORT:-1880}"
 
-assert_port 8089 "CoT TLS"
-assert_port 8443 "Cert HTTPS"
-assert_port "$TAKSERVER_ADMIN_PORT" "Admin HTTPS"
-assert_port "$MEDIAMTX_PORT" "MediaMTX HLS"
-assert_port 8554 "MediaMTX RTSP"
-assert_port "$NODERED_PORT" "Node-RED"
+assert_published_port tak-server 8089 "CoT TLS"
+assert_published_port tak-server 8443 "Cert HTTPS"
+assert_published_port tak-server "$TAKSERVER_ADMIN_PORT" "Admin HTTPS"
+assert_published_port mediamtx "$MEDIAMTX_PORT" "MediaMTX HLS"
+assert_published_port mediamtx 8554 "MediaMTX RTSP"
+assert_published_port nodered "$NODERED_PORT" "Node-RED"
 
 HTTP_8446=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "https://localhost:${TAKSERVER_ADMIN_PORT}" 2>/dev/null)
 assert_not "$HTTP_8446" "000" "${TAKSERVER_ADMIN_PORT} TLS (HTTP $HTTP_8446)"
@@ -284,8 +319,15 @@ log ""
 log "Health"
 log "──────"
 
-JAVA_COUNT=$(docker exec "$(docker compose ps -q tak-server)" sh -c "ps aux | grep java | grep -v grep | wc -l" 2>/dev/null | tr -d ' ')
-assert "$JAVA_COUNT" "5" "Java processes: $JAVA_COUNT/5"
+# Delegate to the container's own healthcheck rather than counting with
+# `ps`: the TAK 5.8 hardened image ships no procps, so `ps aux` fails and
+# every process reads as missing on a perfectly healthy server. The
+# healthcheck matches /proc/*/cmdline and already knows the five processes.
+if TAK_HEALTH=$(docker exec "$(docker compose ps -q tak-server)" /opt/tak/healthcheck.sh 2>&1); then
+  pass "TAK Server processes ($TAK_HEALTH)"
+else
+  fail "TAK Server processes ($TAK_HEALTH)"
+fi
 
 DB_FAILS=$(docker exec "$(docker compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 DB_FAILS="${DB_FAILS:-0}"
