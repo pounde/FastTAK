@@ -4,6 +4,7 @@
 be tested without running anything.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -75,3 +76,56 @@ def test_old_integration_recipes_are_gone():
 
 def test_check_delegates_to_the_report():
     assert dry_run("check").endswith("./scripts/check-env.sh --report")
+
+
+RECIPE = re.compile(r"^([a-z][a-z0-9-]*)(?:\s+\*?[a-z]+(?:=\"\")?)*:\s*$")
+
+
+def _recipes() -> list[tuple[str, list[str], str]]:
+    """(name, comment lines above it, first body line) for every public recipe."""
+    lines = (REPO / "justfile").read_text().splitlines()
+    out = []
+    for i, line in enumerate(lines):
+        m = RECIPE.match(line)
+        if not m or m.group(1).startswith("_"):
+            continue
+        comments = []
+        j = i - 1
+        while j >= 0 and lines[j].startswith("#"):
+            comments.insert(0, lines[j])
+            j -= 1
+        body = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        out.append((m.group(1), comments, body))
+    return out
+
+
+def test_every_recipe_is_one_line():
+    lines = (REPO / "justfile").read_text().splitlines()
+    for i, line in enumerate(lines):
+        if RECIPE.match(line):
+            body = [ln for ln in lines[i + 1 :] if ln.strip()]
+            second = body[1] if len(body) > 1 else ""
+            assert not second.startswith((" ", "\t")), f"recipe {line!r} has more than one line"
+
+
+def test_every_recipe_has_a_description():
+    for name, comments, _ in _recipes():
+        assert comments, f"recipe {name} has no comment block"
+
+
+def test_documented_flags_exist_in_the_script():
+    """The comment block is a second human-maintained copy of the script's
+    arguments. This is what keeps it honest."""
+    for name, comments, body in _recipes():
+        m = re.search(r"(\./\S+\.sh)", body)
+        if not m:
+            continue  # backup and the ruff recipes call something other than a local script
+        script = REPO / m.group(1)
+        usage = subprocess.run(
+            ["/bin/bash", str(script), "--help"], capture_output=True, text=True
+        ).stdout
+        flags = set(re.findall(r"--[a-z][a-z-]*", "\n".join(comments)))
+        missing = sorted(f for f in flags if f not in usage)
+        assert not missing, (
+            f"recipe {name} documents {missing}, but {m.group(1)} --help does not mention them"
+        )

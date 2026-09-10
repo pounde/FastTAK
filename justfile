@@ -11,6 +11,31 @@ _default:
 setup *args:
     ./setup.sh {{args}}
 
+# Start the stack: preflight .env, build, up, wait for tak-server, verify.
+#   just up                       whole stack, with the post-start checks
+#   just up <service>...          rebuild and recreate only those (checks skipped)
+#   just up --capture             include the mitmproxy capture sidecar
+#   just up --checks|--no-checks  override the checks default
+#   just up --no-wait             do not wait for tak-server
+up *args:
+    ./start.sh {{args}}
+
+# Stop the stack. Volumes survive; the capture sidecars are removed.
+down:
+    ./scripts/down.sh
+
+# Compare .env with .env.example: keys added by this release that you have not
+# set, and keys you have that this release no longer reads. Advisory only.
+check:
+    ./scripts/check-env.sh --report
+
+# Backups, through the monitor's own CLI. The stack must be running.
+#   just backup run [--actor NAME]    take a backup; NAME is recorded in the audit log
+#   just backup list                  list backups on disk
+#   just backup prune [--keep N]      apply retention (default: $BACKUP_RETENTION_KEEP)
+backup *args:
+    docker compose exec -T monitor python -m app.backup {{args}}
+
 # The fast suite: shellcheck, ldap-proxy's Go tests, pytest tests/. No Docker.
 # This is what pre-commit and CI run.
 test:
@@ -36,23 +61,3 @@ fmt:
 # Install pre-commit hooks (commit + push)
 setup-dev:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
-
-# Start the stack (reads DEPLOY_MODE from .env to select compose files)
-up *args:
-    ./start.sh {{args}}
-
-# Stop the stack (including the capture overlay, if it was up).
-down:
-    ./scripts/down.sh
-
-# Compare .env with .env.example: keys added by this release that you have not
-# set, and keys you have that this release no longer reads. Advisory only.
-check:
-    ./scripts/check-env.sh --report
-
-# Backups, through the monitor's own CLI. The stack must be running.
-#   just backup run [--actor NAME]    take a backup; NAME is recorded in the audit log
-#   just backup list                  list backups on disk
-#   just backup prune [--keep N]      apply retention (default: $BACKUP_RETENTION_KEEP)
-backup *args:
-    docker compose exec -T monitor python -m app.backup {{args}}
