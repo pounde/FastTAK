@@ -35,3 +35,20 @@ def test_old_backup_recipes_are_gone():
     listing = subprocess.run(["just", "--list"], cwd=REPO, capture_output=True, text=True).stdout
     assert "backups" not in listing
     assert "backup-prune" not in listing
+
+
+def test_setup_delegates_to_setup_sh():
+    assert dry_run("setup", "takserver.zip").endswith("./setup.sh takserver.zip")
+
+
+def test_setup_passes_target_dir_through():
+    assert "./setup.sh -d /tmp/x takserver.zip" in dry_run(
+        "setup", "-d", "/tmp/x", "takserver.zip"
+    )
+
+
+def test_bare_just_lists_recipes():
+    result = subprocess.run(["just"], cwd=REPO, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert "Available recipes" in result.stdout
+    assert "help" not in result.stdout.split()

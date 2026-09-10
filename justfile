@@ -1,8 +1,15 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# List all available recipes
-help:
-    @just --list
+# Bare `just` lists every recipe, in file order.
+_default:
+    @just --list --unsorted
+
+# Set up FastTAK from a tak.gov release ZIP: extracts tak/, builds the images,
+# creates or updates .env. Run once, and again for a new TAK Server release.
+#   just setup <zip>            into this directory
+#   just setup -d <dir> <zip>   into another directory (the test harness uses this)
+setup *args:
+    ./setup.sh {{args}}
 
 # Run fast tests (unit + shellcheck + go) — no Docker needed
 test:
