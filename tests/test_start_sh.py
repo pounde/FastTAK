@@ -53,6 +53,7 @@ def run_start(
     deployment: Path, *args: str, extra_env: dict | None = None
 ) -> tuple[subprocess.CompletedProcess, list[str]]:
     log = deployment / "docker.log"
+    log.unlink(missing_ok=True)  # tests calling run_start twice must not see the prior call's log
     env = {
         **os.environ,
         "PATH": f"{deployment / 'bin'}:{os.environ['PATH']}",
@@ -114,3 +115,72 @@ def test_missing_tak_dir_fails_preflight(deployment):
     result, _ = run_start(deployment)
     assert result.returncode == 1
     assert "tak/ not found" in result.stderr
+
+
+def _up_call(calls: list[str]) -> str:
+    return next(c for c in calls if c.startswith("compose") and " up " in c)
+
+
+def _build_call(calls: list[str]) -> str:
+    return next(c for c in calls if c.startswith("compose") and " build" in c)
+
+
+def test_bare_up_removes_orphans(deployment):
+    _, calls = run_start(deployment)
+    assert "--remove-orphans" in _up_call(calls)
+
+
+def test_named_services_are_force_recreated_without_orphan_pruning(deployment):
+    """A targeted rebuild has no business pruning the project — that is what
+    silently removed the capture sidecars."""
+    _, calls = run_start(deployment, "monitor", "nodered")
+    up = _up_call(calls)
+    assert "--force-recreate" in up
+    assert up.endswith("monitor nodered")
+    assert "--remove-orphans" not in up
+    assert _build_call(calls).endswith("monitor nodered")
+
+
+def test_capture_adds_the_overlay(deployment):
+    stub = deployment / "bin" / "docker"
+    stub.write_text(
+        STUB.replace(
+            '*" up "*)',
+            '*" up "*) printf "COMPOSE_FILE=%s\\n" "${COMPOSE_FILE-<unset>}" >> "$DOCKER_LOG";',
+        )
+    )
+    result, calls = run_start(deployment, "--capture")
+    assert result.returncode == 0, result.stderr
+    assert any(
+        c.startswith("COMPOSE_FILE=docker-compose.yml:docker-compose.capture.yml") for c in calls
+    )
+
+
+def test_checks_run_on_a_bare_up(deployment):
+    result, calls = run_start(deployment)
+    assert any(c.startswith("exec") for c in calls), "the checks exec into tak-server"
+    assert "checks" in result.stdout.lower()
+
+
+def test_checks_skipped_when_services_are_named(deployment):
+    result, calls = run_start(deployment, "monitor")
+    assert not any(c.startswith("exec") for c in calls)
+    assert "skipped" in result.stdout.lower()
+
+
+def test_checks_flag_overrides_the_default(deployment):
+    _, calls = run_start(deployment, "monitor", "--checks")
+    assert any(c.startswith("exec") for c in calls)
+    _, calls = run_start(deployment, "--no-checks")
+    assert not any(c.startswith("exec") for c in calls)
+
+
+def test_no_wait_skips_the_health_loop(deployment):
+    _, calls = run_start(deployment, "--no-wait", "--no-checks")
+    assert not any(c.startswith("inspect") for c in calls)
+
+
+def test_unknown_option_is_rejected(deployment):
+    result, _ = run_start(deployment, "--bogus")
+    assert result.returncode == 2
+    assert "--bogus" in result.stderr

@@ -1,7 +1,13 @@
 #!/bin/bash
 # start.sh — Start and verify FastTAK
 # Usage:
-#   ./start.sh                       Start the stack, run checks
+#   ./start.sh [--capture] [--checks|--no-checks] [--no-wait] [service...]
+#
+#   service...    rebuild and force-recreate only these services
+#   --capture     include the mitmproxy capture overlay
+#   --checks      run the post-start checks (default for a whole-stack start)
+#   --no-checks   skip them (default when services are named)
+#   --no-wait     do not wait for tak-server to report healthy
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
@@ -34,11 +40,29 @@ PASS=0
 FAIL=0
 VERBOSE=false
 
+CAPTURE=false
+WAIT=true
+CHECKS=""        # empty: decided below from whether services were named
+SERVICES=()
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    *) echo "Unknown argument: $1" >&2; exit 1 ;;
+    --capture)   CAPTURE=true ;;
+    --checks)    CHECKS=true ;;
+    --no-checks) CHECKS=false ;;
+    --no-wait)   WAIT=false ;;
+    -*) echo "Unknown option: $1" >&2; exit 2 ;;
+    *) SERVICES+=("$1") ;;
   esac
+  shift
 done
+
+# A targeted rebuild cannot affect CoreConfig, the certs or TAK's processes,
+# so the whole-stack checks are noise there. The invocation says which was
+# meant; the flags override.
+if [ -z "$CHECKS" ]; then
+  if [ ${#SERVICES[@]} -gt 0 ]; then CHECKS=false; else CHECKS=true; fi
+fi
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -116,8 +140,12 @@ SERVER_ADDRESS=$(env_get "$ENV_FILE" SERVER_ADDRESS)
 DEPLOY_MODE=$(env_get "$ENV_FILE" DEPLOY_MODE)
 DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
 
-# shellcheck disable=SC2119  # no --capture here; this is start.sh, not the capture path
-FASTAK_ENV_FILE="$ENV_FILE" stack_export_compose_file
+if $CAPTURE; then
+  FASTAK_ENV_FILE="$ENV_FILE" stack_export_compose_file --capture
+  mkdir -p captures capture/mitm
+else
+  FASTAK_ENV_FILE="$ENV_FILE" stack_export_compose_file
+fi
 stack_export_version
 
 echo ""
@@ -134,41 +162,54 @@ log "Start"
 log "─────"
 
 echo "  ⏳ Building containers..."
-compose build --quiet 2>/dev/null
+if [ ${#SERVICES[@]} -gt 0 ]; then
+  compose build --quiet "${SERVICES[@]}" 2>/dev/null
+else
+  compose build --quiet 2>/dev/null
+fi
 
 echo "  ⏳ Starting services..."
 # --remove-orphans: containers for services deleted from the compose file are
-# NOT removed by a plain `up`. Without this an upgrade leaves the old container
-# running on its previous config, invisible to compose — e.g. tak-portal kept
-# running for months after DD-043 removed it, unauthenticated.
-compose up -d --remove-orphans > /dev/null 2>&1
+# NOT removed by a plain `up`; tak-portal kept running for months after
+# DD-043 removed it. Only for a whole-stack up — a targeted rebuild must not
+# prune the project, which is what silently removed the capture sidecars.
+if [ ${#SERVICES[@]} -gt 0 ]; then
+  compose up -d --force-recreate "${SERVICES[@]}" > /dev/null 2>&1
+else
+  compose up -d --remove-orphans > /dev/null 2>&1
+fi
 
-echo "  ⏳ Waiting for tak-server..."
-STATUS="unknown"
-for _ in $(seq 1 48); do
-  STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo "unknown")
-  if [ "$STATUS" = "healthy" ]; then break; fi
-  if [ "$STATUS" = "unhealthy" ]; then
-    echo "  ❌ tak-server failed — run: docker compose logs tak-server"
+if $WAIT; then
+  echo "  ⏳ Waiting for tak-server..."
+  STATUS="unknown"
+  for _ in $(seq 1 48); do
+    STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo "unknown")
+    if [ "$STATUS" = "healthy" ]; then break; fi
+    if [ "$STATUS" = "unhealthy" ]; then
+      echo "  ❌ tak-server failed — run: docker compose logs tak-server"
+      exit 1
+    fi
+    sleep 10
+  done
+
+  if [ "$STATUS" != "healthy" ]; then
+    echo "  ❌ tak-server timed out — run: docker compose logs tak-server"
     exit 1
   fi
-  sleep 10
-done
-
-if [ "$STATUS" != "healthy" ]; then
-  echo "  ❌ tak-server timed out — run: docker compose logs tak-server"
-  exit 1
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CHECKS
 # ═══════════════════════════════════════════════════════════════════════════
 
+if $CHECKS; then
+
 log ""
 log "Services"
 log "────────"
 
-assert "$STATUS" "healthy" "TAK Server healthy"
+TAK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo unknown)
+assert "$TAK_STATUS" "healthy" "TAK Server healthy"
 
 DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
 assert "$DB_STATUS" "healthy" "TAK Database healthy"
@@ -189,33 +230,33 @@ log ""
 log "Config"
 log "──────"
 
-assert_file "tak/CoreConfig.xml" "CoreConfig.xml"
-CC_PASS=$(grep -o '<connection[^>]*password="[^"]*"' tak/CoreConfig.xml | sed 's/.*password="//;s/"//')
+assert_file "$DEPLOY_DIR/tak/CoreConfig.xml" "CoreConfig.xml"
+CC_PASS=$(grep -o '<connection[^>]*password="[^"]*"' "$DEPLOY_DIR/tak/CoreConfig.xml" | sed 's/.*password="//;s/"//')
 assert_not "$CC_PASS" "" "DB password set"
-assert_grep "tak-database:5432" "tak/CoreConfig.xml" "DB host"
-assert_grep 'enableAdminUI="true"' "tak/CoreConfig.xml" "Admin UI enabled"
-assert_grep '<certificateSigning CA="TAKServer">' "tak/CoreConfig.xml" "Certificate signing"
-assert_grep "adm_ldapservice" "tak/CoreConfig.xml" "LDAP auth"
-assert_grep 'adminGroup="ROLE_ADMIN"' "tak/CoreConfig.xml" "ROLE_ADMIN"
+assert_grep "tak-database:5432" "$DEPLOY_DIR/tak/CoreConfig.xml" "DB host"
+assert_grep 'enableAdminUI="true"' "$DEPLOY_DIR/tak/CoreConfig.xml" "Admin UI enabled"
+assert_grep '<certificateSigning CA="TAKServer">' "$DEPLOY_DIR/tak/CoreConfig.xml" "Certificate signing"
+assert_grep "adm_ldapservice" "$DEPLOY_DIR/tak/CoreConfig.xml" "LDAP auth"
+assert_grep 'adminGroup="ROLE_ADMIN"' "$DEPLOY_DIR/tak/CoreConfig.xml" "ROLE_ADMIN"
 
 log ""
 log "Certificates"
 log "────────────"
 
-assert_file "tak/certs/files/root-ca.pem" "Root CA"
-assert_file "tak/certs/files/ca.pem" "Intermediate CA"
-assert_file "tak/certs/files/takserver.jks" "Server cert"
-assert_file "tak/certs/files/svc_fasttakapi.p12" "API service cert"
+assert_file "$DEPLOY_DIR/tak/certs/files/root-ca.pem" "Root CA"
+assert_file "$DEPLOY_DIR/tak/certs/files/ca.pem" "Intermediate CA"
+assert_file "$DEPLOY_DIR/tak/certs/files/takserver.jks" "Server cert"
+assert_file "$DEPLOY_DIR/tak/certs/files/svc_fasttakapi.p12" "API service cert"
 # svc_nodered is NOT created at bootstrap — init-identity's SERVICE_ACCOUNTS
 # is just svc_fasttakapi. The monitor writes these PEMs when a data-mode
 # service account is created, so on a fresh install the file is absent and
 # that is correct.
-if [ -f "tak/certs/files/svc_nodered.p12" ]; then
+if [ -f "$DEPLOY_DIR/tak/certs/files/svc_nodered.p12" ]; then
   pass "Node-RED service cert"
 else
   note "Node-RED service cert not present (created on demand via the Monitor)"
 fi
-assert_file "tak/certs/files/ca-signing.jks" "CA signing keystore"
+assert_file "$DEPLOY_DIR/tak/certs/files/ca-signing.jks" "CA signing keystore"
 if ./certs.sh ca-info > /dev/null 2>&1; then pass "certs.sh ca-info"; else fail "certs.sh ca-info"; fi
 if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs.sh list"; fi
 
@@ -266,16 +307,21 @@ SEC_COUNT=$(docker exec "$(compose ps -q tak-server)" grep -c "Security status" 
 SEC_COUNT="${SEC_COUNT:-0}"
 if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Multiple starts ($SEC_COUNT)"; fi
 
+fi
+
 # ═══════════════════════════════════════════════════════════════════════════
 # RESULTS
 # ═══════════════════════════════════════════════════════════════════════════
 
-TOTAL=$((PASS + FAIL))
-
-if [ $FAIL -eq 0 ]; then
-  echo "  ✅ All checks passed ($PASS/$TOTAL)"
+if $CHECKS; then
+  TOTAL=$((PASS + FAIL))
+  if [ $FAIL -eq 0 ]; then
+    echo "  ✅ All checks passed ($PASS/$TOTAL)"
+  else
+    echo "  ⚠️  $FAIL checks failed ($PASS/$TOTAL passed)"
+  fi
 else
-  echo "  ⚠️  $FAIL checks failed ($PASS/$TOTAL passed)"
+  echo "  – Checks skipped (targeted start). Run ./start.sh --checks to verify the whole stack."
 fi
 
 WA_PASS=$(env_get "$ENV_FILE" TAK_WEBADMIN_PASSWORD)
