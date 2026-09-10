@@ -87,7 +87,13 @@ def test_direct_mode_selects_the_direct_compose_file(deployment):
     )
     result, calls = run_start(deployment)
     assert result.returncode == 0, result.stderr
-    assert "COMPOSE_FILE=docker-compose.yml:docker-compose.direct.yml" in calls
+    # Prefix, not equality: a gitignored docker-compose.override.yml in the
+    # repo root (an expected local dev artefact) gets appended by
+    # stack_export_compose_file, which would fail an exact-match assertion
+    # with no code change.
+    assert any(
+        c.startswith("COMPOSE_FILE=docker-compose.yml:docker-compose.direct.yml") for c in calls
+    )
 
 
 def test_subdomain_mode_leaves_compose_file_unset(deployment):
