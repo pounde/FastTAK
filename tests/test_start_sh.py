@@ -184,3 +184,29 @@ def test_unknown_option_is_rejected(deployment):
     result, _ = run_start(deployment, "--bogus")
     assert result.returncode == 2
     assert "--bogus" in result.stderr
+
+
+def test_failed_build_stops_the_start_and_shows_why(deployment):
+    """The old line was `docker compose build --quiet 2>/dev/null` with no
+    exit check: a failed build was followed by up -d starting the previous
+    image and a success summary."""
+    result, calls = run_start(
+        deployment, "--no-checks", extra_env={"STUB_BUILD_ERR": "ERROR: failed to solve: monitor"}
+    )
+    assert result.returncode == 1
+    assert "build failed" in result.stderr.lower()
+    assert "failed to solve: monitor" in result.stderr
+    assert not any(" up " in c for c in calls), "must not start the old image"
+
+
+def test_failed_up_stops_the_start_and_shows_why(deployment):
+    result, calls = run_start(
+        deployment,
+        "--no-checks",
+        extra_env={"STUB_UP_ERR": "Error response from daemon: port is already allocated"},
+    )
+    assert result.returncode == 1
+    assert "port is already allocated" in result.stderr
+    assert not any(c.startswith("inspect") for c in calls), (
+        "must not wait on a stack that did not start"
+    )
