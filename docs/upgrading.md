@@ -3,17 +3,17 @@
 There are two kinds of upgrade, and only one of them is supported today.
 
 **A FastTAK upgrade** — same TAK Server release, new FastTAK code — is a `git
-pull` and a restart. `./start.sh` brings the stack back up on the new images,
+pull` and a restart. `just up` brings the stack back up on the new images,
 and the databases come with it.
 
 **A TAK Server upgrade** — a new release ZIP from tak.gov — has no supported
-path yet. `./setup.sh <new-zip>` will extract the new release, rebuild the
+path yet. `just setup <new-zip>` will extract the new release, rebuild the
 images and preserve your `.env`, certificates and `CoreConfig.xml`, but nothing
 carries the *databases* across a TAK Server version change: no migration, no
 schema handling, no verification that the new server accepts the old volumes.
 
-!!! warning "Before running `setup.sh` against a new TAK Server release"
-    Take a backup first (`just backup && just backups`) and keep it somewhere
+!!! warning "Before running `just setup` against a new TAK Server release"
+    Take a backup first (`just backup run && just backup list`) and keep it somewhere
     off the host. If the new server refuses the existing volumes, your options
     are to restore that backup onto the old release or to start the databases
     fresh — and starting fresh loses the CoT history, the LLDAP accounts, the

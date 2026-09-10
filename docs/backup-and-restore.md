@@ -72,12 +72,12 @@ without prematurely clobbering an in-flight backup. Operators with
 larger DBs (or stricter cleanup) can override via
 `BACKUP_PARTIAL_REAP_AGE_SECONDS` in `.env`.
 
-**Manual prune** is available via `just backup-prune` (uses the
-`BACKUP_RETENTION_KEEP` default) or `just backup-prune 5` (override to
+**Manual prune** is available via `just backup prune` (uses the
+`BACKUP_RETENTION_KEEP` default) or `just backup prune --keep 5` (override to
 keep the newest 5). Useful for one-off cleanup before a release; routine
 ops should not need it.
 
-**List backups** with `just backups` (lists what's on disk with sizes
+**List backups** with `just backup list` (lists what's on disk with sizes
 and ages).
 
 ## Restoring to a fresh host
@@ -368,5 +368,5 @@ below mirror that script.
 - **Backup files appear root-owned on the host** — the monitor container
   writes them under its container uid (root by default), so removing
   them from the host directly may require `sudo`. Prefer the dashboard
-  **Delete** button or `just backup-prune`, which run inside the
+  **Delete** button or `just backup prune`, which run inside the
   container.

@@ -11,7 +11,7 @@
 
 ```bash
 # Extract TAK Server files and build images
-./setup.sh <takserver-docker-X.X.zip>
+just setup <takserver-docker-X.X.zip>
 
 # Configure environment (setup.sh copies .env.example to .env)
 vim .env
@@ -23,23 +23,31 @@ just setup-dev
 ## Development
 
 ```bash
-just dev-up      # Start with direct-access ports (1880, 8180)
-just dev-down    # Stop
+just up            # whole stack, with the post-start checks
+just up monitor    # rebuild one service after a code change
+just down
 ```
 
-The dev stack exposes Node-RED and Monitor directly on the host
-for convenience. These ports bypass Caddy + LDAP authentication.
+`just` with no arguments lists every recipe with what it does.
 
 ## Testing
 
 ```bash
-just test              # Unit tests + shellcheck (no Docker needed)
-just test-integration  # Full stack test (can run alongside dev stack)
+just test               # unit tests + shellcheck + go (no Docker needed)
+just test-stack cycle   # full integration cycle against an isolated stack
 ```
 
 Integration tests use a +10000 port offset to avoid conflicts with a running
 development stack. The integration test creates an isolated Docker project environment
 and utilizes an isolated `tak/` directory.
+
+For iterative work against the integration stack:
+
+```bash
+just test-stack up      # stand it up (prints the project name)
+just test-stack run     # run the assertions; repeat after changes
+just test-stack down    # tear it down when finished
+```
 
 ## Production
 
@@ -54,4 +62,4 @@ are only reachable through Caddy + LDAP authentication.
 
 ## All Commands
 
-Run `just help` to see all available recipes.
+Run `just` to see all available recipes.

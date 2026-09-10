@@ -174,4 +174,4 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - run: uv sync
-      - run: just test-integration
+      - run: just test-stack cycle

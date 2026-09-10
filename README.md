@@ -16,8 +16,9 @@ A Docker Compose stack for deploying and managing the TAK ecosystem:
 ## Prerequisites
 
 1. **Docker Engine** and **Docker Compose v2** (v2.20+) installed
-2. **Official TAK Server release** ZIP from [tak.gov](https://tak.gov) — the **hardened** bundle, 5.8 or later (`takserver-docker-hardened-5.8-RELEASE-65.zip` or newer). See: [DD-051](docs/decisions.md#dd-051-tak-server-58-hardened-bundle-is-the-supported-floor).
-3. **DNS** (subdomain mode only) — required for Let's Encrypt TLS and subdomain routing. Your FQDN and subdomains must resolve to the host's public IP. Not needed for direct mode.
+2. **[just](https://github.com/casey/just)** — the command runner every workflow is documented with. Don't have it? The `justfile` is a readable map: each recipe is one line naming the script it runs, so open it and run that script directly.
+3. **Official TAK Server release** ZIP from [tak.gov](https://tak.gov) — the **hardened** bundle, 5.8 or later (`takserver-docker-hardened-5.8-RELEASE-65.zip` or newer). See: [DD-051](docs/decisions.md#dd-051-tak-server-58-hardened-bundle-is-the-supported-floor).
+4. **DNS** (subdomain mode only) — required for Let's Encrypt TLS and subdomain routing. Your FQDN and subdomains must resolve to the host's public IP. Not needed for direct mode.
 
 ## Deployment Modes
 
@@ -33,18 +34,18 @@ FastTAK supports two deployment modes, controlled by `DEPLOY_MODE` in `.env`:
 git clone https://github.com/pounde/FastTAK.git FastTAK && cd FastTAK
 
 # One-time setup (builds images, extracts tak/, generates secrets)
-./setup.sh takserver-docker-hardened-5.8-RELEASE-65.zip
+just setup takserver-docker-hardened-5.8-RELEASE-65.zip
 
 # Set SERVER_ADDRESS to your IP or hostname, pick a DEPLOY_MODE
 vim .env
 
 # Start
-./start.sh
+just up
 ```
 
-`setup.sh` extracts the TAK Server release, builds Docker images, creates `.env` with generated secrets. You only run it once (or again to upgrade).
+`just setup` extracts the TAK Server release, builds Docker images, creates `.env` with generated secrets. You only run it once (or again to upgrade).
 
-`start.sh` brings up the stack, waits for healthy, and shows connection info.
+`just up` brings up the stack, waits for healthy, verifies it, and shows connection info.
 
 The fastest path to a working stack is `DEPLOY_MODE=direct` with `SERVER_ADDRESS` set to your machine's IP address — no DNS required.
 
@@ -263,10 +264,10 @@ New FastTAK code on the same TAK Server release:
 
 ```bash
 git pull
-./start.sh
+just up
 ```
 
-`start.sh` rebuilds the images FastTAK builds itself (the monitor is built from
+`just up` rebuilds the images FastTAK builds itself (the monitor is built from
 source, so this is what carries new code into the running container), removes
 containers for services that no longer exist in the compose file, and provisions
 any secret a newer release requires but your `.env` does not have yet. The
@@ -282,12 +283,12 @@ Edit the version pin in `.env`, then pull and restart:
 
 ```bash
 docker compose pull
-docker compose up -d
+just up
 ```
 
 ### TAK Server updates
 
-TAK Server images are built locally from the tak.gov release ZIP. `setup.sh`
+TAK Server images are built locally from the tak.gov release ZIP. `just setup`
 handles extraction, image builds, and updating `TAK_VERSION` in `.env`.
 
 **Moving an existing deployment to a new TAK Server release is not yet
@@ -306,7 +307,7 @@ the full integration cycle against an isolated stack is `just test-stack cycle`.
 # 5.8 is the supported floor, and its hardened image lands PGDATA in the mounted
 # volume — earlier releases kept cot inside the container, where `down` destroyed
 # it. See docs/decisions.md DD-051.
-docker compose down
+just down
 
 # Full reset (destroys database data, keeps ./tak/ certs and .env config)
 docker compose down -v
