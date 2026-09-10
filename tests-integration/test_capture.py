@@ -171,7 +171,7 @@ def capture_stack():
 
     # Compose needs every interpolated var defined even to `up` a subset of
     # services (docker-compose.test.yml references HOST_ENV_FILE/BACKUP_DIR with
-    # no defaults). Mirror what test-setup.sh exports, plus the capture paths.
+    # no defaults). Mirror what `test-stack.sh up` exports, plus the capture paths.
     env = {
         **os.environ,
         "TAK_HOST_PATH": tak_host,

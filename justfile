@@ -11,41 +11,19 @@ _default:
 setup *args:
     ./setup.sh {{args}}
 
-# Run fast tests (unit + shellcheck + go) — no Docker needed
+# The fast suite: shellcheck, ldap-proxy's Go tests, pytest tests/. No Docker.
+# This is what pre-commit and CI run.
 test:
-    #!/bin/bash
-    set -euo pipefail
-    find . -name '*.sh' -not -path './tak/*' -not -path './.venv/*' | xargs shellcheck
-    # ldap-proxy's tests encode its authorization rules (who may call /tokens,
-    # who may search). CI installs Go so they always run there; locally they are
-    # skipped loudly rather than failing a machine that only builds in-container.
-    if command -v go >/dev/null 2>&1; then
-        (cd ldap-proxy && go test ./...)
-    else
-        echo "  ⚠ go not found — SKIPPING ldap-proxy authorization tests"
-    fi
-    uv run pytest tests/ -v
+    ./scripts/test.sh
 
-# Run full suite: unit tests, then the integration suite against a built stack
-test-integration: test
-    ./tests-integration/test-stack.sh
-
-# Stand up an isolated test stack (detached — stays running until test-down)
-test-up:
-    ./tests-integration/test-setup.sh
-
-# Stand up test stack in foreground (containers die when process is killed)
-# Use with background agents: containers auto-cleanup when session ends
-test-up-fg:
-    ./tests-integration/test-setup.sh --foreground
-
-# Run test assertions against the running test stack
-test-run:
-    uv run pytest tests-integration/ -v
-
-# Tear down the test stack
-test-down:
-    ./tests-integration/test-down.sh
+# The isolated integration stack. Each stack is its own compose project with
+# ports offset by +10000, so it runs beside a development stack.
+#   just test-stack up [--foreground] [--no-up]   stand it up (detached)
+#   just test-stack run                           assertions against it
+#   just test-stack down [<project>]              tear down (all, or one)
+#   just test-stack cycle                         fast suite, then up → run → down
+test-stack *args:
+    ./tests-integration/test-stack.sh {{args}}
 
 # Run ruff linter
 lint:

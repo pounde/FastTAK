@@ -2,7 +2,7 @@
 
 Marked `@pytest.mark.integration` and `@pytest.mark.slow` — the full
 stack tear-down + bring-up + bring-up cycle takes ~2 minutes. Run via
-`just test-up && just test-run`. Opt out with `-m 'not slow'`.
+`just test-stack up && just test-stack run`. Opt out with `-m 'not slow'`.
 """
 
 from __future__ import annotations
@@ -20,9 +20,9 @@ def _run(*args, **kwargs):
 
 
 def _project_state_dir() -> Path:
-    # `test-setup.sh` writes the project name to /tmp/fastak-test-*/.test-state
+    # `test-stack.sh up` writes the project name to /tmp/fastak-test-*/.test-state
     matches = list(Path("/tmp").glob("fastak-test-*/.test-state"))
-    assert matches, "no /tmp/fastak-test-*/.test-state — is `just test-up` running?"
+    assert matches, "no /tmp/fastak-test-*/.test-state — is `just test-stack up` running?"
     # Newest by mtime (in case a previous run left stale dirs behind).
     return max(matches, key=lambda p: p.stat().st_mtime).parent
 
@@ -118,7 +118,7 @@ def test_backup_then_restore_round_trip(tmp_path):
     )
 
     # 3. Locate the produced tarball + key (they live in BACKUP_DIR on the host,
-    #    which test-setup.sh sets under state_dir).
+    #    which test-stack.sh up sets under state_dir).
     backups_dir = state_dir / "backups"
     tarballs = list(backups_dir.glob("fasttak-backup-*.age"))
     assert len(tarballs) == 1, f"expected one tarball, got {tarballs}"
@@ -133,16 +133,16 @@ def test_backup_then_restore_round_trip(tmp_path):
     backup_copy.write_bytes(tarballs[0].read_bytes())
     key_copy.write_text(keyfile.read_text())
 
-    # 5. Tear down the old stack. test-down -v removes the named volumes and
-    #    nukes /tmp/<project>/, so there's nothing left to clean up by hand.
-    _run("just", "test-down")
+    # 5. Tear down the old stack. `test-stack down` removes the named volumes
+    #    and nukes /tmp/<project>/, so there's nothing left to clean up by hand.
+    _run("just", "test-stack", "down")
 
     # 6. Scaffold a fresh test stack WITHOUT booting containers. setup.sh
     #    extracts a fresh tak/ and writes a fresh .env; restore.sh will
     #    overwrite that .env before any container starts. This mirrors the
     #    canonical "fresh host + setup.sh + restore" flow in
     #    docs/backup-and-restore.md.
-    _run("bash", str(repo_dir / "tests-integration" / "test-setup.sh"), "--no-up")
+    _run("bash", str(repo_dir / "tests-integration" / "test-stack.sh"), "up", "--no-up")
     fresh_state_dir = _project_state_dir()
     fresh_project = _project_name(fresh_state_dir)
     assert fresh_project != project, "expected a fresh test project after teardown+setup"
