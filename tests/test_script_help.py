@@ -17,10 +17,12 @@ SCRIPTS = [
     "scripts/down.sh",
     "scripts/check-env.sh",
     "scripts/env-get.sh",
+    "scripts/test.sh",
+    "tests-integration/test-stack.sh",
 ]
 
 # Scripts with no meaningful zero-argument behaviour print usage when bare.
-BARE_IS_USAGE = ["setup.sh", "scripts/env-get.sh"]
+BARE_IS_USAGE = ["setup.sh", "scripts/env-get.sh", "tests-integration/test-stack.sh"]
 
 
 def _run(script: str, *args: str) -> subprocess.CompletedProcess:
@@ -49,3 +51,9 @@ def test_start_help_documents_every_flag():
     out = _run("start.sh", "--help").stdout
     for flag in ("--capture", "--checks", "--no-checks", "--no-wait"):
         assert flag in out
+
+
+def test_test_stack_rejects_an_unknown_subcommand():
+    result = _run("tests-integration/test-stack.sh", "bogus")
+    assert result.returncode == 2
+    assert "bogus" in result.stderr

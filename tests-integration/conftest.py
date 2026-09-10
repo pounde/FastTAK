@@ -84,7 +84,7 @@ def stack_info() -> StackInfo:
 def compose_env(stack_info) -> dict[str, str]:
     """Environment docker compose needs to interpolate docker-compose.test.yml.
 
-    test-setup.sh exports these in its own shell; pytest runs in a different
+    `test-stack.sh up` exports these in its own shell; pytest runs in a different
     process and inherits nothing. `HOST_ENV_FILE` has no default in the compose
     file, so without it compose expands `${HOST_ENV_FILE}:/host/.env:ro` to
     `:/host/.env:ro` and any `up` fails with "invalid spec". The other two do

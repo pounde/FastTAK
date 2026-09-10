@@ -52,3 +52,22 @@ def test_bare_just_lists_recipes():
     assert result.returncode == 0
     assert "Available recipes" in result.stdout
     assert "help" not in result.stdout.split()
+
+
+def test_fast_suite_delegates_to_a_script():
+    assert dry_run("test").endswith("./scripts/test.sh")
+
+
+@pytest.mark.parametrize("sub", ["up", "run", "down", "cycle"])
+def test_test_stack_passes_the_subcommand_through(sub):
+    assert dry_run("test-stack", sub).endswith(f"./tests-integration/test-stack.sh {sub}")
+
+
+def test_test_stack_passes_flags_through():
+    assert dry_run("test-stack", "up", "--foreground").endswith("test-stack.sh up --foreground")
+
+
+def test_old_integration_recipes_are_gone():
+    listing = subprocess.run(["just", "--list"], cwd=REPO, capture_output=True, text=True).stdout
+    for name in ("test-integration", "test-up", "test-up-fg", "test-run", "test-down"):
+        assert f" {name} " not in listing and not listing.startswith(name)
