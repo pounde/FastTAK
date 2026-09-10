@@ -163,9 +163,14 @@ log "─────"
 
 echo "  ⏳ Building containers..."
 if [ ${#SERVICES[@]} -gt 0 ]; then
-  compose build --quiet "${SERVICES[@]}" 2>/dev/null
+  BUILD_ERR=$(compose build --quiet "${SERVICES[@]}" 2>&1 >/dev/null); BUILD_RC=$?
 else
-  compose build --quiet 2>/dev/null
+  BUILD_ERR=$(compose build --quiet 2>&1 >/dev/null); BUILD_RC=$?
+fi
+if [ "$BUILD_RC" -ne 0 ]; then
+  echo "  ❌ docker compose build failed:" >&2
+  printf '%s\n' "$BUILD_ERR" >&2
+  exit 1
 fi
 
 echo "  ⏳ Starting services..."
@@ -174,9 +179,14 @@ echo "  ⏳ Starting services..."
 # DD-043 removed it. Only for a whole-stack up — a targeted rebuild must not
 # prune the project, which is what silently removed the capture sidecars.
 if [ ${#SERVICES[@]} -gt 0 ]; then
-  compose up -d --force-recreate "${SERVICES[@]}" > /dev/null 2>&1
+  UP_ERR=$(compose up -d --force-recreate "${SERVICES[@]}" 2>&1 >/dev/null); UP_RC=$?
 else
-  compose up -d --remove-orphans > /dev/null 2>&1
+  UP_ERR=$(compose up -d --remove-orphans 2>&1 >/dev/null); UP_RC=$?
+fi
+if [ "$UP_RC" -ne 0 ]; then
+  echo "  ❌ docker compose up failed:" >&2
+  printf '%s\n' "$UP_ERR" >&2
+  exit 1
 fi
 
 if $WAIT; then
