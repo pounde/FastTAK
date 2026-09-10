@@ -52,13 +52,13 @@ identity encrypts every backup.
 
 ## Routine operations
 
-**Manually:** `just backup` from the host runs a backup via the monitor
+**Manually:** `just backup run` from the host runs a backup via the monitor
 container.
 
 **Scheduled:** add the operator's preferred cron entry on the host:
 
 ```cron
-0 3 * * *   cd /path/to/FastTAK && just backup >> /var/log/fasttak-backup.log 2>&1
+0 3 * * *   cd /path/to/FastTAK && just backup run >> /var/log/fasttak-backup.log 2>&1
 ```
 
 **From the dashboard:** the **Run backup now** button on the **Backups**
@@ -344,7 +344,7 @@ below mirror that script.
   the unencrypted form on a restore host with care.
 - **Concurrency lock is per-`BACKUP_DIR`, not per-stack.** If two
   FastTAK deployments on the same host share `BACKUP_DIR` (uncommon —
-  typically each stack uses its own), the second `just backup` blocks
+  typically each stack uses its own), the second `just backup run` blocks
   until the first finishes. The default `BACKUP_DIR=./backups` is
   per-checkout, so this only matters if you explicitly point multiple
   stacks at one directory.
@@ -356,7 +356,7 @@ below mirror that script.
   `BACKUP_ADMIN_GROUP` is set to in `.env`) and adds the `webadmin` user
   to it on first boot. Any additional admins must be added to the same
   group via LLDAP.
-- **"a backup is already in progress"** — another `just backup` or
+- **"a backup is already in progress"** — another `just backup run` or
   dashboard click is mid-run. Wait for it to finish, then retry.
 - **`pg_dump: server version mismatch`** — your monitor image's
   `pg_dump` is older than the database server. Rebuild the monitor image
