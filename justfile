@@ -60,20 +60,9 @@ up *args:
 down:
     ./scripts/down.sh
 
-# Take a backup. Output lands in $BACKUP_DIR (default ./backups).
-backup:
-    docker compose exec -T monitor python -m app.backup run
-
-# List backups currently on disk.
-backups:
-    docker compose exec -T monitor python -m app.backup list
-
-# Manually prune backups (keeps newest N, default $BACKUP_RETENTION_KEEP).
-backup-prune keep="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -n "{{keep}}" ]; then
-        docker compose exec -T monitor python -m app.backup prune --keep {{keep}}
-    else
-        docker compose exec -T monitor python -m app.backup prune
-    fi
+# Backups, through the monitor's own CLI. The stack must be running.
+#   just backup run [--actor NAME]    take a backup; NAME is recorded in the audit log
+#   just backup list                  list backups on disk
+#   just backup prune [--keep N]      apply retention (default: $BACKUP_RETENTION_KEEP)
+backup *args:
+    docker compose exec -T monitor python -m app.backup {{args}}
