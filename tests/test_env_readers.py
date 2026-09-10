@@ -72,14 +72,18 @@ def test_no_second_env_reader(path):
     "path",
     [
         REPO / "start.sh",
-        REPO / "justfile",
         REPO / "reconfig.sh",
     ],
     ids=lambda p: p.name,
 )
 def test_deploy_mode_comes_from_the_shared_reader(path):
     """These pick the compose files, or compare against them. Disagreeing about DEPLOY_MODE is how
-    docker-compose.direct.yml goes missing from one of them."""
+    docker-compose.direct.yml goes missing from one of them.
+
+    The justfile's up/down recipes used to inline this derivation; they now
+    delegate to start.sh and scripts/down.sh, so DEPLOY_MODE no longer
+    appears in the justfile itself — see tests/test_lib_stack.py for the
+    one derivation both scripts share."""
     code = _code(path)
     assert "DEPLOY_MODE" in code
     assert "env_get" in code or "env-get.sh" in code

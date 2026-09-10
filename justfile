@@ -53,89 +53,12 @@ setup-dev:
     uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 
 # Start the stack (reads DEPLOY_MODE from .env to select compose files)
-# Pass service names to rebuild+force-recreate specific services: `just up monitor`
-# Pass --capture to run the mitmproxy capture sidecar: `just up --capture`
-up *services:
-    #!/bin/bash
-    set -euo pipefail
-    # Via the shared reader, not `grep | cut`: that kept the quotes Compose's
-    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here
-    # while Compose itself resolved the same line to `direct` — this recipe
-    # then dropped docker-compose.direct.yml and brought caddy up without the
-    # Monitor, Node-RED and MediaMTX publishings.
-    DEPLOY_MODE=$(scripts/env-get.sh .env DEPLOY_MODE)
-    DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
-    # Split --capture out of the positional args (rest are service names).
-    capture=false
-    svcs=()
-    for arg in {{services}}; do
-      if [ "$arg" = "--capture" ]; then capture=true; else svcs+=("$arg"); fi
-    done
-    # Build COMPOSE_FILE only when non-default files are needed, so plain
-    # subdomain `just up` still auto-loads docker-compose.override.yml.
-    files=""
-    if [ "$DEPLOY_MODE" = "direct" ]; then
-      files="docker-compose.yml:docker-compose.direct.yml"
-    fi
-    if [ "$capture" = true ]; then
-      files="${files:-docker-compose.yml}:docker-compose.capture.yml"
-      mkdir -p ./captures ./capture/mitm
-    fi
-    if [ -n "$files" ]; then
-      # An explicit COMPOSE_FILE disables compose's override auto-load;
-      # re-append docker-compose.override.yml last so it still wins.
-      if [ -f docker-compose.override.yml ]; then
-        files="$files:docker-compose.override.yml"
-      fi
-      export COMPOSE_FILE="$files"
-    fi
-    # Surface FASTTAK_VERSION / FASTTAK_COMMIT to the monitor image build so
-    # backups produced from this stack are labeled with the right version
-    # (rather than the "dev" / "unknown" fallback baked into Dockerfile.monitor).
-    # Mirror the derivation in start.sh — keep them in sync if either changes.
-    if [ -f pyproject.toml ]; then
-      FASTTAK_VERSION="$(awk -F'"' '/^version *=/{print $2; exit}' pyproject.toml 2>/dev/null || true)"
-    fi
-    if [ -z "${FASTTAK_VERSION:-}" ] && command -v git >/dev/null 2>&1; then
-      FASTTAK_VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
-    fi
-    FASTTAK_VERSION="${FASTTAK_VERSION:-dev}"
-    if command -v git >/dev/null 2>&1; then
-      FASTTAK_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-    else
-      FASTTAK_COMMIT="unknown"
-    fi
-    export FASTTAK_VERSION FASTTAK_COMMIT
-    # Branch on the array rather than expanding it: on macOS bash 3.2,
-    # "${svcs[@]}" on an empty array trips `set -u` (unbound variable).
-    # --remove-orphans clears stale services when toggling --capture on/off.
-    if [ ${#svcs[@]} -gt 0 ]; then
-      docker compose up -d --build --remove-orphans --force-recreate "${svcs[@]}"
-    else
-      docker compose up -d --build --remove-orphans
-    fi
+up *args:
+    ./start.sh {{args}}
 
 # Stop the stack (including the capture overlay, if it was up).
-down *services:
-    #!/bin/bash
-    set -euo pipefail
-    # Via the shared reader, not `grep | cut`: that kept the quotes Compose's
-    # dotenv parser strips, so DEPLOY_MODE="direct" read as `"direct"` here
-    # while Compose itself resolved the same line to `direct` — this recipe
-    # then dropped docker-compose.direct.yml and brought caddy up without the
-    # Monitor, Node-RED and MediaMTX publishings.
-    DEPLOY_MODE=$(scripts/env-get.sh .env DEPLOY_MODE)
-    DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
-    if [ "$DEPLOY_MODE" = "direct" ]; then
-      export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
-      if [ -f docker-compose.override.yml ]; then
-        export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.override.yml"
-      fi
-    fi
-    # --remove-orphans removes the capture-overlay containers (tak-mitm,
-    # init-capture) even though the overlay is not in COMPOSE_FILE — they are
-    # project orphans. No --capture flag needed; extra args are ignored.
-    docker compose down --remove-orphans
+down:
+    ./scripts/down.sh
 
 # Take a backup. Output lands in $BACKUP_DIR (default ./backups).
 backup:
