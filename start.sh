@@ -1,13 +1,5 @@
 #!/bin/bash
 # start.sh — Start and verify FastTAK
-# Usage:
-#   ./start.sh [--capture] [--checks|--no-checks] [--no-wait] [service...]
-#
-#   service...    rebuild and force-recreate only these services
-#   --capture     include the mitmproxy capture overlay
-#   --checks      run the post-start checks (default for a whole-stack start)
-#   --no-checks   skip them (default when services are named)
-#   --no-wait     do not wait for tak-server to report healthy
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
@@ -45,13 +37,29 @@ WAIT=true
 CHECKS=""        # empty: decided below from whether services were named
 SERVICES=()
 
+usage() {
+  cat <<'EOF'
+Usage: ./start.sh [--capture] [--checks|--no-checks] [--no-wait] [service...]
+
+Start the stack, wait for tak-server, and verify it.
+
+  service...    rebuild and force-recreate only these services
+  --capture     include the mitmproxy capture overlay
+  --checks      run the post-start checks (default for a whole-stack start)
+  --no-checks   skip them (default when services are named)
+  --no-wait     do not wait for tak-server to report healthy
+  -h, --help    show this help
+EOF
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
+    -h|--help)   usage; exit 0 ;;
     --capture)   CAPTURE=true ;;
     --checks)    CHECKS=true ;;
     --no-checks) CHECKS=false ;;
     --no-wait)   WAIT=false ;;
-    -*) echo "Unknown option: $1" >&2; exit 2 ;;
+    -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) SERVICES+=("$1") ;;
   esac
   shift

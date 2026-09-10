@@ -17,6 +17,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=scripts/lib-tak-version.sh
 . "$SCRIPT_DIR/lib-tak-version.sh"
 
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/check-env.sh [<path-to-.env>]
+
+Preflight validator. Exits 0 when .env is safe to start on, 1 with the reason
+otherwise. Defaults to ./.env.
+
+  -h, --help    show this help
+EOF
+}
+
+case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 ENV_FILE="${1:-.env}"
 DEFAULT_WEBADMIN_PASSWORD="FastTAK-Admin-1!"
 

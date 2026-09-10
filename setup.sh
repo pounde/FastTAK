@@ -18,17 +18,31 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # about what a key's value is — quoted values included.
 # shellcheck source=scripts/lib-env.sh
 . "$SCRIPT_DIR/scripts/lib-env.sh"
-TARGET_DIR="$SCRIPT_DIR"
+usage() {
+  cat <<'EOF'
+Usage: ./setup.sh [-d <dir>] <takserver-docker-hardened-X.X-RELEASE-N.zip>
 
-while getopts "d:" opt; do
-  case $opt in
+Extract the TAK Server release, build the images, and create or update .env.
+
+  -d <dir>      target directory for tak/ and .env (default: this directory)
+  -h, --help    show this help
+EOF
+}
+
+TARGET_DIR="$SCRIPT_DIR"
+case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+while getopts ":d:" opt; do
+  case "$opt" in
     d) TARGET_DIR="$OPTARG" ;;
-    *) echo "Usage: ./setup.sh [-d <target-dir>] <zip>" >&2; exit 1 ;;
+    *) usage >&2; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
-
-ZIP="${1:?Usage: ./setup.sh [-d <target-dir>] <takserver-docker-X.X-RELEASE-X.zip>}"
+if [ $# -ne 1 ]; then
+  usage >&2
+  exit 2
+fi
+ZIP="$1"
 
 if [ ! -f "$ZIP" ]; then
   echo "ERROR: File not found: $ZIP" >&2
