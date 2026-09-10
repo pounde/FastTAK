@@ -45,6 +45,11 @@ up *args:
 down:
     ./scripts/down.sh
 
+# Compare .env with .env.example: keys added by this release that you have not
+# set, and keys you have that this release no longer reads. Advisory only.
+check:
+    ./scripts/check-env.sh --report
+
 # Backups, through the monitor's own CLI. The stack must be running.
 #   just backup run [--actor NAME]    take a backup; NAME is recorded in the audit log
 #   just backup list                  list backups on disk
