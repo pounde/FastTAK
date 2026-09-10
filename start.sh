@@ -19,6 +19,17 @@ cd "$SCRIPT_DIR" || exit 1
 # shellcheck source=scripts/lib-env.sh
 . "$SCRIPT_DIR/scripts/lib-env.sh"
 
+# shellcheck source=scripts/lib-stack.sh
+. "$SCRIPT_DIR/scripts/lib-stack.sh"
+
+# The deployment this run operates on. FASTAK_ENV_FILE points the preflight
+# and Compose at another directory, which is how the test suite drives this
+# script against a scratch deployment.
+ENV_FILE="${FASTAK_ENV_FILE:-$SCRIPT_DIR/.env}"
+DEPLOY_DIR="$(cd "$(dirname "$ENV_FILE")" && pwd)"
+
+compose() { docker compose --env-file "$ENV_FILE" "$@"; }
+
 PASS=0
 FAIL=0
 VERBOSE=false
@@ -61,7 +72,7 @@ note() { if $VERBOSE; then echo "  – $1"; fi; }
 # both.
 assert_published_port() {
   _svc="$1"; _cport="$2"; _label="$3"
-  _mapping=$(docker compose port "$_svc" "$_cport" 2>/dev/null | head -1)
+  _mapping=$(compose port "$_svc" "$_cport" 2>/dev/null | head -1)
   if [ -n "$_mapping" ]; then
     assert_port "${_mapping##*:}" "$_label"
     return
@@ -69,7 +80,7 @@ assert_published_port() {
   # No runtime mapping. Distinguish "deliberately not published" from "the
   # service is not running" — the latter would otherwise read as a config
   # choice and pass silently.
-  if [ -z "$(docker compose ps -q "$_svc" 2>/dev/null)" ]; then
+  if [ -z "$(compose ps -q "$_svc" 2>/dev/null)" ]; then
     fail "$_label — $_svc is not running"
   else
     note "$_label not published by this compose configuration"
@@ -80,20 +91,20 @@ assert_published_port() {
 # PREFLIGHT
 # ═══════════════════════════════════════════════════════════════════════════
 
-if [ ! -d "$SCRIPT_DIR/tak" ]; then
+if [ ! -d "$DEPLOY_DIR/tak" ]; then
   echo "ERROR: tak/ not found. Run: ./setup.sh <zip>" >&2; exit 1
 fi
-if [ ! -f "$SCRIPT_DIR/.env" ]; then
+if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: .env not found. Run: ./setup.sh <zip>" >&2; exit 1
 fi
 # Provision here as well as in setup.sh: a FastTAK-only upgrade is `git pull`
 # with no new TAK zip, which never runs setup.sh. The launch is the one step
 # every upgrade path takes. This script does not use `set -e`, so the exit
 # status is checked explicitly.
-if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$SCRIPT_DIR/.env"; then
+if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$ENV_FILE"; then
   exit 1
 fi
-if ! "$SCRIPT_DIR/scripts/check-env.sh" "$SCRIPT_DIR/.env"; then
+if ! "$SCRIPT_DIR/scripts/check-env.sh" "$ENV_FILE"; then
   exit 1
 fi
 
@@ -101,35 +112,13 @@ fi
 # START
 # ═══════════════════════════════════════════════════════════════════════════
 
-SERVER_ADDRESS=$(env_get .env SERVER_ADDRESS)
-DEPLOY_MODE=$(env_get .env DEPLOY_MODE)
+SERVER_ADDRESS=$(env_get "$ENV_FILE" SERVER_ADDRESS)
+DEPLOY_MODE=$(env_get "$ENV_FILE" DEPLOY_MODE)
 DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
 
-# Set compose file based on deploy mode. An explicit COMPOSE_FILE disables
-# compose's override auto-load; re-append docker-compose.override.yml last
-# so it still wins.
-if [ "$DEPLOY_MODE" = "direct" ]; then
-  export COMPOSE_FILE="docker-compose.yml:docker-compose.direct.yml"
-  if [ -f docker-compose.override.yml ]; then
-    export COMPOSE_FILE="$COMPOSE_FILE:docker-compose.override.yml"
-  fi
-fi
-
-# Surface FastTAK version + commit to the monitor image build.
-if [ -f pyproject.toml ]; then
-    FASTTAK_VERSION="$(awk -F'"' '/^version *=/{print $2; exit}' pyproject.toml 2>/dev/null || true)"
-fi
-if [ -z "${FASTTAK_VERSION:-}" ] && command -v git >/dev/null 2>&1; then
-    FASTTAK_VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
-fi
-FASTTAK_VERSION="${FASTTAK_VERSION:-dev}"
-
-if command -v git >/dev/null 2>&1; then
-    FASTTAK_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-else
-    FASTTAK_COMMIT="unknown"
-fi
-export FASTTAK_VERSION FASTTAK_COMMIT
+# shellcheck disable=SC2119  # no --capture here; this is start.sh, not the capture path
+FASTAK_ENV_FILE="$ENV_FILE" stack_export_compose_file
+stack_export_version
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
@@ -145,19 +134,19 @@ log "Start"
 log "─────"
 
 echo "  ⏳ Building containers..."
-docker compose build --quiet 2>/dev/null
+compose build --quiet 2>/dev/null
 
 echo "  ⏳ Starting services..."
 # --remove-orphans: containers for services deleted from the compose file are
 # NOT removed by a plain `up`. Without this an upgrade leaves the old container
 # running on its previous config, invisible to compose — e.g. tak-portal kept
 # running for months after DD-043 removed it, unauthenticated.
-docker compose up -d --remove-orphans > /dev/null 2>&1
+compose up -d --remove-orphans > /dev/null 2>&1
 
 echo "  ⏳ Waiting for tak-server..."
 STATUS="unknown"
 for _ in $(seq 1 48); do
-  STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo "unknown")
+  STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo "unknown")
   if [ "$STATUS" = "healthy" ]; then break; fi
   if [ "$STATUS" = "unhealthy" ]; then
     echo "  ❌ tak-server failed — run: docker compose logs tak-server"
@@ -181,19 +170,19 @@ log "────────"
 
 assert "$STATUS" "healthy" "TAK Server healthy"
 
-DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
+DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
 assert "$DB_STATUS" "healthy" "TAK Database healthy"
 
-INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(docker compose ps -aq init-config 2>/dev/null)" 2>/dev/null)
+INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-config 2>/dev/null)" 2>/dev/null)
 assert "$INIT_EXIT" "0" "init-config exited 0"
 
-ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(docker compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
+ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
 assert "$ID_EXIT" "0" "init-identity exited 0"
 
-LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q lldap 2>/dev/null)" 2>/dev/null)
+LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q lldap 2>/dev/null)" 2>/dev/null)
 assert "$LLDAP_STATUS" "healthy" "LLDAP healthy"
 
-PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(docker compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
+PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
 assert "$PROXY_STATE" "running" "ldap-proxy running"
 
 log ""
@@ -234,11 +223,11 @@ log ""
 log "Ports"
 log "─────"
 
-TAKSERVER_ADMIN_PORT=$(env_get .env TAKSERVER_ADMIN_PORT)
+TAKSERVER_ADMIN_PORT=$(env_get "$ENV_FILE" TAKSERVER_ADMIN_PORT)
 TAKSERVER_ADMIN_PORT="${TAKSERVER_ADMIN_PORT:-8446}"
-MEDIAMTX_PORT=$(env_get .env MEDIAMTX_PORT)
+MEDIAMTX_PORT=$(env_get "$ENV_FILE" MEDIAMTX_PORT)
 MEDIAMTX_PORT="${MEDIAMTX_PORT:-8888}"
-NODERED_PORT=$(env_get .env NODERED_PORT)
+NODERED_PORT=$(env_get "$ENV_FILE" NODERED_PORT)
 NODERED_PORT="${NODERED_PORT:-1880}"
 
 assert_published_port tak-server 8089 "CoT TLS"
@@ -259,21 +248,21 @@ log "──────"
 # `ps`: the TAK 5.8 hardened image ships no procps, so `ps aux` fails and
 # every process reads as missing on a perfectly healthy server. The
 # healthcheck matches /proc/*/cmdline and already knows the five processes.
-if TAK_HEALTH=$(docker exec "$(docker compose ps -q tak-server)" /opt/tak/healthcheck.sh 2>&1); then
+if TAK_HEALTH=$(docker exec "$(compose ps -q tak-server)" /opt/tak/healthcheck.sh 2>&1); then
   pass "TAK Server processes ($TAK_HEALTH)"
 else
   fail "TAK Server processes ($TAK_HEALTH)"
 fi
 
-DB_FAILS=$(docker exec "$(docker compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+DB_FAILS=$(docker exec "$(compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 DB_FAILS="${DB_FAILS:-0}"
 if [ "$DB_FAILS" -le 2 ] 2>/dev/null; then pass "DB auth (failures: $DB_FAILS)"; else fail "DB auth failures: $DB_FAILS"; fi
 
-OOM=$(docker exec "$(docker compose ps -q tak-server)" grep -c "OutOfMemoryError" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+OOM=$(docker exec "$(compose ps -q tak-server)" grep -c "OutOfMemoryError" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 OOM="${OOM:-0}"
 assert "$OOM" "0" "No OutOfMemoryError"
 
-SEC_COUNT=$(docker exec "$(docker compose ps -q tak-server)" grep -c "Security status" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+SEC_COUNT=$(docker exec "$(compose ps -q tak-server)" grep -c "Security status" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 SEC_COUNT="${SEC_COUNT:-0}"
 if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Multiple starts ($SEC_COUNT)"; fi
 
@@ -289,7 +278,7 @@ else
   echo "  ⚠️  $FAIL checks failed ($PASS/$TOTAL passed)"
 fi
 
-WA_PASS=$(env_get .env TAK_WEBADMIN_PASSWORD)
+WA_PASS=$(env_get "$ENV_FILE" TAK_WEBADMIN_PASSWORD)
 WA_MASKED="${WA_PASS:0:4}***"
 
 echo ""
@@ -300,16 +289,16 @@ echo ""
 echo "  TAK Server:  https://${SERVER_ADDRESS}:${TAKSERVER_ADMIN_PORT}"
 echo "               webadmin / ${WA_MASKED}"
 if [ "$DEPLOY_MODE" = "direct" ]; then
-  MONITOR_PORT_OUT=$(env_get .env MONITOR_PORT)
+  MONITOR_PORT_OUT=$(env_get "$ENV_FILE" MONITOR_PORT)
   MONITOR_PORT_OUT="${MONITOR_PORT_OUT:-8180}"
   echo "  Monitor:     https://${SERVER_ADDRESS}:${MONITOR_PORT_OUT}"
 else
-  MONITOR_SUB=$(env_get .env MONITOR_SUBDOMAIN)
+  MONITOR_SUB=$(env_get "$ENV_FILE" MONITOR_SUBDOMAIN)
   MONITOR_SUB="${MONITOR_SUB:-monitor}"
   echo "  Monitor:     https://${MONITOR_SUB}.${SERVER_ADDRESS}"
 fi
 echo ""
 echo "  Passwords:   cat .env"
-echo "  Stop:        docker compose down"
-echo "  Reset DBs:   docker compose down -v"
+echo "  Stop:        compose down"
+echo "  Reset DBs:   compose down -v"
 echo ""
