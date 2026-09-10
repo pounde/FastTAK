@@ -133,3 +133,25 @@ def test_env_get_cli_rejects_the_wrong_argument_count():
     )
     assert result.returncode == 2
     assert "usage" in result.stderr.lower()
+
+
+LIB_ENV = REPO / "scripts" / "lib-env.sh"
+
+
+def _keys(tmp_path, content: str) -> list[str]:
+    f = tmp_path / "x.env"
+    f.write_text(content)
+    result = subprocess.run(
+        ["/bin/bash", "-c", f'. "{LIB_ENV}"; env_keys "{f}"'], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.split()
+
+
+def test_env_keys_handles_every_assignment_form(tmp_path):
+    content = "A=1\n#B=2\n# C=3\nexport D=4\n  E=5\n#export F=6\n# not a key\nG=\n"
+    assert _keys(tmp_path, content) == ["A", "B", "C", "D", "E", "F", "G"]
+
+
+def test_env_keys_is_sorted_and_unique(tmp_path):
+    assert _keys(tmp_path, "Z=1\nA=1\nZ=2\n") == ["A", "Z"]

@@ -71,3 +71,7 @@ def test_old_integration_recipes_are_gone():
     listing = subprocess.run(["just", "--list"], cwd=REPO, capture_output=True, text=True).stdout
     for name in ("test-integration", "test-up", "test-up-fg", "test-run", "test-down"):
         assert f" {name} " not in listing and not listing.startswith(name)
+
+
+def test_check_delegates_to_the_report():
+    assert dry_run("check").endswith("./scripts/check-env.sh --report")

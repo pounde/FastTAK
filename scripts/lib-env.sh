@@ -47,3 +47,16 @@ env_has() {
   local file="$1" key="$2"
   grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$file" 2>/dev/null
 }
+
+# env_keys <file>
+#
+# Every key that appears as an assignment, commented or not — `KEY=`, `#KEY=`,
+# `# KEY=`, `export KEY=`, `#export KEY=` — one per line, sorted, unique.
+# Commented keys count: setup.sh creates .env as a copy of .env.example, so a
+# fresh install carries every key and most of them commented. A drift report
+# that treated those as absent would list them forever.
+env_keys() {
+  grep -oE '^[[:space:]]*#?[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=' "$1" 2>/dev/null \
+    | sed -E 's/^[[:space:]]*#?[[:space:]]*(export[[:space:]]+)?//; s/=$//' \
+    | sort -u
+}

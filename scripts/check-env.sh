@@ -25,10 +25,42 @@ Preflight validator. Exits 0 when .env is safe to start on, 1 with the reason
 otherwise. Defaults to ./.env.
 
   -h, --help    show this help
+  --report [<path>]   list keys new in this release and keys this release no longer uses; always exits 0
 EOF
 }
 
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+
+# ── --report: .env drift, both directions ─────────────────────────────────
+# A set difference each way; never modifies .env; always exits 0 so a launch
+# is never blocked by an advisory.
+if [ "${1:-}" = "--report" ]; then
+  ENV_FILE="${2:-.env}"
+  EXAMPLE="$SCRIPT_DIR/../.env.example"
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "No .env at $ENV_FILE — nothing to compare."
+    exit 0
+  fi
+  example_keys=$(env_keys "$EXAMPLE" | grep -v '^FASTAK_MON_' || true)
+  env_keys_here=$(env_keys "$ENV_FILE" | grep -v '^FASTAK_MON_' || true)
+  new_keys=$(comm -23 <(printf '%s\n' "$example_keys") <(printf '%s\n' "$env_keys_here") | sed '/^$/d')
+  stale_keys=$(comm -13 <(printf '%s\n' "$example_keys") <(printf '%s\n' "$env_keys_here") | sed '/^$/d')
+  if [ -z "$new_keys" ] && [ -z "$stale_keys" ]; then
+    echo "No drift: $ENV_FILE and .env.example carry the same keys."
+    exit 0
+  fi
+  if [ -n "$new_keys" ]; then
+    echo "New in this release, not in $ENV_FILE ($(printf '%s\n' "$new_keys" | wc -l | tr -d ' ')):"
+    printf '%s\n' "$new_keys" | sed 's/^/  /'
+    echo "  See .env.example for what each does."
+  fi
+  if [ -n "$stale_keys" ]; then
+    echo "In $ENV_FILE, not used by this release ($(printf '%s\n' "$stale_keys" | wc -l | tr -d ' ')) — safe to remove if you didn't add them:"
+    printf '%s\n' "$stale_keys" | sed 's/^/  /'
+  fi
+  exit 0
+fi
+
 ENV_FILE="${1:-.env}"
 DEFAULT_WEBADMIN_PASSWORD="FastTAK-Admin-1!"
 
