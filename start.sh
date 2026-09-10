@@ -299,6 +299,6 @@ else
 fi
 echo ""
 echo "  Passwords:   cat .env"
-echo "  Stop:        compose down"
-echo "  Reset DBs:   compose down -v"
+echo "  Stop:        just down"
+echo "  Reset DBs:   docker compose down -v"
 echo ""
