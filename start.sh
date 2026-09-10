@@ -2,7 +2,6 @@
 # start.sh — Start and verify FastTAK
 # Usage:
 #   ./start.sh                       Start the stack, run checks
-#   ./start.sh --test <zip>          Greenfield: setup → start → verify → teardown
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
@@ -20,20 +19,12 @@ cd "$SCRIPT_DIR" || exit 1
 # shellcheck source=scripts/lib-env.sh
 . "$SCRIPT_DIR/scripts/lib-env.sh"
 
-TEST=false
-ZIP=""
 PASS=0
 FAIL=0
 VERBOSE=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --test)
-      TEST=true
-      VERBOSE=true
-      ZIP="${2:?--test requires a ZIP file path}"
-      shift 2
-      ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -50,14 +41,6 @@ pass() {
 fail() {
   FAIL=$((FAIL + 1))
   echo "  ❌ $1"
-  if $TEST; then
-    echo ""
-    echo "  FAILED — tearing down..."
-    docker compose down -v 2>/dev/null
-    rm -rf tak/ .env
-    echo "  $PASS passed, $FAIL failed"
-    exit 1
-  fi
 }
 
 assert()      { if [ "$1" = "$2" ]; then pass "$3"; else fail "$3 (got: $1)"; fi; }
@@ -94,67 +77,24 @@ assert_published_port() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TEST MODE — greenfield setup
-# ═══════════════════════════════════════════════════════════════════════════
-
-if $TEST; then
-  if [ -d "$SCRIPT_DIR/tak" ] || [ -f "$SCRIPT_DIR/.env" ]; then
-    echo "ERROR: Existing deployment found (tak/ or .env exist)." >&2
-    echo "Tear down first: docker compose down -v && rm -rf tak/ .env" >&2
-    exit 1
-  fi
-
-  echo ""
-  echo "╔══════════════════════════════════════════╗"
-  echo "║        FastTAK Integration Test          ║"
-  echo "╚══════════════════════════════════════════╝"
-
-  log ""
-  log "Setup"
-  log "─────"
-
-  if ./setup.sh "$ZIP" > /tmp/fastak-setup.log 2>&1; then pass "setup.sh"; else fail "setup.sh"; fi
-
-  assert_file "tak/CoreConfig.example.xml" "CoreConfig template"
-
-  CERT_COUNT=$(find tak/certs/files -name '*.pem' -o -name '*.jks' -o -name '*.p12' 2>/dev/null | wc -l | tr -d ' ')
-  assert "$CERT_COUNT" "0" "Clean cert directory"
-  assert_file ".env" ".env created"
-
-  DB_PASS=$(env_get .env TAK_DB_PASSWORD)
-  LDAP_PASS=$(env_get .env LDAP_BIND_PASSWORD)
-  assert_not "$DB_PASS" "" "TAK_DB_PASSWORD generated"
-  assert_not "$LDAP_PASS" "" "LDAP_BIND_PASSWORD generated"
-
-  TAK_VER=$(env_get .env TAK_VERSION)
-  if docker image inspect "takserver:${TAK_VER}" > /dev/null 2>&1; then pass "Image: takserver:${TAK_VER}"; else fail "Image: takserver:${TAK_VER}"; fi
-  if docker image inspect "takserver-database:${TAK_VER}" > /dev/null 2>&1; then pass "Image: takserver-database:${TAK_VER}"; else fail "Image: takserver-database:${TAK_VER}"; fi
-
-  sed -i.bak 's/^SERVER_ADDRESS=.*/SERVER_ADDRESS=localhost/' .env && rm -f .env.bak
-  sed -i.bak 's/^DEPLOY_MODE=.*/DEPLOY_MODE=direct/' .env && rm -f .env.bak
-fi
-
-# ═══════════════════════════════════════════════════════════════════════════
 # PREFLIGHT
 # ═══════════════════════════════════════════════════════════════════════════
 
-if ! $TEST; then
-  if [ ! -d "$SCRIPT_DIR/tak" ]; then
-    echo "ERROR: tak/ not found. Run: ./setup.sh <zip>" >&2; exit 1
-  fi
-  if [ ! -f "$SCRIPT_DIR/.env" ]; then
-    echo "ERROR: .env not found. Run: ./setup.sh <zip>" >&2; exit 1
-  fi
-  # Provision here as well as in setup.sh: a FastTAK-only upgrade is `git pull`
-  # with no new TAK zip, which never runs setup.sh. The launch is the one step
-  # every upgrade path takes. This script does not use `set -e`, so the exit
-  # status is checked explicitly.
-  if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$SCRIPT_DIR/.env"; then
-    exit 1
-  fi
-  if ! "$SCRIPT_DIR/scripts/check-env.sh" "$SCRIPT_DIR/.env"; then
-    exit 1
-  fi
+if [ ! -d "$SCRIPT_DIR/tak" ]; then
+  echo "ERROR: tak/ not found. Run: ./setup.sh <zip>" >&2; exit 1
+fi
+if [ ! -f "$SCRIPT_DIR/.env" ]; then
+  echo "ERROR: .env not found. Run: ./setup.sh <zip>" >&2; exit 1
+fi
+# Provision here as well as in setup.sh: a FastTAK-only upgrade is `git pull`
+# with no new TAK zip, which never runs setup.sh. The launch is the one step
+# every upgrade path takes. This script does not use `set -e`, so the exit
+# status is checked explicitly.
+if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$SCRIPT_DIR/.env"; then
+  exit 1
+fi
+if ! "$SCRIPT_DIR/scripts/check-env.sh" "$SCRIPT_DIR/.env"; then
+  exit 1
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -191,16 +131,14 @@ else
 fi
 export FASTTAK_VERSION FASTTAK_COMMIT
 
-if ! $TEST; then
-  echo ""
-  echo "╔══════════════════════════════════════════╗"
-  echo "║       Starting FastTAK                   ║"
-  echo "╚══════════════════════════════════════════╝"
-  echo ""
-  echo "  Address: $SERVER_ADDRESS"
-  echo "  Mode:    $DEPLOY_MODE"
-  echo ""
-fi
+echo ""
+echo "╔══════════════════════════════════════════╗"
+echo "║       Starting FastTAK                   ║"
+echo "╚══════════════════════════════════════════╝"
+echo ""
+echo "  Address: $SERVER_ADDRESS"
+echo "  Mode:    $DEPLOY_MODE"
+echo ""
 
 log ""
 log "Start"
@@ -223,7 +161,6 @@ for _ in $(seq 1 48); do
   if [ "$STATUS" = "healthy" ]; then break; fi
   if [ "$STATUS" = "unhealthy" ]; then
     echo "  ❌ tak-server failed — run: docker compose logs tak-server"
-    if $TEST; then docker compose down -v 2>/dev/null; rm -rf tak/ .env; fi
     exit 1
   fi
   sleep 10
@@ -231,7 +168,6 @@ done
 
 if [ "$STATUS" != "healthy" ]; then
   echo "  ❌ tak-server timed out — run: docker compose logs tak-server"
-  if $TEST; then docker compose down -v 2>/dev/null; rm -rf tak/ .env; fi
   exit 1
 fi
 
@@ -342,39 +278,11 @@ SEC_COUNT="${SEC_COUNT:-0}"
 if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Multiple starts ($SEC_COUNT)"; fi
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TEARDOWN (test mode only)
-# ═══════════════════════════════════════════════════════════════════════════
-
-if $TEST; then
-  log ""
-  log "Teardown"
-  log "────────"
-
-  if docker compose down -v > /dev/null 2>&1; then pass "docker compose down"; else fail "docker compose down"; fi
-
-  VOL_COUNT=$(docker volume ls --filter name=fasttak --format '{{.Name}}' | wc -l | tr -d ' ')
-  assert "$VOL_COUNT" "0" "No orphaned volumes"
-
-  rm -rf tak/ .env
-fi
-
-# ═══════════════════════════════════════════════════════════════════════════
 # RESULTS
 # ═══════════════════════════════════════════════════════════════════════════
 
 TOTAL=$((PASS + FAIL))
 
-if $TEST; then
-  echo ""
-  echo "╔══════════════════════════════════════════╗"
-  printf "║  %-40s║\n" "$PASS passed, $FAIL failed"
-  echo "╚══════════════════════════════════════════╝"
-  echo ""
-  if [ $FAIL -eq 0 ]; then echo "All tests passed."; else echo "Some tests failed."; fi
-  exit $FAIL
-fi
-
-# Normal mode
 if [ $FAIL -eq 0 ]; then
   echo "  ✅ All checks passed ($PASS/$TOTAL)"
 else

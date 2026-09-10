@@ -296,13 +296,8 @@ first, and read [docs/upgrading.md](docs/upgrading.md) before you start.
 
 ## Testing
 
-Run a full greenfield integration test (setup → start → verify → teardown):
-
-```bash
-./start.sh --test takserver-docker-hardened-5.8-RELEASE-65.zip
-```
-
-This builds from scratch, starts the full stack, runs automated checks, and tears everything down. Requires the tak.gov release ZIP.
+See [CONTRIBUTING.md](CONTRIBUTING.md#testing). The fast suite is `just test`;
+the full integration cycle against an isolated stack is `just test-stack cycle`.
 
 ## Stopping and Teardown
 
