@@ -22,8 +22,20 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+usage() {
+  cat <<'EOF'
+Usage: scripts/env-get.sh <env-file> <KEY>
+
+Print one value from a .env file, using Compose's dotenv semantics.
+An absent file or key prints nothing and exits 0.
+
+  -h, --help    show this help
+EOF
+}
+
+case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 if [ $# -ne 2 ]; then
-  echo "usage: env-get.sh <env-file> <KEY>" >&2
+  usage >&2
   exit 2
 fi
 
