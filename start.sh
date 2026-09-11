@@ -370,5 +370,4 @@ fi
 echo ""
 echo "  Passwords:   cat .env"
 echo "  Stop:        just down"
-echo "  Reset DBs:   docker compose down -v"
 echo ""
