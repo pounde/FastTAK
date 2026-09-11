@@ -7,8 +7,9 @@
 # Pre-conditions:
 #   - The target stack is NOT running for this project. (Bring it down first.)
 #   - The TAK Server release zip has been extracted via setup.sh, so tak/
-#     exists and a fresh .env sits at <env-file>. restore.sh will overwrite
-#     that .env with the archive's env BEFORE booting any container.
+#     exists and a fresh .env sits at <env-file>. restore.sh replaces that
+#     .env with the archive's env BEFORE booting any container, keeping only
+#     the host's TAK_VERSION (see restore-env.sh).
 #
 # Usage:
 #   restore.sh <project> <backup.age> <key-file> <env-file> <tak-host-path> <repo-dir> [<extra-compose-file>...]
@@ -16,7 +17,7 @@
 # <project>           docker compose project name (e.g. fastak-test-1234567890)
 # <backup.age>        encrypted backup tarball
 # <key-file>          age identity used to decrypt the tarball
-# <env-file>          path to the freshly-generated .env (WILL BE OVERWRITTEN)
+# <env-file>          path to the freshly-generated .env (replaced, except TAK_VERSION)
 # <tak-host-path>     path to the extracted tak/ tree
 # <repo-dir>          FastTAK repo root (for docker-compose.yml)
 # <extra-compose>     additional -f compose files (test passes docker-compose.test.yml)
@@ -222,9 +223,12 @@ echo ""
 # ── Step 3: replace .env with the archive's env ──────────────────────
 # This must happen BEFORE any container starts so DB containers initialize
 # with the restored POSTGRES_PASSWORD / TAK_DB_PASSWORD (matching the role
-# hashes the restored data will reference).
+# hashes the restored data will reference). TAK_VERSION is the exception:
+# it names this host's images, not the data, so the helper keeps the host's
+# value — and refuses an archive from below the supported floor while
+# nothing has been touched yet (#99).
 echo "[restore] replacing $ENV_FILE with archive env"
-cp "$WORK/env" "$ENV_FILE"
+"$(dirname "$0")/restore-env.sh" "$WORK/env" "$ENV_FILE"
 
 # ── Step 4: restore TAK certificates ──────────────────────────────────
 echo "[restore] restoring tak-certs to $TAK_HOST_PATH/certs"

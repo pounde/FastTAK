@@ -130,11 +130,22 @@ below mirror that script.
    will run. A major-version downgrade (e.g. restoring a `cot` dump from
    PG16 onto a PG15 stack) will fail.
 
-4. **Replace `.env`**
+4. **Replace `.env`, keeping this host's `TAK_VERSION`**
 
    ```bash
-   cp /tmp/restore/env .env
+   tests-integration/restore-env.sh /tmp/restore/env .env
    ```
+
+   The archive's `.env` has to win for the secrets — its database passwords
+   match the role hashes in the dumps. `TAK_VERSION` is the exception: it
+   names the images `setup.sh` just built on *this* host, not the data, so
+   the helper copies the archive's file and then puts the host's version
+   back. A plain `cp` would roll the host back to whatever release the
+   archive was taken on, and the stack would refuse to start.
+
+   An archive from a release below the supported floor is refused here,
+   before anything else is touched. Restore those on the FastTAK release
+   that produced them — the tag is `fasttak_version` in the manifest.
 
 5. **Restore TAK certificates and config**
 
