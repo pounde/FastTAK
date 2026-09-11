@@ -3,7 +3,7 @@
 # scripts/lib-stack.sh — compose-file resolution and image labelling for the
 # stack entry points. Sourced, never executed.
 #
-# start.sh, scripts/down.sh and test-stack.sh need the same two answers: which
+# start.sh, scripts/down.sh and the justfile's recipes need the same two answers: which
 # compose files apply to this deployment, and what version to stamp on the
 # monitor image. Each used to derive them separately and they drifted — `down`
 # lost the capture branch `up` had. This is the one implementation.

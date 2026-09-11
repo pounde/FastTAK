@@ -197,6 +197,7 @@ teardown_one() {
 cmd_down() {
   if [ $# -gt 1 ]; then echo "down takes at most one project name" >&2; usage >&2; exit 2; fi
   if [ -n "${1:-}" ]; then
+    [[ "$1" =~ ^fastak-test-[0-9]+$ ]] || { echo "down: '$1' is not a test project name" >&2; usage >&2; exit 2; }
     if [ -d "/tmp/$1" ]; then
       teardown_one "/tmp/$1"
     else

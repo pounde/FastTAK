@@ -47,7 +47,7 @@ Start the stack, wait for tak-server, and verify it.
   --capture     include the mitmproxy capture overlay
   --checks      run the post-start checks (default for a whole-stack start)
   --no-checks   skip them (default when services are named)
-  --no-wait     do not wait for tak-server to report healthy
+  --no-wait     do not wait for tak-server to report healthy (skips the checks unless --checks is given)
   -h, --help    show this help
 EOF
 }
@@ -64,6 +64,13 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# The checks need a healthy tak-server to inspect; skipping the wait means
+# they would run against a stack that may not be up yet. The invocation says
+# which was meant; an explicit --checks overrides.
+if ! $WAIT && [ -z "$CHECKS" ]; then
+  CHECKS=false
+fi
 
 # A targeted rebuild cannot affect CoreConfig, the certs or TAK's processes,
 # so the whole-stack checks are noise there. The invocation says which was
@@ -147,6 +154,12 @@ fi
 SERVER_ADDRESS=$(env_get "$ENV_FILE" SERVER_ADDRESS)
 DEPLOY_MODE=$(env_get "$ENV_FILE" DEPLOY_MODE)
 DEPLOY_MODE="${DEPLOY_MODE:-subdomain}"
+TAKSERVER_ADMIN_PORT=$(env_get "$ENV_FILE" TAKSERVER_ADMIN_PORT)
+TAKSERVER_ADMIN_PORT="${TAKSERVER_ADMIN_PORT:-8446}"
+MEDIAMTX_PORT=$(env_get "$ENV_FILE" MEDIAMTX_PORT)
+MEDIAMTX_PORT="${MEDIAMTX_PORT:-8888}"
+NODERED_PORT=$(env_get "$ENV_FILE" NODERED_PORT)
+NODERED_PORT="${NODERED_PORT:-1880}"
 
 if $CAPTURE; then
   FASTAK_ENV_FILE="$ENV_FILE" stack_export_compose_file --capture
@@ -281,13 +294,6 @@ if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs
 log ""
 log "Ports"
 log "─────"
-
-TAKSERVER_ADMIN_PORT=$(env_get "$ENV_FILE" TAKSERVER_ADMIN_PORT)
-TAKSERVER_ADMIN_PORT="${TAKSERVER_ADMIN_PORT:-8446}"
-MEDIAMTX_PORT=$(env_get "$ENV_FILE" MEDIAMTX_PORT)
-MEDIAMTX_PORT="${MEDIAMTX_PORT:-8888}"
-NODERED_PORT=$(env_get "$ENV_FILE" NODERED_PORT)
-NODERED_PORT="${NODERED_PORT:-1880}"
 
 assert_published_port tak-server 8089 "CoT TLS"
 assert_published_port tak-server 8443 "Cert HTTPS"
