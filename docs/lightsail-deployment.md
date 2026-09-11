@@ -259,11 +259,11 @@ its own.
     `docker-compose.override.yml` and remove the `COMPOSE_FILE` export from your
     shell init.
 
-## 9. Run setup.sh
+## 9. Run just setup
 
 ```bash
 cd ~/FastTAK
-./setup.sh takserver-docker-X.X-RELEASE-X.zip
+just setup takserver-docker-X.X-RELEASE-X.zip
 ```
 
 This:
@@ -302,7 +302,7 @@ grep TAK_WEBADMIN_PASSWORD ~/FastTAK/.env
 
 ```bash
 cd ~/FastTAK
-./start.sh
+just up
 ```
 
 First boot does a lot:

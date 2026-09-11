@@ -11,7 +11,7 @@ End-to-end: set up FastTAK, create a user, enroll a device, stream video.
 
 ```bash
 cd /path/to/FastTAK
-./setup.sh takserver-docker-hardened-5.8-RELEASE-65.zip
+just setup takserver-docker-hardened-5.8-RELEASE-65.zip
 ```
 
 This extracts the TAK Server release into `./tak/`, builds the Docker images, and creates `.env` from the template.
@@ -31,7 +31,7 @@ All other values (secrets, database passwords) are generated automatically by `s
 ## Step 3: Start the stack
 
 ```bash
-./start.sh
+just up
 ```
 
 Or manually: `docker compose up -d --build`
@@ -169,7 +169,7 @@ docker compose logs init-identity
 
 **QR enrollment says "credentials not accepted"?**
 
-- Did you run `./setup.sh`? The TAK Server release must be extracted before starting
+- Did you run `just setup`? The TAK Server release must be extracted before starting
 - Enrollment tokens expire after 15 minutes — generate a fresh QR
 
 **Device shows "connecting" but never connects?**
