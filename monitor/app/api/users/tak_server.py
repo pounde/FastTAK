@@ -40,6 +40,13 @@ class TakServerClient:
         if not p12_path.exists():
             log.warning("TAK API cert not found at %s", self.cert_path)
             return
+        # The deployment CA sits beside the p12 in tak/certs/files. Without it
+        # there is no way to verify the server, so build no client at all —
+        # falling back to unverified TLS would be the silent failure #57 names.
+        ca_path = p12_path.parent / "ca.pem"
+        if not ca_path.exists():
+            log.error("TAK CA not found at %s; refusing an unverified TLS client", ca_path)
+            return
 
         with open(p12_path, "rb") as f:
             p12_data = f.read()
@@ -71,9 +78,13 @@ class TakServerClient:
         # Register cleanup so temp files are removed when the process exits
         atexit.register(self.close)
 
-        ctx = ssl.create_default_context()
+        # Pin the deployment CA: the chain must verify, so nothing else on the
+        # Docker network can impersonate TAK Server to this admin credential.
+        # The hostname check stays off — the server cert is issued for
+        # SERVER_ADDRESS, and this client reaches it as tak-server.
+        ctx = ssl.create_default_context(cafile=str(ca_path))
         ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE  # TAK Server uses self-signed CA
+        ctx.verify_mode = ssl.CERT_REQUIRED
         ctx.load_cert_chain(self._cert_pem_path, self._key_pem_path)
         self._ssl_context = ctx
 
