@@ -166,6 +166,7 @@ def test_checks_skipped_when_services_are_named(deployment):
     result, calls = run_start(deployment, "monitor")
     assert not any(c.startswith("exec") for c in calls)
     assert "skipped" in result.stdout.lower()
+    assert "https://localhost:8446" in result.stdout
 
 
 def test_checks_flag_overrides_the_default(deployment):
@@ -178,6 +179,16 @@ def test_checks_flag_overrides_the_default(deployment):
 def test_no_wait_skips_the_health_loop(deployment):
     _, calls = run_start(deployment, "--no-wait", "--no-checks")
     assert not any(c.startswith("inspect") for c in calls)
+
+
+def test_no_wait_implies_no_checks_by_default(deployment):
+    _, calls = run_start(deployment, "--no-wait")
+    assert not any(c.startswith("exec") for c in calls)
+
+
+def test_no_wait_with_explicit_checks_still_runs_them(deployment):
+    _, calls = run_start(deployment, "--no-wait", "--checks")
+    assert any(c.startswith("exec") for c in calls)
 
 
 def test_unknown_option_is_rejected(deployment):

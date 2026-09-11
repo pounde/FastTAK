@@ -1,13 +1,5 @@
 #!/bin/bash
 # setup.sh — Set up FastTAK from a tak.gov Docker release ZIP.
-# Usage: ./setup.sh [-d <target-dir>] <takserver-docker-X.X-RELEASE-X.zip>
-#
-# Options:
-#   -d <dir>  Target directory for tak/ and .env (default: script's directory).
-#             Used by integration tests to set up an isolated environment.
-#
-# Fresh install:  extracts tak/, builds images, creates .env with generated secrets
-# Upgrade:        updates application files, preserves certs/config/logs
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

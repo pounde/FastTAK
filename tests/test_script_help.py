@@ -57,3 +57,14 @@ def test_test_stack_rejects_an_unknown_subcommand():
     result = _run("tests-integration/test-stack.sh", "bogus")
     assert result.returncode == 2
     assert "bogus" in result.stderr
+
+
+def test_test_stack_down_rejects_a_non_project_name():
+    result = _run("tests-integration/test-stack.sh", "down", "../x")
+    assert result.returncode == 2
+    assert "../x" in result.stderr
+
+
+def test_test_stack_down_accepts_a_well_formed_project_name():
+    result = _run("tests-integration/test-stack.sh", "down", "fastak-test-123")
+    assert result.returncode == 0, result.stderr
