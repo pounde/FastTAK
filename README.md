@@ -72,7 +72,7 @@ point — so it no longer works at all.
 Edit `.env` and re-run the init containers to apply changes — no need to stop TAK Server:
 
 ```bash
-docker compose up -d --force-recreate init-config init-identity
+just up init-config init-identity
 ```
 
 This re-runs the configuration and identity bootstrap containers, which read from `.env` and patch the running services. If you're running the monitor dashboard, it will detect `.env` changes and show the command to run.

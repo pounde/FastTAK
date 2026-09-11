@@ -33,7 +33,7 @@ reading every step.
 
 ## First-time setup
 
-1. Start the stack normally (`./start.sh` or `just up`).
+1. Start the stack normally (`just up`).
 2. Visit the **Backups** page in the monitor dashboard (you must be a
    member of the `monitor_admin` LDAP group — the bootstrap auto-creates
    this group and adds `webadmin` to it on first boot, so the default
@@ -96,7 +96,7 @@ below mirror that script.
    exist before any container starts:
 
    ```bash
-   ./setup.sh <takserver-docker-X.X.zip>
+   just setup <takserver-docker-X.X.zip>
    ```
 
 2. **Verify and decrypt the backup**
@@ -309,7 +309,7 @@ below mirror that script.
 9. **Start the rest of the stack**
 
    ```bash
-   ./start.sh
+   just up
    ```
 
 10. **Post-restore checks**
