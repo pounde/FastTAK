@@ -67,6 +67,8 @@ ADMIN_AMONG_GROUPS = {"Remote-User": "alice", "Remote-Groups": "tak_alpha, monit
 # the dashboard router mixes admin pages with the open index, so each gated
 # dashboard route is listed individually.
 GATED_ROUTES = [
+    ("get", "/api/docs"),  # the route inventory itself (issue #82)
+    ("get", "/api/openapi.json"),
     ("get", "/api/users"),  # users_router (also /api/groups)
     ("post", "/api/service-accounts"),  # service_accounts_router
     ("post", "/api/ops/database/vacuum"),  # ops_router
@@ -203,8 +205,8 @@ UNGATED_BASELINE = {
 def _api_routes():
     from app.main import app
 
-    # Starlette's own routes (/docs, /openapi.json, static mounts) have no
-    # dependant and carry no app data.
+    # Only static mounts are skipped. The schema routes are ordinary gated
+    # APIRoutes served by app.main, so the walk covers them (issue #82).
     return [r for r in app.routes if isinstance(r, APIRoute)]
 
 
@@ -228,3 +230,27 @@ def test_ungated_routes_match_the_reviewed_baseline():
     newly_gated = sorted(UNGATED_BASELINE - open_now)
     assert not newly_open, f"ungated routes not in the reviewed baseline: {newly_open}"
     assert not newly_gated, f"baseline lists routes that are now gated (stale): {newly_gated}"
+
+
+def test_gated_schema_routes_serve_the_inventory(anon_client):
+    """The gate test only proves admins are not refused. Prove the re-served
+    routes work: the document lists the API and not itself, and the Swagger
+    page is wired to the gated document rather than FastAPI's default URL."""
+    doc = anon_client.get("/api/openapi.json", headers=ADMIN)
+    assert doc.status_code == 200
+    paths = doc.json()["paths"]
+    assert "/api/users" in paths
+    assert "/api/openapi.json" not in paths
+    assert "/api/docs" not in paths
+
+    page = anon_client.get("/api/docs", headers=ADMIN)
+    assert page.status_code == 200
+    assert "/api/openapi.json" in page.text
+
+
+@pytest.mark.parametrize("path", ["/openapi.json", "/redoc", "/docs"])
+def test_default_schema_routes_are_not_served(anon_client, path):
+    """FastAPI's built-in schema routes are disabled; the only copies are the
+    gated ones above. Serving them at the defaults as well would hand the full
+    route inventory to any authenticated non-admin (issue #82)."""
+    assert anon_client.get(path, headers=ADMIN).status_code == 404

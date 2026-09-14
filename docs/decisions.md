@@ -318,7 +318,9 @@ above.
 and HTMX partial. `/api/ping` stays open as the liveness probe, and the backup
 surfaces keep their own `BACKUP_ADMIN_GROUP` gate so a backup operator need not
 be a full admin. Authorization is applied at `include_router` time for the JSON
-routers and per route on the dashboard router.
+routers and per route on the dashboard router. FastAPI's built-in schema routes
+are disabled and `/api/openapi.json` and `/api/docs` are re-served behind the
+same gate, since the OpenAPI document is the full route inventory (#82).
 
 **Why:** Caddy's `forward_auth` only authenticates — any valid LDAP bind passes,
 so every TAK user reached every monitor route. Gating writes alone was not

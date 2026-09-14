@@ -94,7 +94,7 @@ All services start together — TAK Server, Caddy, MediaMTX, LLDAP (LDAP authent
 
 FastTAK includes a monitoring service with two components:
 
-**API** (`/api/*`) — JSON endpoints for health checks, operations, and alerts. Use this to integrate with external tools, scripts, or your own dashboards. API documentation is available at `/api/docs` (Swagger UI).
+**API** (`/api/*`) — JSON endpoints for health checks, operations, and alerts. Use this to integrate with external tools, scripts, or your own dashboards. API documentation is available at `/api/docs` (Swagger UI, admin group only). The Swagger page loads its scripts from a public CDN, so on an air-gapped deployment it renders blank while `/api/openapi.json` still works — see [#119](https://github.com/pounde/FastTAK/issues/119).
 
 - `GET /api/health/containers` — container health status for all services
 - `GET /api/health/resources` — CPU/memory stats per container
