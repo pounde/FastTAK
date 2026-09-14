@@ -303,7 +303,12 @@ echo "  │                                                     │"
 echo "  │ View:  grep TAK_WEBADMIN_PASSWORD .env              │"
 echo "  └─────────────────────────────────────────────────────┘"
 echo ""
+VERSION_CHANGED=false
 if [ "$IS_UPGRADE" = true ] && [ "${PREVIOUS_VERSION:-$VERSION}" != "$VERSION" ]; then
+  VERSION_CHANGED=true
+fi
+
+if $VERSION_CHANGED; then
   # The TAK Server version changed under an existing deployment. FastTAK has no
   # procedure for carrying the databases across that, so say so rather than
   # advising a sequence. See docs/upgrading.md and issue #109.
@@ -311,14 +316,29 @@ if [ "$IS_UPGRADE" = true ] && [ "${PREVIOUS_VERSION:-$VERSION}" != "$VERSION" ]
   echo ""
   echo "  Back up before you start — the databases were written by the old"
   echo "  server, and FastTAK has no supported path for carrying them across a"
-  echo "  TAK Server version change:"
-  echo "    just backup && just backups"
-  echo "    ./start.sh"
+  echo "  TAK Server version change."
+fi
+
+# The just recipes act on this checkout's own deployment. A -d target is a
+# different one — the integration harness starts those itself — so naming the
+# recipes here would point at the wrong stack (#104).
+if [ "$TARGET_DIR" = "$SCRIPT_DIR" ]; then
+  if $VERSION_CHANGED; then
+    echo "    just backup run"
+    echo "    just up"
+  else
+    echo "  Start FastTAK:"
+    echo "    just up"
+  fi
+else
+  echo "  Set up in ${TARGET_DIR}. The just recipes here act on this checkout's"
+  echo "  own deployment; a deployment elsewhere is started by whatever created"
+  echo "  it (the integration harness does this itself)."
+fi
+
+if $VERSION_CHANGED; then
   echo ""
   echo "  If the new server refuses the existing volumes, there is no automated"
   echo "  migration. See docs/upgrading.md before going further."
-else
-  echo "  Start FastTAK:"
-  echo "    ./start.sh"
 fi
 echo ""

@@ -6,10 +6,12 @@ migration tooling built for it was deleted in 869093c. So the closing
 instruction cannot be a procedure — it says what changed, tells the operator to
 back up, and states that nothing carries the databases across. See #109.
 
-Two things decide which closing instruction an operator gets: whether this is an
-existing deployment (tak/ or .env was there), and whether TAK_VERSION actually
-changed. A re-run with the same bundle changes nothing and must not imply
-otherwise.
+Three things decide which closing instruction an operator gets: whether this is
+an existing deployment (tak/ or .env was there), whether TAK_VERSION actually
+changed, and whether the deployment is this checkout's own or one set up
+elsewhere with -d. A re-run with the same bundle changes nothing and must not
+imply otherwise; a -d deployment must not be told to run just recipes that act
+on this checkout instead (#104).
 
 These tests run setup.sh end to end with a stub `docker` on PATH — no daemon,
 no images, no network.
@@ -17,6 +19,7 @@ no images, no network.
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -61,15 +64,41 @@ def _stub_docker(tmp_path: Path) -> Path:
     return bin_dir
 
 
-def _run_setup(tmp_path: Path, target: Path) -> subprocess.CompletedProcess:
+def _mini_repo(tmp_path: Path) -> Path:
+    """A copy of what setup.sh needs from its own directory, so it can run
+    with no -d — TARGET_DIR == SCRIPT_DIR — without touching the real repo."""
+    repo = tmp_path / "repo"
+    if repo.exists():
+        return repo
+    repo.mkdir()
+    shutil.copy(SETUP, repo / "setup.sh")
+    shutil.copy(REPO / ".env.example", repo / ".env.example")
+    shutil.copytree(REPO / "scripts", repo / "scripts")
+    shutil.copytree(REPO / "tak-server", repo / "tak-server")
+    return repo
+
+
+def _run_setup(tmp_path: Path, target: Path | None) -> subprocess.CompletedProcess:
+    """target=None runs setup.sh from a mini repo with no -d (the operator's
+    case); a path runs the real setup.sh with -d target (the harness's case)."""
     bin_dir = _stub_docker(tmp_path)
+    if target is None:
+        cmd = ["/bin/bash", str(_mini_repo(tmp_path) / "setup.sh"), str(_fake_bundle(tmp_path))]
+    else:
+        cmd = ["/bin/bash", str(SETUP), "-d", str(target), str(_fake_bundle(tmp_path))]
     return subprocess.run(
-        ["/bin/bash", str(SETUP), "-d", str(target), str(_fake_bundle(tmp_path))],
+        cmd,
         capture_output=True,
         text=True,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
         timeout=120,
     )
+
+
+def _existing(target: Path, version: str) -> None:
+    (target / "tak").mkdir(parents=True, exist_ok=True)
+    (target / "tak" / "version.txt").write_text(f"{version}\n")
+    (target / ".env").write_text(_env_at_version(version))
 
 
 def _env_at_version(version: str) -> str:
@@ -88,34 +117,43 @@ def _env_at_version(version: str) -> str:
 
 @pytest.fixture
 def fresh(tmp_path):
-    result = _run_setup(tmp_path, tmp_path / "target")
+    """Fresh install of this checkout's own deployment (no -d)."""
+    result = _run_setup(tmp_path, None)
     assert result.returncode == 0, result.stderr
     return result.stdout
 
 
 @pytest.fixture
 def upgrade(tmp_path):
-    """An existing deployment: tak/ and .env are already there.
-
-    A different target directory from the fresh fixture, so a test can take
-    both and compare them.
-    """
-    target = tmp_path / "existing"
-    (target / "tak").mkdir(parents=True)
-    (target / "tak" / "version.txt").write_text("5.8-RELEASE-64\n")
-    (target / ".env").write_text(_env_at_version("5.8-RELEASE-64"))
-    result = _run_setup(tmp_path, target)
+    """This checkout's own deployment, already on an older release."""
+    _existing(_mini_repo(tmp_path), "5.8-RELEASE-64")
+    result = _run_setup(tmp_path, None)
     assert result.returncode == 0, result.stderr
     return result.stdout
 
 
 @pytest.fixture
 def unchanged(tmp_path):
-    """An existing deployment already on the bundle's version — a re-run."""
-    target = tmp_path / "unchanged"
-    (target / "tak").mkdir(parents=True)
-    (target / "tak" / "version.txt").write_text(f"{VERSION}\n")
-    (target / ".env").write_text(_env_at_version(VERSION))
+    """This checkout's own deployment, already on the bundle's version."""
+    _existing(_mini_repo(tmp_path), VERSION)
+    result = _run_setup(tmp_path, None)
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.fixture
+def fresh_elsewhere(tmp_path):
+    """Fresh install into another directory with -d."""
+    result = _run_setup(tmp_path, tmp_path / "elsewhere")
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.fixture
+def upgrade_elsewhere(tmp_path):
+    """An older deployment in another directory, upgraded with -d."""
+    target = tmp_path / "elsewhere-existing"
+    _existing(target, "5.8-RELEASE-64")
     result = _run_setup(tmp_path, target)
     assert result.returncode == 0, result.stderr
     return result.stdout
@@ -128,7 +166,7 @@ def upgrade_without_tak_dir(tmp_path):
     A forced clean re-extract removes tak/, and a tak/ on a mount that did not
     land is simply missing. The .env, the volumes and the containers are still
     there in both cases, so this is an upgrade — and calling it a fresh install
-    hands a live deployment a bare ./start.sh onto stale volumes.
+    hands a live deployment a bare start onto stale volumes.
     """
     target = tmp_path / "no-tak-dir"
     target.mkdir(parents=True)
@@ -144,8 +182,9 @@ def test_env_without_tak_dir_is_still_an_upgrade(upgrade_without_tak_dir):
     assert "TAK Server 5.8-RELEASE-64 → 5.8-RELEASE-65" in upgrade_without_tak_dir
 
 
-def test_fresh_install_just_says_start_sh(fresh):
-    assert "./start.sh" in fresh
+def test_fresh_install_says_just_up(fresh):
+    assert "just up" in fresh
+    assert "./start.sh" not in fresh
     assert "back up" not in fresh.lower()
 
 
@@ -164,7 +203,29 @@ def test_upgrade_says_to_back_up_first(upgrade):
     that refuses the old volumes."""
     flat = " ".join(upgrade.split()).lower()
     assert "back up before you start" in flat
-    assert upgrade.index("just backup") < upgrade.index("./start.sh")
+    assert upgrade.index("just backup run") < upgrade.index("just up")
+
+
+def test_upgrade_names_recipes_that_exist(upgrade):
+    """v0.30.0 printed `just backup && just backups`: the second recipe was
+    removed and the first errors without a subcommand."""
+    assert "just backups" not in upgrade
+    assert "just backup &&" not in upgrade
+    assert "./start.sh" not in upgrade
+
+
+def test_a_deployment_elsewhere_is_not_told_to_run_this_checkouts_recipes(
+    fresh_elsewhere, upgrade_elsewhere, tmp_path
+):
+    """The just recipes act on this checkout's own deployment. Printing them
+    for a -d target points the operator at the wrong stack (#104)."""
+    for out in (fresh_elsewhere, upgrade_elsewhere):
+        assert "just up" not in out
+        assert "just backup" not in out
+        assert "./start.sh" not in out
+        assert str(tmp_path) in out, "the closing block names the directory it set up"
+    assert "TAK Server 5.8-RELEASE-64 → 5.8-RELEASE-65" in upgrade_elsewhere
+    assert "back up" in upgrade_elsewhere.lower()
 
 
 def test_upgrade_says_no_path_carries_the_databases(upgrade):
@@ -179,7 +240,7 @@ def test_an_unchanged_bundle_is_not_treated_as_an_upgrade(unchanged):
     """Re-running setup.sh with the same bundle changes nothing. Implying
     otherwise is what made the old guidance fire on every existing deployment."""
     assert "back up before you start" not in unchanged.lower()
-    assert "./start.sh" in unchanged
+    assert "just up" in unchanged
 
 
 def test_upgrade_points_at_the_full_procedure(upgrade):
