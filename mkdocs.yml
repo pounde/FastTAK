@@ -21,6 +21,7 @@ nav:
   - Troubleshooting: troubleshooting.md
   - Guides:
     - Authentication: authentication.md
+    - User Types: user-types.md
     - Certificates: certificates.md
     - Node-RED: nodered.md
     - Configuration: configuration.md
