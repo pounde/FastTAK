@@ -1,5 +1,7 @@
 """Tests for monitor/app/api/backup/router.py."""
 
+import os
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -40,6 +42,23 @@ def test_list_returns_state_and_backups(backup_dir, admin_headers):
         assert any(
             b["filename"] == "fasttak-backup-20260101T000000Z-test.age" for b in body["backups"]
         )
+
+
+def test_list_orders_and_ages_by_the_timestamp_in_the_name(backup_dir, admin_headers):
+    """The dashboard's "N min" column must agree with prune about which
+    backup is newest. A restored copy has a fresh mtime; by mtime it showed
+    at the top as 0 min while retention treated it as the oldest (#64)."""
+    older = backup_dir / "fasttak-backup-20260101T000000Z-test.age"
+    newer = backup_dir / "fasttak-backup-20260102T000000Z-test.age"
+    older.write_bytes(b"abc")  # written just now, as a restore would
+    newer.write_bytes(b"abc")
+    os.utime(newer, (time.time() - 3600, time.time() - 3600))
+
+    with TestClient(app) as client:
+        body = client.get("/api/backup/", headers=admin_headers).json()
+
+    assert [b["filename"] for b in body["backups"]] == [newer.name, older.name]
+    assert body["backups"][1]["age_seconds"] > 24 * 3600
 
 
 def test_status_endpoint(backup_dir, admin_headers):

@@ -78,7 +78,9 @@ keep the newest 5). Useful for one-off cleanup before a release; routine
 ops should not need it.
 
 **List backups** with `just backup list` (lists what's on disk with sizes
-and ages).
+and ages). Age is taken from the timestamp in the filename, not the file's
+mtime, so a restored or copied archive keeps its real age and the listing
+agrees with retention about which backup is newest.
 
 ## Restoring to a fresh host
 
