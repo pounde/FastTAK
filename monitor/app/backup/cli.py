@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
+from datetime import UTC, datetime
 
 from app.backup import retention, runner
 from app.backup.config import backup_dir, retention_keep
@@ -36,20 +36,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_list(_args: argparse.Namespace) -> int:
-    d = backup_dir()
-    files = sorted(
-        d.glob("fasttak-backup-*.age"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    if not files:
+    backups = retention.stamped_backups(backup_dir())
+    if not backups:
         print("(no backups)")
         return 0
-    now = time.time()
-    for p in files:
-        st = p.stat()
-        age_minutes = (now - st.st_mtime) / 60
-        print(f"{p.name}\t{st.st_size}\t{age_minutes:.1f}m ago")
+    now = datetime.now(UTC)
+    for taken_at, p in backups:
+        age_minutes = (now - taken_at).total_seconds() / 60
+        print(f"{p.name}\t{p.stat().st_size}\t{age_minutes:.1f}m ago")
     return 0
 
 

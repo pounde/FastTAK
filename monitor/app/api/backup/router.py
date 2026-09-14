@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.api.auth_deps import require_group
 from app.audit import record_event
-from app.backup import keys, state
+from app.backup import keys, retention, state
 from app.backup.config import admin_group_default, backup_dir
 from app.backup.exceptions import BackupAlreadyRunning
 from app.backup.runner import run as run_backup
@@ -50,18 +50,16 @@ def _safe_filename(name: str) -> str:
 
 @router.get("/")
 def list_backups():
-    d = backup_dir()
-    files = sorted(d.glob("fasttak-backup-*.age"), key=lambda p: p.stat().st_mtime, reverse=True)
-    now = time.time()
+    now = datetime.now(UTC)
     return {
         "state": state.read(),
         "backups": [
             {
                 "filename": p.name,
                 "size_bytes": p.stat().st_size,
-                "age_seconds": int(now - p.stat().st_mtime),
+                "age_seconds": int((now - taken_at).total_seconds()),
             }
-            for p in files
+            for taken_at, p in retention.stamped_backups(backup_dir())
         ],
     }
 
@@ -87,8 +85,6 @@ def trigger_run(request: Request, background_tasks: BackgroundTasks):
             # success and runner-internal-failure paths (both of which emit
             # backup.started + backup.completed/backup.failed).
             log.warning("backup.run dispatched while another run held the lock (job=%s)", job_id)
-            from datetime import UTC, datetime
-
             from app.backup import state as _state
 
             now = datetime.now(UTC).isoformat()
