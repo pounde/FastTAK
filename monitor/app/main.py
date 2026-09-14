@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import Depends, FastAPI
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.api.auth_deps import require_admin
 from app.api.backup.router import router as backup_router
@@ -61,7 +63,16 @@ async def lifespan(app: FastAPI):
     stop_scheduler()
 
 
-app = FastAPI(title="FastTAK Monitor", docs_url="/api/docs", lifespan=lifespan)
+# The built-in schema routes are disabled and re-served below behind the admin
+# gate: the OpenAPI document is the full route inventory, and FastAPI mounts
+# it ungated by default (issue #82). ReDoc is not re-served — nothing uses it.
+app = FastAPI(
+    title="FastTAK Monitor",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=lifespan,
+)
 
 
 def _add_middleware_in_execution_order(app: FastAPI, *middlewares: type) -> None:
@@ -90,6 +101,18 @@ _add_middleware_in_execution_order(app, AuthContextMiddleware, AuditMiddleware)
 # require_group dependency internally. `/api/ping` (below) stays open as the
 # unauthenticated liveness probe.
 _admin = [Depends(require_admin())]
+
+
+@app.get("/api/openapi.json", include_in_schema=False, dependencies=_admin)
+def openapi_json() -> JSONResponse:
+    return JSONResponse(app.openapi())
+
+
+@app.get("/api/docs", include_in_schema=False, dependencies=_admin)
+def swagger_ui() -> HTMLResponse:
+    return get_swagger_ui_html(openapi_url="/api/openapi.json", title="FastTAK Monitor")
+
+
 app.include_router(health_router, dependencies=_admin)
 app.include_router(ops_router, dependencies=_admin)
 app.include_router(users_router, dependencies=_admin)
