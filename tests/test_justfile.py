@@ -32,10 +32,21 @@ def test_backup_passes_through_to_the_monitor_cli(args, expected):
     assert expected in dry_run(*args)
 
 
-def test_old_backup_recipes_are_gone():
+def _recipe_names() -> set[str]:
+    """Recipe names from `just --list`: the first token of every row that is
+    not a doc line. Doc text is prose and may mention old names."""
     listing = subprocess.run(["just", "--list"], cwd=REPO, capture_output=True, text=True).stdout
-    assert "backups" not in listing
-    assert "backup-prune" not in listing
+    names = set()
+    for row in listing.splitlines()[1:]:
+        if row.strip().startswith("#"):
+            continue
+        names.add(row.split()[0])
+    return names
+
+
+def test_old_backup_recipes_are_gone():
+    assert "backups" not in _recipe_names()
+    assert "backup-prune" not in _recipe_names()
 
 
 def test_setup_delegates_to_setup_sh():
@@ -56,10 +67,14 @@ def test_bare_just_lists_recipes():
     assert "help" not in result.stdout.split()
     lines = result.stdout.splitlines()
     for name, comments, _body, doc in _recipes():
-        description = doc if doc is not None else comments[-1].lstrip("#").strip()
         row = next((ln for ln in lines if ln.strip().split()[0:1] == [name]), None)
         assert row is not None, f"no --list row found for recipe {name}"
-        assert description in row, f"recipe {name}: {description!r} not in {row!r}"
+        # A multi-line [doc] renders as `#` rows above the recipe; a one-line
+        # comment renders inline on the recipe's row. Either way every line
+        # of the description has to reach the listing.
+        description = doc.splitlines() if doc is not None else [comments[-1].lstrip("#").strip()]
+        for text in description:
+            assert text in result.stdout, f"recipe {name}: {text!r} not in just --list"
 
 
 def test_fast_suite_delegates_to_a_script():
@@ -76,9 +91,9 @@ def test_test_stack_passes_flags_through():
 
 
 def test_old_integration_recipes_are_gone():
-    listing = subprocess.run(["just", "--list"], cwd=REPO, capture_output=True, text=True).stdout
+    names = _recipe_names()
     for name in ("test-integration", "test-up", "test-up-fg", "test-run", "test-down"):
-        assert f" {name} " not in listing and not listing.startswith(name)
+        assert name not in names
 
 
 def test_check_delegates_to_the_report():
@@ -86,13 +101,16 @@ def test_check_delegates_to_the_report():
 
 
 RECIPE = re.compile(r"^([a-z][a-z0-9-]*)(?:\s+\*?[a-z]+(?:=\"\")?)*:\s*$")
-DOC_ATTR = re.compile(r'^\[doc\("(.*)"\)\]$')
+DOC_OPEN = '[doc("'
+DOC_CLOSE = '")]'
 
 
 def _recipes() -> list[tuple[str, list[str], str, str | None]]:
-    """(name, comment lines above it, first body line, [doc] string) for every public recipe.
+    """(name, comment lines above it, first body line, [doc] text) for every public recipe.
 
-    The comment block is the `#` lines above the `[doc(...)]` attribute, if any.
+    A `[doc("...")]` attribute may span several lines; its text is returned
+    with the delimiters stripped. Any `#` lines above it (or above the header
+    when there is no attribute) are the comment block.
     """
     lines = (REPO / "justfile").read_text().splitlines()
     out = []
@@ -102,11 +120,14 @@ def _recipes() -> list[tuple[str, list[str], str, str | None]]:
             continue
         j = i - 1
         doc = None
-        if j >= 0:
-            dm = DOC_ATTR.match(lines[j].strip())
-            if dm:
-                doc = dm.group(1)
-                j -= 1
+        if j >= 0 and lines[j].rstrip().endswith(DOC_CLOSE):
+            k = j
+            while k >= 0 and not lines[k].startswith(DOC_OPEN):
+                k -= 1
+            assert k >= 0, f"recipe {m.group(1)}: unterminated [doc] attribute"
+            text = "\n".join(lines[k : j + 1])
+            doc = text[len(DOC_OPEN) : -len(DOC_CLOSE)]
+            j = k - 1
         comments = []
         while j >= 0 and lines[j].startswith("#"):
             comments.insert(0, lines[j])
@@ -131,9 +152,9 @@ def test_every_recipe_has_a_description():
 
 
 def test_documented_flags_exist_in_the_script():
-    """The comment block is a second human-maintained copy of the script's
+    """The doc block is a second human-maintained copy of the script's
     arguments. This is what keeps it honest."""
-    for name, comments, body, _doc in _recipes():
+    for name, comments, body, doc in _recipes():
         m = re.search(r"(\./\S+\.sh)", body)
         if not m:
             continue  # backup and the ruff recipes call something other than a local script
@@ -141,7 +162,8 @@ def test_documented_flags_exist_in_the_script():
         usage = subprocess.run(
             ["/bin/bash", str(script), "--help"], capture_output=True, text=True
         ).stdout
-        flags = set(re.findall(r"--[a-z][a-z-]*", "\n".join(comments)))
+        documented = "\n".join(comments) + "\n" + (doc or "")
+        flags = set(re.findall(r"--[a-z][a-z-]*", documented))
         missing = sorted(f for f in flags if f not in usage)
         assert not missing, (
             f"recipe {name} documents {missing}, but {m.group(1)} --help does not mention them"
