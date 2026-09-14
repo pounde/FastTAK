@@ -2,9 +2,16 @@
 
 There are two kinds of upgrade, and only one of them is supported today.
 
-**A FastTAK upgrade** — same TAK Server release, new FastTAK code — is a `git
-pull` and a restart. `just up` brings the stack back up on the new images,
-and the databases come with it.
+**A FastTAK upgrade** — same TAK Server release, new FastTAK code — is:
+
+```bash
+git pull
+just up
+```
+
+No `just down` first. `just up` rebuilds the images FastTAK builds itself and
+runs `docker compose up`, which recreates only the containers whose image or
+configuration changed and leaves the rest running. The databases are untouched.
 
 **A TAK Server upgrade** — a new release ZIP from tak.gov — has no supported
 path yet. `just setup <new-zip>` will extract the new release, rebuild the
