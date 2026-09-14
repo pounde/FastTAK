@@ -2,6 +2,81 @@
 
 <!-- version list -->
 
+## v0.30.0 (2026-09-14)
+
+### Bug Fixes
+
+- Correct just --list descriptions, targeted-start admin URL, and test-stack down guard
+  ([`7369d48`](https://github.com/pounde/FastTAK/commit/7369d48e31d8705de9f7976ad470adec71b95340))
+
+- **start**: Print real commands in the closing hints
+  ([`5fd9cfc`](https://github.com/pounde/FastTAK/commit/5fd9cfcebb8557a037fbdff4725ec9278eac956d))
+
+- **start**: Stop advertising docker compose down -v after a healthy start
+  ([`f1285a2`](https://github.com/pounde/FastTAK/commit/f1285a24cfe9cdbcc47431d42f0d495cadc387a7))
+
+- **start**: Stop on a failed build or up instead of reporting success
+  ([`b652e1a`](https://github.com/pounde/FastTAK/commit/b652e1aa8652002ba28e89310442dd246d4826c6))
+
+### Chores
+
+- Sync uv.lock to 0.29.2
+  ([`5fd97f5`](https://github.com/pounde/FastTAK/commit/5fd97f537e83e1e7e9f4b39e4376397c63678ef1))
+
+### Documentation
+
+- Point every workflow at its just recipe
+  ([`f45cd03`](https://github.com/pounde/FastTAK/commit/f45cd03c8e4c51308b92f7469ef4b0dc5720ca8b))
+
+- Point operator instructions at just, not the scripts directly
+  ([`bff6ef4`](https://github.com/pounde/FastTAK/commit/bff6ef464d097862bfdedce64f8fbe4055a092bc))
+
+- **backup**: Name the run subcommand
+  ([`7c69108`](https://github.com/pounde/FastTAK/commit/7c69108b23a0f25ce7ab867c007db0a51d207952))
+
+- **just**: Carry each recipe's full doc block in its [doc] attribute
+  ([`c97153f`](https://github.com/pounde/FastTAK/commit/c97153f1598414943f2e95324bca4128ef522db4))
+
+- **just**: Document each recipe's workflow and arguments, and test it
+  ([`0ae2f19`](https://github.com/pounde/FastTAK/commit/0ae2f1931c582cab8272f25511f4eabd14321cca))
+
+### Features
+
+- **env**: Detect .env drift in both directions
+  ([`60ac9d2`](https://github.com/pounde/FastTAK/commit/60ac9d2c63e651b213ec3c409a0c120ff0d80685))
+
+- **just**: Add setup recipe; bare just lists the recipes
+  ([`3ba9152`](https://github.com/pounde/FastTAK/commit/3ba9152d1182aec385a487cfcfb8c62ab5d0c84c))
+
+- **scripts**: Add lib-stack.sh for compose-file resolution
+  ([`3983d75`](https://github.com/pounde/FastTAK/commit/3983d7531da0def4a52185ba213d7ed94e8b2a9a))
+
+- **scripts**: Answer --help everywhere; bare setup.sh prints usage
+  ([`8b22fd8`](https://github.com/pounde/FastTAK/commit/8b22fd835cb01f1e22635d7db234b0158c59efc0))
+
+- **start**: Accept services, --capture, --checks and --no-wait
+  ([`9cf5e1e`](https://github.com/pounde/FastTAK/commit/9cf5e1e87c09efc2f759d2c321df0c75bc85a9e6))
+
+### Refactoring
+
+- **just**: Collapse backup/backups/backup-prune into one passthrough
+  ([`4676bb6`](https://github.com/pounde/FastTAK/commit/4676bb686954a3b4e00557087e5071d19d8392de))
+
+- **start**: Delete --test, port its remaining assertions
+  ([`ddd0d5b`](https://github.com/pounde/FastTAK/commit/ddd0d5b62663da0fce69a98453fd1f4117d6bc51))
+
+- **start**: Resolve compose files through lib-stack.sh
+  ([`cf4451a`](https://github.com/pounde/FastTAK/commit/cf4451a4c94764a4a80d917682e65b2880d6a111))
+
+- **test**: One CLI for the integration stack; fast suite to a script
+  ([`504b69a`](https://github.com/pounde/FastTAK/commit/504b69ae6f13a0a9614c418d93f00690e255a33b))
+
+### Testing
+
+- **start**: Assert the compose-file prefix, not the exact value
+  ([`0bb1c4f`](https://github.com/pounde/FastTAK/commit/0bb1c4f5e9e0379168ec2b3e7c0f375163dc193e))
+
+
 ## v0.29.2 (2026-08-26)
 
 ### Bug Fixes
