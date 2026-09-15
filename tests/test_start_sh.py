@@ -235,3 +235,20 @@ def test_help_lists_verbose(deployment):
     result, _ = run_start(deployment, "--help")
     assert result.returncode == 0
     assert "--verbose" in result.stdout
+
+
+def test_failure_lines_say_what_was_checked_and_what_came_back(deployment):
+    """The stub answers "healthy" to every inspect, so the exit-code checks
+    fail. The line must carry the expectation, the observation and the next
+    command, not just a label (#114)."""
+    result, _ = run_start(deployment)
+    assert (
+        '❌ init-config exited 0: expected "0", got "healthy". '
+        "Next: docker compose logs init-config" in result.stdout
+    )
+
+
+def test_summary_points_at_verbose_when_checks_fail(deployment):
+    result, _ = run_start(deployment)
+    assert "checks failed" in result.stdout
+    assert "--verbose" in result.stdout
