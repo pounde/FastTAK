@@ -221,3 +221,17 @@ def test_failed_up_stops_the_start_and_shows_why(deployment):
     assert not any(c.startswith("inspect") for c in calls), (
         "must not wait on a stack that did not start"
     )
+
+
+def test_verbose_prints_every_check(deployment):
+    """Passes are silent by default; --verbose shows them (#114)."""
+    quiet, _ = run_start(deployment)
+    verbose, _ = run_start(deployment, "--verbose")
+    assert "✅ TAK Server healthy" not in quiet.stdout
+    assert "✅ TAK Server healthy" in verbose.stdout
+
+
+def test_help_lists_verbose(deployment):
+    result, _ = run_start(deployment, "--help")
+    assert result.returncode == 0
+    assert "--verbose" in result.stdout
