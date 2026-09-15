@@ -3,22 +3,28 @@
 # Checks:
 #   1. All 5 Java processes running (config, messaging, api, retention, plugins)
 #   2. Port 8089 accepting connections (CoT TLS)
-#   3. Port 8446 TLS handshake works (web admin)
+#   3. The API answers without a server error (5xx = up but failing)
 #   4. Certificate expiry within 30 days
-#   5. OutOfMemoryError in logs
+#   5. Ignite client disconnects in the recent log
+#   6. OutOfMemoryError in the recent log
 #
-# Exit 0 = healthy, Exit 1 = unhealthy
+# Exit 0 = healthy, Exit 1 = unhealthy. Paths and the probe URL come from the
+# environment so the script runs outside the container (tests/test_healthcheck_sh.py).
 
-CERT_DIR="/opt/tak/certs/files"
+CERT_DIR="${CERT_DIR:-/opt/tak/certs/files}"
+LOGFILE="${LOGFILE:-/opt/tak/logs/takserver.log}"
+MSG_LOGFILE="${MSG_LOGFILE:-/opt/tak/logs/takserver-messaging.log}"
+INCIDENT_DIR="${INCIDENT_DIR:-/opt/tak/logs/incident}"
+PROC_ROOT="${PROC_ROOT:-/proc}"
+PROBE_URL="${PROBE_URL:-https://localhost:8446/Marti/api/version}"
 WARN_DAYS=30
 WARN_SECONDS=$((WARN_DAYS * 86400))
-LOGFILE="/opt/tak/logs/takserver.log"
 
 # --- Check 1: All 5 Java processes running ---
 # The 5.8 hardened image ships no procps (no pgrep/ps/pidof), so match on
 # /proc directly. cmdline is NUL-separated; translate to spaces before matching.
 proc_running() {
-    for c in /proc/[0-9]*/cmdline; do
+    for c in "$PROC_ROOT"/[0-9]*/cmdline; do
         [ -r "$c" ] || continue
         if tr '\0' ' ' < "$c" 2>/dev/null | grep -qF -- "$1"; then
             return 0
