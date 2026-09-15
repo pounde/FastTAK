@@ -46,6 +46,7 @@ just up
 `just setup` extracts the TAK Server release, builds Docker images, creates `.env` with generated secrets. You only run it once (or again to upgrade).
 
 `just up` brings up the stack, waits for healthy, verifies it, and shows connection info.
+`just doctor` re-runs those checks against the running stack without touching it, and lists the ports this host publishes.
 
 The fastest path to a working stack is `DEPLOY_MODE=direct` with `SERVER_ADDRESS` set to your machine's IP address — no DNS required.
 
