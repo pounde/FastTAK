@@ -30,7 +30,7 @@ compose() { docker compose --env-file "$ENV_FILE" "$@"; }
 
 PASS=0
 FAIL=0
-VERBOSE=false
+VERBOSE=false    # --verbose: print passes and notes, not only failures
 
 CAPTURE=false
 WAIT=true
@@ -39,7 +39,7 @@ SERVICES=()
 
 usage() {
   cat <<'EOF'
-Usage: ./start.sh [--capture] [--checks|--no-checks] [--no-wait] [service...]
+Usage: ./start.sh [--capture] [--checks|--no-checks] [--no-wait] [--verbose] [service...]
 
 Start the stack, wait for tak-server, and verify it.
 
@@ -48,6 +48,7 @@ Start the stack, wait for tak-server, and verify it.
   --checks      run the post-start checks (default for a whole-stack start)
   --no-checks   skip them (default when services are named)
   --no-wait     do not wait for tak-server to report healthy (skips the checks unless --checks is given)
+  --verbose     print every check, not only the failures
   -h, --help    show this help
 EOF
 }
@@ -59,6 +60,7 @@ while [ $# -gt 0 ]; do
     --checks)    CHECKS=true ;;
     --no-checks) CHECKS=false ;;
     --no-wait)   WAIT=false ;;
+    --verbose)   VERBOSE=true ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) SERVICES+=("$1") ;;
   esac
