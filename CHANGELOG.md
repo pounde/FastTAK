@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.30.3 (2026-09-15)
+
+### Bug Fixes
+
+- **setup**: Print commands that exist, and none for a -d deployment
+  ([`5a67eb7`](https://github.com/pounde/FastTAK/commit/5a67eb79f7c1b1d0f94c592326c30c38fc7eb813))
+
+
 ## v0.30.2 (2026-09-15)
 
 ### Bug Fixes
