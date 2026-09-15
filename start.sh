@@ -237,6 +237,9 @@ run_checks() {
   PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
   assert "$PROXY_STATE" "running" "ldap-proxy running" "docker compose logs ldap-proxy"
 
+  MONITOR_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q monitor 2>/dev/null)" 2>/dev/null || echo unknown)
+  assert "$MONITOR_STATUS" "healthy" "Monitor healthy" "docker compose logs monitor"
+
   log ""
   log "Config"
   log "──────"

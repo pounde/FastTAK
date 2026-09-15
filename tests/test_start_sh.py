@@ -73,6 +73,7 @@ case " $* " in
     ;;
   "inspect "*|" inspect "*)
     case "$*" in
+      *" ") exit 1 ;;  # trailing space: the container id argument was empty
       *ExitCode*)     echo "${STUB_INSPECT_EXITCODE:-0}" ;;
       *State.Status*) echo running ;;
       *)              echo healthy ;;
@@ -395,7 +396,7 @@ def test_healthy_stack_passes_every_check(deployment):
     result, _ = run_start(deployment)
     assert result.returncode == 0, result.stderr
     assert "❌" not in result.stdout, result.stdout
-    assert "✅ All checks passed (" in result.stdout
+    assert "✅ All checks passed (32/32)" in result.stdout
 
 
 def test_doctor_runs_only_the_checks(deployment):
@@ -519,6 +520,14 @@ def test_doctor_skips_the_report_when_compose_gives_nothing(deployment):
 def test_a_normal_start_does_not_print_the_report(deployment):
     result, _ = run_start(deployment)
     assert "Published ports" not in result.stdout
+
+
+def test_bare_start_checks_the_monitor(deployment):
+    result, _ = run_start(deployment, extra_env={"STUB_PS_EMPTY": "monitor"})
+    assert (
+        '❌ Monitor healthy: expected "healthy", got "unknown". '
+        "Next: docker compose logs monitor" in result.stdout
+    )
 
 
 def test_doctor_reports_when_python3_is_missing(deployment):
