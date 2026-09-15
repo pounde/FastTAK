@@ -95,10 +95,26 @@ if [ -d "${CERT_DIR}" ]; then
     done
 fi
 
-# --- Check 5: OutOfMemoryError in logs ---
+SCAN_LINES=500
+
+# --- Check 5: Ignite client disconnects in the recent log ---
+# The detached-client outage logs these while every other check passes.
+# Bounded to the last SCAN_LINES lines so a past incident cannot pin the
+# container unhealthy until rotation (#79).
 if [ -f "$LOGFILE" ]; then
-    if grep -q "OutOfMemoryError" "$LOGFILE" 2>/dev/null; then
-        echo "UNHEALTHY: OutOfMemoryError detected in logs"
+    IGNITE=$(tail -n "$SCAN_LINES" "$LOGFILE" \
+        | grep -oE 'IgniteClientDisconnected|ClusterTopologyException|Failed to connect to node' \
+        | head -n 1)
+    if [ -n "$IGNITE" ]; then
+        echo "UNHEALTHY: $IGNITE in the last $SCAN_LINES lines of takserver.log"
+        exit 1
+    fi
+fi
+
+# --- Check 6: OutOfMemoryError in the recent log ---
+if [ -f "$LOGFILE" ]; then
+    if tail -n "$SCAN_LINES" "$LOGFILE" | grep -q "OutOfMemoryError" 2>/dev/null; then
+        echo "UNHEALTHY: OutOfMemoryError in the last $SCAN_LINES lines of takserver.log"
         exit 1
     fi
 fi
