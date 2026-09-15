@@ -25,7 +25,23 @@ case " $* " in
   *" up "*)
     [ -n "${STUB_UP_ERR:-}" ] && { printf '%s\n' "$STUB_UP_ERR" >&2; exit 1; }
     ;;
-  *" ps "*|*" port "*) echo stubid ;;
+  *" port "*)
+    svc=$(printf '%s\n' "$*" | sed -n 's/.* port \([^ ]*\) .*/\1/p')
+    entry=$(printf '%s\n' "${STUB_PORT_MAP:-}" | tr ';' '\n' |
+      grep "^$svc=" | head -1 | cut -d= -f2-)
+    case "$entry" in
+      "")
+        cport=$(printf '%s\n' "$*" | sed -n 's/.* port [^ ]* \([^ ]*\).*/\1/p')
+        printf '0.0.0.0:%s\n' "$cport"
+        ;;
+      ERR) echo "no port for container $svc" >&2; exit 1 ;;
+      *)   printf '%s\n' "$entry" ;;
+    esac
+    ;;
+  *" ps "*)
+    svc=$(printf '%s\n' "$*" | sed -n 's/.* ps -a\{0,1\}q \([^ ]*\).*/\1/p')
+    [ "$svc" = "${STUB_PS_EMPTY:-}" ] || echo stubid
+    ;;
   "inspect "*|" inspect "*) echo healthy ;;
   " exec "*) echo "5/5" ;;
 esac
@@ -46,6 +62,11 @@ def deployment(tmp_path):
     stub = bin_dir / "docker"
     stub.write_text(STUB)
     stub.chmod(0o755)
+    nc = bin_dir / "nc"
+    nc.write_text(
+        '#!/bin/sh\nprintf \'nc %s\\n\' "$*" >> "$DOCKER_LOG"\nexit "${STUB_NC_RC:-0}"\n'
+    )
+    nc.chmod(0o755)
     return tmp_path
 
 
@@ -252,3 +273,48 @@ def test_summary_points_at_verbose_when_checks_fail(deployment):
     result, _ = run_start(deployment)
     assert "checks failed" in result.stdout
     assert "--verbose" in result.stdout
+
+
+def test_exposed_but_unpublished_port_is_a_note(deployment):
+    """Compose prints `invalid IP:0` for a port the image exposes but nothing
+    publishes — Node-RED in subdomain mode. It read as port 0 and failed (#120)."""
+    result, _ = run_start(
+        deployment, "--verbose", extra_env={"STUB_PORT_MAP": "nodered=invalid IP:0"}
+    )
+    assert "❌ Node-RED" not in result.stdout
+    assert "– Node-RED not published by this compose configuration" in result.stdout
+
+
+def test_unknown_container_port_is_a_note(deployment):
+    """Compose exits 1 with nothing on stdout for a port the image does not
+    expose at all — MediaMTX HLS in subdomain mode."""
+    result, _ = run_start(deployment, "--verbose", extra_env={"STUB_PORT_MAP": "mediamtx=ERR"})
+    assert "❌ MediaMTX HLS" not in result.stdout
+    assert "– MediaMTX HLS not published by this compose configuration" in result.stdout
+
+
+def test_published_port_is_probed(deployment):
+    result, calls = run_start(
+        deployment, "--verbose", extra_env={"STUB_PORT_MAP": "nodered=0.0.0.0:1880"}
+    )
+    assert "✅ Node-RED (port 1880)" in result.stdout
+    assert "nc -z localhost 1880" in calls
+
+
+def test_published_port_not_listening_fails_with_the_port(deployment):
+    result, _ = run_start(
+        deployment, extra_env={"STUB_PORT_MAP": "nodered=0.0.0.0:1880", "STUB_NC_RC": "1"}
+    )
+    assert (
+        "❌ Node-RED: nothing listening on localhost:1880. Next: docker compose ps nodered"
+        in result.stdout
+    )
+
+
+def test_unpublished_port_on_a_stopped_service_fails(deployment):
+    """Not published must never hide not running."""
+    result, _ = run_start(
+        deployment,
+        extra_env={"STUB_PORT_MAP": "nodered=invalid IP:0", "STUB_PS_EMPTY": "nodered"},
+    )
+    assert "❌ Node-RED: nodered is not running. Next: docker compose ps nodered" in result.stdout
