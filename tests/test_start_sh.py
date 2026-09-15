@@ -530,6 +530,16 @@ def test_bare_start_checks_the_monitor(deployment):
     )
 
 
+def test_stopped_service_reads_unknown_not_empty(deployment):
+    """A container that is not running yields an empty id from `compose ps`;
+    the health-status checks must read that as "unknown", not blank."""
+    result, _ = run_start(deployment, extra_env={"STUB_PS_EMPTY": "tak-database"})
+    assert (
+        '❌ TAK Database healthy: expected "healthy", got "unknown". '
+        "Next: docker compose logs tak-database" in result.stdout
+    )
+
+
 def test_doctor_reports_when_python3_is_missing(deployment):
     python3 = deployment / "bin" / "python3"
     python3.write_text("#!/bin/sh\nexit 127\n")
