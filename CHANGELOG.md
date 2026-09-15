@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.30.1 (2026-09-15)
+
+### Bug Fixes
+
+- **restore**: Keep the host's TAK_VERSION; refuse below-floor archives
+  ([`dd9ce30`](https://github.com/pounde/FastTAK/commit/dd9ce30c22348ed9084de975ea30b720cb41dabc))
+
+- **security**: Request partial-chain verification explicitly
+  ([`644ca4e`](https://github.com/pounde/FastTAK/commit/644ca4e83fa677d3206268a826ac7d454d8f18ff))
+
+- **security**: Verify TAK Server's chain against the deployment CA
+  ([`48705bb`](https://github.com/pounde/FastTAK/commit/48705bbe27810e425b2a0541ab7efbdab1edb36d))
+
+
 ## v0.30.0 (2026-09-14)
 
 ### Bug Fixes
