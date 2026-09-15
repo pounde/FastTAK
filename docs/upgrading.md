@@ -104,7 +104,7 @@ docker compose up -d --remove-orphans
 Confirm the stack is healthy and that you can still get in:
 
 ```bash
-just doctor                  # every check just up runs, plus the published-ports report
+just doctor                  # every check just up runs, the Monitor included, plus the published-ports report
 ```
 
 Then load the Monitor dashboard in a browser and confirm the pages render. A 403
