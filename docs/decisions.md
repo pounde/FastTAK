@@ -2,6 +2,43 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-055: Status Reporters Never Fail Silent; Passes Are Quiet, Failures Explain Themselves
+
+**Decision:** Every FastTAK surface that reports health or verifies the
+stack — `start.sh`'s checks, the monitor's health probes, the TAK container's
+healthcheck, the alert engine — follows four rules:
+
+1. **Never silent.** A probe that cannot answer reports that it cannot, with
+   the reason. `None`, an empty list, or a swallowed exception is not a result.
+2. **Passes are quiet, failures explain themselves.** Default output is the
+   failures and one summary line. Every failure line has three parts: the
+   label, what was expected or checked together with what came back, and
+   the next command to run — e.g.
+   `❌ init-config exited 0: expected "0", got "healthy". Next: docker compose logs init-config`.
+   `--verbose` prints passes and notes.
+3. **Absent is not broken.** A port this deployment deliberately does not
+   publish, a cert not yet created, a service outside this deploy mode is a
+   *note*, never a failure. "Not running" is never a note.
+4. **Checks are re-runnable** against a running stack without touching it.
+
+**Why:** the failures that hurt were the quiet ones. A subdomain-mode start
+ended with `❌ Port 0 (Node-RED)` on a healthy stack because Compose's
+"not published" answer was read as a port number (#120); the TAK container
+reported HEALTHY through a total outage because its probe only failed on
+no-response (#79); the cert probes returned `None` on any error, so an expired
+cert made the dashboard greener (#57); the alert engine never recorded a
+recovery and swallowed a recurring warning (#77). Each was an error path that
+returned "nothing" and a reporter that read "nothing" as "fine".
+
+**Alternatives considered:** printing every check by default. Rejected — 29
+lines on every healthy start trains operators to scroll past the block, which
+is how the one failing line was missed. The summary count carries the tally;
+`--verbose` is one flag away.
+
+**Consequences:** Adding a check means writing its failure line with the
+three parts. A probe that catches an exception must return an error item or
+raise, never drop the entry. Epic #123 applies these across the stack.
+
 ## DD-054: Restoring `cot` Pre-Creates Extensions as Superuser, Then Reassigns Ownership
 
 **Decision:** Restoring the `cot` database — `tests-integration/restore.sh`,
