@@ -50,13 +50,16 @@ if command -v nc >/dev/null 2>&1; then
     nc -z -w 2 localhost 8089 2>/dev/null || { echo "UNHEALTHY: port 8089 not accepting connections"; exit 1; }
 fi
 
-# --- Check 3: Port 8446 TLS responding ---
+# --- Check 3: The API answers without a server error ---
+# A dead listener gives 000. A server that answers 5xx to everything — the
+# Ignite-client-detached outage — is up, TLS-fine, and useless; that is the
+# case this check exists for (#79). Any other code proves the API answers.
 if command -v curl >/dev/null 2>&1; then
-    HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 https://localhost:8446/ 2>/dev/null)
-    if [ "$HTTP_CODE" = "000" ]; then
-        echo "UNHEALTHY: port 8446 TLS handshake failed"
-        exit 1
-    fi
+    HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "$PROBE_URL" 2>/dev/null)
+    case "$HTTP_CODE" in
+        000) echo "UNHEALTHY: no TLS response from $PROBE_URL"; exit 1 ;;
+        5*)  echo "UNHEALTHY: $PROBE_URL returned HTTP $HTTP_CODE (the API is up but failing)"; exit 1 ;;
+    esac
 fi
 
 # --- Check 4: Certificate expiry ---
