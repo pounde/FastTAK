@@ -69,6 +69,7 @@ TAK-specific ports.
 | SSH         | TCP      | 22   | **Restricted to your IP** (click the pencil icon → your public IP) |
 | HTTP        | TCP      | 80   | Anywhere                                                           |
 | HTTPS       | TCP      | 443  | Anywhere                                                           |
+| Custom      | UDP      | 443  | Anywhere                                                           |
 | Custom      | TCP      | 8443 | Anywhere                                                           |
 | Custom      | TCP      | 8446 | Anywhere                                                           |
 | Custom      | TCP      | 8089 | Anywhere                                                           |
@@ -82,6 +83,9 @@ TAK CA — public exposure is safe because the cert is the credential.
 
 Ports 80/443 are HTTP/HTTPS — HTTP is needed for Let's Encrypt's HTTP-01
 challenge during cert acquisition; Caddy upgrades all HTTP traffic to HTTPS.
+
+UDP 443 carries HTTP/3. Caddy advertises it on every HTTPS response; without
+the UDP rule browsers try it, fail, and fall back to TCP on every page load.
 
 Don't open 1935 or 8554 — MediaMTX is intentionally kept internal (see step 7).
 
