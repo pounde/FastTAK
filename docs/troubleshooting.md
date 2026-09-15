@@ -1,5 +1,23 @@
 # Troubleshooting
 
+## Start with `just doctor`
+
+```bash
+just doctor             # failures only, and what to run next
+just doctor --verbose   # every check
+```
+
+It runs the same checks `just up` runs after a start, against whatever is
+running, without building, starting, or changing anything. Each failure line
+says what was checked, what came back, and the next command to run. Before
+the summary it lists the ports this host publishes, compared with what your
+`DEPLOY_MODE` should bind: an unexpected port fails (look for a stray
+`docker-compose.override.yml`), a missing one is noted (shown with
+`--verbose`). What the internet can actually reach is that set intersected
+with your cloud firewall, which the host cannot see. Exit status is 1 when
+anything failed, so it works in cron
+and in a shell `&&`.
+
 ## No TAK client can connect, and every container reports healthy
 
 **Symptoms**
