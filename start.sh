@@ -125,13 +125,16 @@ note() { if $VERBOSE; then echo "  – $1"; fi; }
 assert_published_port() {
   _svc="$1"; _cport="$2"; _label="$3"
   _mapping=$(compose port "$_svc" "$_cport" 2>/dev/null | head -1)
-  if [ -n "$_mapping" ]; then
-    assert_port "${_mapping##*:}" "$_label" "docker compose ps $_svc"
+  _hport="${_mapping##*:}"
+  # Compose prints "invalid IP:0" (older releases ":0") for a port the image
+  # exposes but nothing publishes, and nothing at all for a port it does not
+  # know. Both mean "not published"; only a real host port is worth probing (#120).
+  if [ -n "$_hport" ] && [ "$_hport" != "0" ]; then
+    assert_port "$_hport" "$_label" "docker compose ps $_svc"
     return
   fi
-  # No runtime mapping. Distinguish "deliberately not published" from "the
-  # service is not running" — the latter would otherwise read as a config
-  # choice and pass silently.
+  # No mapping. Distinguish "deliberately not published" from "the service is
+  # not running" — the latter would otherwise read as a config choice.
   if [ -z "$(compose ps -q "$_svc" 2>/dev/null)" ]; then
     fail "$_label" "$_svc is not running" "docker compose ps $_svc"
   else
