@@ -16,7 +16,8 @@ setup *args:
   just up <service>...          rebuild and recreate only those (checks skipped)
   just up --capture             include the mitmproxy capture sidecar
   just up --checks|--no-checks  override the checks default
-  just up --no-wait             do not wait for tak-server (skips the checks unless --checks is given)")]
+  just up --no-wait             do not wait for tak-server (skips the checks unless --checks is given)
+  just up --verbose             print every check, not only the failures")]
 up *args:
     ./start.sh {{args}}
 
