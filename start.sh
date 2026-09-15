@@ -36,10 +36,12 @@ CAPTURE=false
 WAIT=true
 CHECKS=""        # empty: decided below from whether services were named
 SERVICES=()
+DOCTOR=false
 
 usage() {
   cat <<'EOF'
 Usage: ./start.sh [--capture] [--checks|--no-checks] [--no-wait] [--verbose] [service...]
+       ./start.sh --doctor [--verbose]
 
 Start the stack, wait for tak-server, and verify it.
 
@@ -49,6 +51,7 @@ Start the stack, wait for tak-server, and verify it.
   --no-checks   skip them (default when services are named)
   --no-wait     do not wait for tak-server to report healthy (skips the checks unless --checks is given)
   --verbose     print every check, not only the failures
+  --doctor      check the running stack without touching it; exit 1 on any failure
   -h, --help    show this help
 EOF
 }
@@ -61,11 +64,23 @@ while [ $# -gt 0 ]; do
     --no-checks) CHECKS=false ;;
     --no-wait)   WAIT=false ;;
     --verbose)   VERBOSE=true ;;
+    --doctor)    DOCTOR=true ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     *) SERVICES+=("$1") ;;
   esac
   shift
 done
+
+# doctor is a read-only mode: it inspects whatever is running and takes no
+# option that would change that.
+if $DOCTOR; then
+  if $CAPTURE || ! $WAIT || [ -n "$CHECKS" ] || [ ${#SERVICES[@]} -gt 0 ]; then
+    echo "--doctor checks the running stack and takes no other option" >&2
+    usage >&2
+    exit 2
+  fi
+  CHECKS=true
+fi
 
 # The checks need a healthy tak-server to inspect; skipping the wait means
 # they would run against a stack that may not be up yet. The invocation says
@@ -311,8 +326,11 @@ fi
 # with no new TAK zip, which never runs setup.sh. The launch is the one step
 # every upgrade path takes. This script does not use `set -e`, so the exit
 # status is checked explicitly.
-if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$ENV_FILE"; then
-  exit 1
+# doctor changes nothing, so it does not provision either.
+if ! $DOCTOR; then
+  if ! "$SCRIPT_DIR/scripts/ensure-secrets.sh" "$ENV_FILE"; then
+    exit 1
+  fi
 fi
 if ! "$SCRIPT_DIR/scripts/check-env.sh" "$ENV_FILE"; then
   exit 1
@@ -342,14 +360,18 @@ stack_export_version
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║       Starting FastTAK                   ║"
+if $DOCTOR; then
+  echo "║       FastTAK doctor                     ║"
+else
+  echo "║       Starting FastTAK                   ║"
+fi
 echo "╚══════════════════════════════════════════╝"
 echo ""
 echo "  Address: $SERVER_ADDRESS"
 echo "  Mode:    $DEPLOY_MODE"
 echo ""
 
-run_start
+if ! $DOCTOR; then run_start; fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CHECKS
@@ -372,6 +394,10 @@ if $CHECKS; then
   fi
 else
   echo "  – Checks skipped (targeted start). Run ./start.sh --checks to verify the whole stack."
+fi
+
+if $DOCTOR; then
+  if [ "$FAIL" -eq 0 ]; then exit 0; else exit 1; fi
 fi
 
 WA_PASS=$(env_get "$ENV_FILE" TAK_WEBADMIN_PASSWORD)
