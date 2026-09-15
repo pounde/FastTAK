@@ -90,16 +90,27 @@ pass() {
   if $VERBOSE; then echo "  ✅ $1"; fi
 }
 
+# fail <label> [detail] [next]
+# One line an operator can act on: what was checked, what came back, what
+# to run. "❌ Port 0 (Node-RED)" cost a debugging session (#120, #114).
 fail() {
   FAIL=$((FAIL + 1))
-  echo "  ❌ $1"
+  local line="  ❌ $1"
+  [ -n "${2:-}" ] && line="$line: $2"
+  [ -n "${3:-}" ] && line="$line. Next: $3"
+  echo "$line"
 }
 
-assert()      { if [ "$1" = "$2" ]; then pass "$3"; else fail "$3 (got: $1)"; fi; }
-assert_not()  { if [ "$1" != "$2" ]; then pass "$3"; else fail "$3 (got: $1)"; fi; }
-assert_file() { if [ -f "$1" ]; then pass "$2"; else fail "$2"; fi; }
-assert_grep() { if grep -q "$1" "$2" 2>/dev/null; then pass "$3"; else fail "$3"; fi; }
-assert_port() { if nc -z localhost "$1" 2>/dev/null; then pass "Port $1 ($2)"; else fail "Port $1 ($2)"; fi; }
+# assert <value> <expected> <label> [next]
+assert()      { if [ "$1" = "$2" ]; then pass "$3"; else fail "$3" "expected \"$2\", got \"$1\"" "${4:-}"; fi; }
+# assert_not <value> <unexpected> <label> [next]
+assert_not()  { if [ "$1" != "$2" ]; then pass "$3"; else fail "$3" "got \"$1\"" "${4:-}"; fi; }
+# assert_file <path> <label> [next]
+assert_file() { if [ -f "$1" ]; then pass "$2"; else fail "$2" "$1 is missing" "${3:-}"; fi; }
+# assert_grep <pattern> <file> <label> [next]
+assert_grep() { if grep -q "$1" "$2" 2>/dev/null; then pass "$3"; else fail "$3" "\"$1\" not found in $2" "${4:-}"; fi; }
+# assert_port <port> <label> [next]
+assert_port() { if nc -z localhost "$1" 2>/dev/null; then pass "$2 (port $1)"; else fail "$2" "nothing listening on localhost:$1" "${3:-}"; fi; }
 
 # A condition that is legitimately absent rather than broken. Not counted as a
 # failure — a start script that reports "5 checks failed" on a healthy stack
@@ -115,14 +126,14 @@ assert_published_port() {
   _svc="$1"; _cport="$2"; _label="$3"
   _mapping=$(compose port "$_svc" "$_cport" 2>/dev/null | head -1)
   if [ -n "$_mapping" ]; then
-    assert_port "${_mapping##*:}" "$_label"
+    assert_port "${_mapping##*:}" "$_label" "docker compose ps $_svc"
     return
   fi
   # No runtime mapping. Distinguish "deliberately not published" from "the
   # service is not running" — the latter would otherwise read as a config
   # choice and pass silently.
   if [ -z "$(compose ps -q "$_svc" 2>/dev/null)" ]; then
-    fail "$_label — $_svc is not running"
+    fail "$_label" "$_svc is not running" "docker compose ps $_svc"
   else
     note "$_label not published by this compose configuration"
   fi
@@ -242,44 +253,44 @@ log "Services"
 log "────────"
 
 TAK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo unknown)
-assert "$TAK_STATUS" "healthy" "TAK Server healthy"
+assert "$TAK_STATUS" "healthy" "TAK Server healthy" "docker compose logs tak-server"
 
 DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
-assert "$DB_STATUS" "healthy" "TAK Database healthy"
+assert "$DB_STATUS" "healthy" "TAK Database healthy" "docker compose logs tak-database"
 
 INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-config 2>/dev/null)" 2>/dev/null)
-assert "$INIT_EXIT" "0" "init-config exited 0"
+assert "$INIT_EXIT" "0" "init-config exited 0" "docker compose logs init-config"
 
 ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
-assert "$ID_EXIT" "0" "init-identity exited 0"
+assert "$ID_EXIT" "0" "init-identity exited 0" "docker compose logs init-identity"
 
 LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q lldap 2>/dev/null)" 2>/dev/null)
-assert "$LLDAP_STATUS" "healthy" "LLDAP healthy"
+assert "$LLDAP_STATUS" "healthy" "LLDAP healthy" "docker compose logs lldap"
 
 PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
-assert "$PROXY_STATE" "running" "ldap-proxy running"
+assert "$PROXY_STATE" "running" "ldap-proxy running" "docker compose logs ldap-proxy"
 
 log ""
 log "Config"
 log "──────"
 
-assert_file "$DEPLOY_DIR/tak/CoreConfig.xml" "CoreConfig.xml"
+assert_file "$DEPLOY_DIR/tak/CoreConfig.xml" "CoreConfig.xml" "docker compose logs init-config"
 CC_PASS=$(grep -o '<connection[^>]*password="[^"]*"' "$DEPLOY_DIR/tak/CoreConfig.xml" | sed 's/.*password="//;s/"//')
-assert_not "$CC_PASS" "" "DB password set"
-assert_grep "tak-database:5432" "$DEPLOY_DIR/tak/CoreConfig.xml" "DB host"
-assert_grep 'enableAdminUI="true"' "$DEPLOY_DIR/tak/CoreConfig.xml" "Admin UI enabled"
-assert_grep '<certificateSigning CA="TAKServer">' "$DEPLOY_DIR/tak/CoreConfig.xml" "Certificate signing"
-assert_grep "adm_ldapservice" "$DEPLOY_DIR/tak/CoreConfig.xml" "LDAP auth"
-assert_grep 'adminGroup="ROLE_ADMIN"' "$DEPLOY_DIR/tak/CoreConfig.xml" "ROLE_ADMIN"
+assert_not "$CC_PASS" "" "DB password set" "grep -n '<connection' tak/CoreConfig.xml"
+assert_grep "tak-database:5432" "$DEPLOY_DIR/tak/CoreConfig.xml" "DB host" "grep -n 'tak-database:5432' tak/CoreConfig.xml"
+assert_grep 'enableAdminUI="true"' "$DEPLOY_DIR/tak/CoreConfig.xml" "Admin UI enabled" "grep -n 'enableAdminUI' tak/CoreConfig.xml"
+assert_grep '<certificateSigning CA="TAKServer">' "$DEPLOY_DIR/tak/CoreConfig.xml" "Certificate signing" "grep -n 'certificateSigning' tak/CoreConfig.xml"
+assert_grep "adm_ldapservice" "$DEPLOY_DIR/tak/CoreConfig.xml" "LDAP auth" "grep -n 'adm_ldapservice' tak/CoreConfig.xml"
+assert_grep 'adminGroup="ROLE_ADMIN"' "$DEPLOY_DIR/tak/CoreConfig.xml" "ROLE_ADMIN" "grep -n 'adminGroup' tak/CoreConfig.xml"
 
 log ""
 log "Certificates"
 log "────────────"
 
-assert_file "$DEPLOY_DIR/tak/certs/files/root-ca.pem" "Root CA"
-assert_file "$DEPLOY_DIR/tak/certs/files/ca.pem" "Intermediate CA"
-assert_file "$DEPLOY_DIR/tak/certs/files/takserver.jks" "Server cert"
-assert_file "$DEPLOY_DIR/tak/certs/files/svc_fasttakapi.p12" "API service cert"
+assert_file "$DEPLOY_DIR/tak/certs/files/root-ca.pem" "Root CA" "docker compose logs tak-server"
+assert_file "$DEPLOY_DIR/tak/certs/files/ca.pem" "Intermediate CA" "docker compose logs tak-server"
+assert_file "$DEPLOY_DIR/tak/certs/files/takserver.jks" "Server cert" "docker compose logs tak-server"
+assert_file "$DEPLOY_DIR/tak/certs/files/svc_fasttakapi.p12" "API service cert" "docker compose logs init-identity"
 # svc_nodered is NOT created at bootstrap — init-identity's SERVICE_ACCOUNTS
 # is just svc_fasttakapi. The monitor writes these PEMs when a data-mode
 # service account is created, so on a fresh install the file is absent and
@@ -289,9 +300,9 @@ if [ -f "$DEPLOY_DIR/tak/certs/files/svc_nodered.p12" ]; then
 else
   note "Node-RED service cert not present (created on demand via the Monitor)"
 fi
-assert_file "$DEPLOY_DIR/tak/certs/files/ca-signing.jks" "CA signing keystore"
-if ./certs.sh ca-info > /dev/null 2>&1; then pass "certs.sh ca-info"; else fail "certs.sh ca-info"; fi
-if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs.sh list"; fi
+assert_file "$DEPLOY_DIR/tak/certs/files/ca-signing.jks" "CA signing keystore" "docker compose logs tak-server"
+if ./certs.sh ca-info > /dev/null 2>&1; then pass "certs.sh ca-info"; else fail "certs.sh ca-info" "exited non-zero" "./certs.sh ca-info"; fi
+if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs.sh list" "exited non-zero" "./certs.sh list"; fi
 
 log ""
 log "Ports"
@@ -305,7 +316,7 @@ assert_published_port mediamtx 8554 "MediaMTX RTSP"
 assert_published_port nodered "$NODERED_PORT" "Node-RED"
 
 HTTP_8446=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "https://localhost:${TAKSERVER_ADMIN_PORT}" 2>/dev/null)
-assert_not "$HTTP_8446" "000" "${TAKSERVER_ADMIN_PORT} TLS (HTTP $HTTP_8446)"
+assert_not "$HTTP_8446" "000" "Admin HTTPS TLS on ${TAKSERVER_ADMIN_PORT}" "docker compose logs tak-server"
 
 log ""
 log "Health"
@@ -318,20 +329,20 @@ log "──────"
 if TAK_HEALTH=$(docker exec "$(compose ps -q tak-server)" /opt/tak/healthcheck.sh 2>&1); then
   pass "TAK Server processes ($TAK_HEALTH)"
 else
-  fail "TAK Server processes ($TAK_HEALTH)"
+  fail "TAK Server processes" "healthcheck.sh said: $TAK_HEALTH" "docker compose logs tak-server"
 fi
 
 DB_FAILS=$(docker exec "$(compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 DB_FAILS="${DB_FAILS:-0}"
-if [ "$DB_FAILS" -le 2 ] 2>/dev/null; then pass "DB auth (failures: $DB_FAILS)"; else fail "DB auth failures: $DB_FAILS"; fi
+if [ "$DB_FAILS" -le 2 ] 2>/dev/null; then pass "DB auth (failures: $DB_FAILS)"; else fail "DB auth" "$DB_FAILS \"password authentication failed\" lines in takserver.log" "docker compose logs tak-database"; fi
 
 OOM=$(docker exec "$(compose ps -q tak-server)" grep -c "OutOfMemoryError" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 OOM="${OOM:-0}"
-assert "$OOM" "0" "No OutOfMemoryError"
+assert "$OOM" "0" "No OutOfMemoryError" "docker compose logs tak-server"
 
 SEC_COUNT=$(docker exec "$(compose ps -q tak-server)" grep -c "Security status" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
 SEC_COUNT="${SEC_COUNT:-0}"
-if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Multiple starts ($SEC_COUNT)"; fi
+if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Single start" "$SEC_COUNT \"Security status\" lines in takserver.log" "docker compose logs tak-server"; fi
 
 fi
 
@@ -344,7 +355,7 @@ if $CHECKS; then
   if [ $FAIL -eq 0 ]; then
     echo "  ✅ All checks passed ($PASS/$TOTAL)"
   else
-    echo "  ⚠️  $FAIL checks failed ($PASS/$TOTAL passed)"
+    echo "  ⚠️  $FAIL checks failed ($PASS/$TOTAL passed) — re-run with --verbose to see every check"
   fi
 else
   echo "  – Checks skipped (targeted start). Run ./start.sh --checks to verify the whole stack."
