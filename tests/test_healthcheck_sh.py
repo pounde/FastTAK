@@ -76,3 +76,33 @@ def test_missing_process_is_named(container):
     result = run_hc(container)
     assert result.returncode == 1
     assert result.stdout.strip() == "UNHEALTHY: missing processes: api"
+
+
+@pytest.mark.parametrize("code", ["200", "302", "401", "403", "404"])
+def test_api_answering_with_any_non_5xx_is_healthy(container, code):
+    result = run_hc(container, STUB_HTTP_CODE=code)
+    assert result.returncode == 0, result.stdout
+
+
+@pytest.mark.parametrize("code", ["500", "502", "503"])
+def test_api_server_error_is_unhealthy(container, code):
+    """The outage: TLS up, port open, every request a 500, container HEALTHY."""
+    result = run_hc(container, STUB_HTTP_CODE=code)
+    assert result.returncode == 1
+    assert result.stdout.strip() == (
+        f"UNHEALTHY: https://localhost:8446/Marti/api/version returned HTTP {code} "
+        "(the API is up but failing)"
+    )
+
+
+def test_no_tls_response_is_unhealthy(container):
+    result = run_hc(container, STUB_HTTP_CODE="000")
+    assert result.returncode == 1
+    assert result.stdout.strip() == (
+        "UNHEALTHY: no TLS response from https://localhost:8446/Marti/api/version"
+    )
+
+
+def test_probe_url_is_overridable(container):
+    result = run_hc(container, STUB_HTTP_CODE="500", PROBE_URL="https://localhost:8446/")
+    assert "https://localhost:8446/ returned HTTP 500" in result.stdout
