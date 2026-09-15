@@ -110,10 +110,8 @@ def test_version_falls_back_to_dev(tmp_path):
     assert result.stdout == "dev"
 
 
-def _expected_ports(mode: str, admin="8446", nodered="1880", monitor="8180", mediamtx="8888"):
-    script = (
-        f'. "{LIB}"; stack_expected_published_ports {mode} {admin} {nodered} {monitor} {mediamtx}'
-    )
+def _expected_ports(mode: str, nodered="1880", monitor="8180", mediamtx="8888"):
+    script = f'. "{LIB}"; stack_expected_published_ports {mode} {nodered} {monitor} {mediamtx}'
     result = subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     return set(result.stdout.split())
@@ -146,6 +144,7 @@ def test_direct_adds_the_ui_ports_with_their_udp_twins():
     }
 
 
-def test_admin_port_override_is_honoured():
-    ports = _expected_ports("subdomain", admin="9446")
-    assert "9446/tcp" in ports and "8446/tcp" not in ports
+def test_admin_port_is_the_compose_literal():
+    """8446 is bound unconditionally by the base compose file — nothing lets
+    an operator's TAKSERVER_ADMIN_PORT move it."""
+    assert "8446/tcp" in _expected_ports("subdomain")

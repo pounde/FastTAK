@@ -5,6 +5,7 @@ queries start.sh makes (health status, container ids). Tests assert on the
 recorded argv — which flags reached compose — not on the stack.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -14,6 +15,30 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 START = REPO / "start.sh"
+
+
+def _publishers(*entries: tuple[str, int, str]) -> str:
+    """Lines as `docker compose ps --format '{{.Service}} {{json .Publishers}}'`
+    prints them: one per service, each published port listed for IPv4 and IPv6."""
+    by_svc: dict[str, list[dict]] = {}
+    for svc, port, proto in entries:
+        for url in ("0.0.0.0", "::"):
+            by_svc.setdefault(svc, []).append(
+                {"URL": url, "TargetPort": port, "PublishedPort": port, "Protocol": proto}
+            )
+    return "\n".join(f"{svc} {json.dumps(pubs)}" for svc, pubs in by_svc.items())
+
+
+SUBDOMAIN_PUBLISHED = _publishers(
+    ("caddy", 80, "tcp"),
+    ("caddy", 443, "tcp"),
+    ("caddy", 443, "udp"),
+    ("tak-server", 8089, "tcp"),
+    ("tak-server", 8443, "tcp"),
+    ("tak-server", 8446, "tcp"),
+    ("mediamtx", 8554, "tcp"),
+    ("mediamtx", 1935, "tcp"),
+)
 
 STUB = r"""#!/bin/sh
 printf '%s\n' "$*" >> "$DOCKER_LOG"
@@ -38,6 +63,9 @@ case " $* " in
       ERR) echo "no port for container $svc" >&2; exit 1 ;;
       *)   printf '%s\n' "$entry" ;;
     esac
+    ;;
+  *" ps --format "*)
+    printf '%s\n' "${STUB_PS_JSON:-}"
     ;;
   *" ps "*)
     svc=$(printf '%s\n' "$*" | sed -n 's/.* ps -a\{0,1\}q \([^ ]*\).*/\1/p')
@@ -120,6 +148,7 @@ def run_start(
         "PATH": f"{deployment / 'bin'}:{os.environ['PATH']}",
         "DOCKER_LOG": str(log),
         "FASTAK_ENV_FILE": str(deployment / ".env"),
+        "STUB_PS_JSON": SUBDOMAIN_PUBLISHED,
         **(extra_env or {}),
     }
     result = subprocess.run(
@@ -418,3 +447,96 @@ def test_doctor_with_verbose_prints_passes(deployment):
     result, _ = run_start(deployment, "--doctor", "--verbose")
     assert result.returncode == 0
     assert "✅ TAK Server healthy" in result.stdout
+
+
+def test_doctor_lists_the_published_ports(deployment):
+    result, _ = run_start(deployment, "--doctor")
+    assert result.returncode == 0, result.stdout
+    assert "Published ports (subdomain):" in result.stdout
+    assert "caddy  443/udp" in result.stdout
+    assert "tak-server  8089/tcp" in result.stdout
+    assert "cloud firewall" in result.stdout
+
+
+def test_doctor_fails_on_a_port_outside_the_expected_set(deployment):
+    """The case that catches a stray docker-compose.override.yml."""
+    extra = SUBDOMAIN_PUBLISHED + "\n" + _publishers(("app-db", 5432, "tcp"))
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": extra})
+    assert result.returncode == 1
+    assert (
+        "❌ Published port 5432/tcp on app-db: not in the subdomain set. "
+        "Next: ls docker-compose.override.yml compose.override.yml compose.override.yaml"
+        in result.stdout
+    )
+
+
+def test_doctor_notes_an_expected_port_that_is_not_published(deployment):
+    without_cot = _publishers(
+        ("caddy", 80, "tcp"),
+        ("caddy", 443, "tcp"),
+        ("caddy", 443, "udp"),
+        ("tak-server", 8443, "tcp"),
+        ("tak-server", 8446, "tcp"),
+        ("mediamtx", 8554, "tcp"),
+        ("mediamtx", 1935, "tcp"),
+    )
+    result, _ = run_start(
+        deployment, "--doctor", "--verbose", extra_env={"STUB_PS_JSON": without_cot}
+    )
+    assert result.returncode == 0, result.stdout
+    assert "– Expected port 8089/tcp is not published" in result.stdout
+
+
+def test_doctor_direct_mode_expects_the_ui_ports(deployment):
+    env = (deployment / ".env").read_text().replace("DEPLOY_MODE=subdomain", "DEPLOY_MODE=direct")
+    (deployment / ".env").write_text(env)
+    direct = (
+        SUBDOMAIN_PUBLISHED
+        + "\n"
+        + _publishers(
+            ("caddy", 1880, "tcp"),
+            ("caddy", 1880, "udp"),
+            ("caddy", 8180, "tcp"),
+            ("caddy", 8180, "udp"),
+            ("caddy", 8888, "tcp"),
+            ("caddy", 8888, "udp"),
+        )
+    )
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": direct})
+    assert result.returncode == 0, result.stdout
+    assert "Published ports (direct):" in result.stdout
+
+
+def test_doctor_skips_the_report_when_compose_gives_nothing(deployment):
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": ""})
+    assert result.returncode == 0, result.stdout
+    assert (
+        "Published ports: skipped — docker compose ps --format gave nothing "
+        "(is the stack running?)" in result.stdout
+    )
+
+
+def test_a_normal_start_does_not_print_the_report(deployment):
+    result, _ = run_start(deployment)
+    assert "Published ports" not in result.stdout
+
+
+def test_doctor_reports_when_python3_is_missing(deployment):
+    python3 = deployment / "bin" / "python3"
+    python3.write_text("#!/bin/sh\nexit 127\n")
+    python3.chmod(0o755)
+    result, _ = run_start(deployment, "--doctor")
+    assert result.returncode == 0, result.stdout
+    assert "Published ports: skipped — python3 not found" in result.stdout
+    assert "Published ports (subdomain):" not in result.stdout
+
+
+def test_doctor_tolerates_a_malformed_publisher(deployment):
+    broken = (
+        SUBDOMAIN_PUBLISHED
+        + '\nbroken {"not": "a list"}'
+        + '\nodd [{"URL":"0.0.0.0","TargetPort":1,"PublishedPort":"abc","Protocol":"tcp"}]'
+    )
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": broken})
+    assert result.returncode == 0, result.stdout
+    assert "tak-server  8089/tcp" in result.stdout
