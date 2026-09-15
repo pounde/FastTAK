@@ -6,6 +6,7 @@ recorded argv — which flags reached compose — not on the stack.
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -42,17 +43,50 @@ case " $* " in
     svc=$(printf '%s\n' "$*" | sed -n 's/.* ps -a\{0,1\}q \([^ ]*\).*/\1/p')
     [ "$svc" = "${STUB_PS_EMPTY:-}" ] || echo stubid
     ;;
-  "inspect "*|" inspect "*) echo healthy ;;
-  " exec "*) echo "5/5" ;;
+  "inspect "*|" inspect "*)
+    case "$*" in
+      *ExitCode*)     echo "${STUB_INSPECT_EXITCODE:-0}" ;;
+      *State.Status*) echo running ;;
+      *)              echo healthy ;;
+    esac
+    ;;
+  " exec "*)
+    case "$*" in
+      *healthcheck.sh*) echo "HEALTHY: all processes running, ports ok, certs valid" ;;
+      *"grep -c"*)      echo 0 ;;
+      *)                echo "5/5" ;;
+    esac
+    ;;
 esac
 exit 0
 """
 
 
+CORECONFIG = """<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+  <repository>
+    <connection url="jdbc:postgresql://tak-database:5432/cot" password="stub-password"/>
+  </repository>
+  <network><connector port="8446" enableAdminUI="true"/></network>
+  <auth><ldap serviceAccountDN="cn=adm_ldapservice,ou=people,dc=takldap"/></auth>
+  <security><certificateSigning CA="TAKServer"></certificateSigning></security>
+  <groups adminGroup="ROLE_ADMIN"/>
+</Configuration>
+"""
+
+CERT_FILES = ["root-ca.pem", "ca.pem", "takserver.jks", "svc_fasttakapi.p12", "ca-signing.jks"]
+
+
 @pytest.fixture
 def deployment(tmp_path):
-    """A scratch deployment: tak/, a valid .env, and the stub on PATH."""
-    (tmp_path / "tak").mkdir()
+    """A scratch deployment that passes every check: tak/ with a CoreConfig
+    and the cert files start.sh looks for, a valid .env, and stubs on PATH
+    that answer healthy unless a STUB_* variable says otherwise."""
+    tak = tmp_path / "tak"
+    (tak / "certs" / "files").mkdir(parents=True)
+    (tak / "CoreConfig.xml").write_text(CORECONFIG)
+    for name in CERT_FILES:
+        (tak / "certs" / "files" / name).write_bytes(b"stub")
     env = (REPO / ".env.example").read_text()
     env = env.replace("SERVER_ADDRESS=tak.example.com", "SERVER_ADDRESS=localhost")
     env = env.replace("TOKENS_API_SECRET=", "TOKENS_API_SECRET=" + "0" * 64)
@@ -67,6 +101,12 @@ def deployment(tmp_path):
         '#!/bin/sh\nprintf \'nc %s\\n\' "$*" >> "$DOCKER_LOG"\nexit "${STUB_NC_RC:-0}"\n'
     )
     nc.chmod(0o755)
+    curl = bin_dir / "curl"
+    curl.write_text(
+        '#!/bin/sh\nprintf \'curl %s\\n\' "$*" >> "$DOCKER_LOG"\n'
+        "printf '%s' \"${STUB_CURL_CODE:-200}\"\n"
+    )
+    curl.chmod(0o755)
     return tmp_path
 
 
@@ -132,7 +172,7 @@ def test_subdomain_mode_leaves_compose_file_unset(deployment):
 
 
 def test_missing_tak_dir_fails_preflight(deployment):
-    (deployment / "tak").rmdir()
+    shutil.rmtree(deployment / "tak")
     result, _ = run_start(deployment)
     assert result.returncode == 1
     assert "tak/ not found" in result.stderr
@@ -259,18 +299,18 @@ def test_help_lists_verbose(deployment):
 
 
 def test_failure_lines_say_what_was_checked_and_what_came_back(deployment):
-    """The stub answers "healthy" to every inspect, so the exit-code checks
-    fail. The line must carry the expectation, the observation and the next
-    command, not just a label (#114)."""
-    result, _ = run_start(deployment)
+    """STUB_INSPECT_EXITCODE makes the exit-code checks fail. The line must
+    carry the expectation, the observation and the next command, not just a
+    label (#114)."""
+    result, _ = run_start(deployment, extra_env={"STUB_INSPECT_EXITCODE": "1"})
     assert (
-        '❌ init-config exited 0: expected "0", got "healthy". '
+        '❌ init-config exited 0: expected "0", got "1". '
         "Next: docker compose logs init-config" in result.stdout
     )
 
 
 def test_summary_points_at_verbose_when_checks_fail(deployment):
-    result, _ = run_start(deployment)
+    result, _ = run_start(deployment, extra_env={"STUB_INSPECT_EXITCODE": "1"})
     assert "checks failed" in result.stdout
     assert "--verbose" in result.stdout
 
@@ -318,3 +358,12 @@ def test_unpublished_port_on_a_stopped_service_fails(deployment):
         extra_env={"STUB_PORT_MAP": "nodered=invalid IP:0", "STUB_PS_EMPTY": "nodered"},
     )
     assert "❌ Node-RED: nodered is not running. Next: docker compose ps nodered" in result.stdout
+
+
+def test_healthy_stack_passes_every_check(deployment):
+    """The spec's headline: a subdomain-mode start on a healthy stack ends
+    green. Every stub answer and fixture file below exists for this line."""
+    result, _ = run_start(deployment)
+    assert result.returncode == 0, result.stderr
+    assert "❌" not in result.stdout, result.stdout
+    assert "✅ All checks passed (" in result.stdout
