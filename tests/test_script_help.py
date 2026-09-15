@@ -49,7 +49,7 @@ def test_bare_invocation_prints_usage_and_fails(script):
 
 def test_start_help_documents_every_flag():
     out = _run("start.sh", "--help").stdout
-    for flag in ("--capture", "--checks", "--no-checks", "--no-wait", "--verbose"):
+    for flag in ("--capture", "--checks", "--no-checks", "--no-wait", "--verbose", "--doctor"):
         assert flag in out
 
 

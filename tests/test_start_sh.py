@@ -367,3 +367,54 @@ def test_healthy_stack_passes_every_check(deployment):
     assert result.returncode == 0, result.stderr
     assert "❌" not in result.stdout, result.stdout
     assert "✅ All checks passed (" in result.stdout
+
+
+def test_doctor_runs_only_the_checks(deployment):
+    """--doctor: no build, no up, no wait; the checklist runs; exit 0 when green."""
+    result, calls = run_start(deployment, "--doctor")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(" build" in c for c in calls)
+    assert not any(" up " in c for c in calls)
+    assert any(c.startswith("exec") for c in calls), "the checks exec into tak-server"
+    assert "FastTAK doctor" in result.stdout
+    assert "FastTAK is running" not in result.stdout
+    assert "✅ All checks passed (" in result.stdout
+
+
+def test_doctor_exits_one_when_a_check_fails(deployment):
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_INSPECT_EXITCODE": "1"})
+    assert result.returncode == 1
+    assert "❌ init-config exited 0" in result.stdout
+
+
+def test_doctor_does_not_provision_secrets(deployment):
+    """doctor changes nothing on the host. The fixture's .env has an empty
+    TAK_DB_PASSWORD; a normal start fills it, doctor must not."""
+    before = (deployment / ".env").read_text()
+    assert "\nTAK_DB_PASSWORD=\n" in before
+    run_start(deployment, "--doctor")
+    assert (deployment / ".env").read_text() == before
+    run_start(deployment)
+    assert "\nTAK_DB_PASSWORD=\n" not in (deployment / ".env").read_text()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--doctor", "monitor"),
+        ("--doctor", "--capture"),
+        ("--doctor", "--no-wait"),
+        ("--doctor", "--no-checks"),
+        ("--doctor", "--checks"),
+    ],
+)
+def test_doctor_takes_no_other_option(deployment, args):
+    result, _ = run_start(deployment, *args)
+    assert result.returncode == 2, args
+    assert "--doctor" in result.stderr
+
+
+def test_doctor_with_verbose_prints_passes(deployment):
+    result, _ = run_start(deployment, "--doctor", "--verbose")
+    assert result.returncode == 0
+    assert "✅ TAK Server healthy" in result.stdout
