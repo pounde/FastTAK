@@ -310,6 +310,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"   # HTTP/3: Caddy advertises h3 by default; without this browsers fall back to TCP (#122)
     volumes:
       - ${TAK_HOST_PATH:-./tak}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
