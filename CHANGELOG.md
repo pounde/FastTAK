@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.30.2 (2026-09-15)
+
+### Bug Fixes
+
+- **backup**: Order backups by the timestamp in the filename, not mtime
+  ([`51f019b`](https://github.com/pounde/FastTAK/commit/51f019badee203231d857e32ed24f89663039439))
+
+- **security**: Gate the OpenAPI document and Swagger UI behind the admin group
+  ([`6562367`](https://github.com/pounde/FastTAK/commit/6562367433011911a41e828f1023079d55313abc))
+
+### Documentation
+
+- Add User Types to the mkdocs nav
+  ([`e3ce747`](https://github.com/pounde/FastTAK/commit/e3ce747feb394df329f8df027e77416da1c52597))
+
+- **env**: Stop claiming FASTAK_DB_PASSWORD is generated
+  ([`12e4fe9`](https://github.com/pounde/FastTAK/commit/12e4fe99b14e508081d80cecc9dc5936dc11a592))
+
+
 ## v0.30.1 (2026-09-15)
 
 ### Bug Fixes
