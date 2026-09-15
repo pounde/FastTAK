@@ -168,3 +168,15 @@ def test_documented_flags_exist_in_the_script():
         assert not missing, (
             f"recipe {name} documents {missing}, but {m.group(1)} --help does not mention them"
         )
+
+
+def test_doctor_delegates_to_start_sh():
+    assert dry_run("doctor").endswith("./start.sh --doctor")
+
+
+def test_doctor_passes_verbose_through():
+    assert dry_run("doctor", "--verbose").endswith("./start.sh --doctor --verbose")
+
+
+def test_doctor_is_listed():
+    assert "doctor" in _recipe_names()

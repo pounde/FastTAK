@@ -21,6 +21,13 @@ setup *args:
 up *args:
     ./start.sh {{args}}
 
+[doc("Check the running stack without touching it: the post-start checks plus the
+published-ports report. Failures print with what to run next; exit 1 on any.
+  just doctor              failures only
+  just doctor --verbose    every check")]
+doctor *args:
+    ./start.sh --doctor {{args}}
+
 # Stop the stack. Volumes survive; the capture sidecars are removed.
 down:
     ./scripts/down.sh
