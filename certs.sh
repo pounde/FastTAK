@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # certs.sh — Certificate management CLI for FastTAK
 # Wraps docker exec calls to TAK Server's cert tools.
 #
@@ -14,7 +14,20 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONTAINER="$(docker compose -f "$SCRIPT_DIR/docker-compose.yml" ps -q tak-server 2>/dev/null)"
+# shellcheck source=scripts/lib-stack.sh
+. "$SCRIPT_DIR/scripts/lib-stack.sh"
+# The deployment every other entry point operates on: FASTAK_ENV_FILE when
+# set, else the repo's .env, with the deploy mode's compose files. Resolved in
+# a subshell at the repo root so `download`'s destination stays relative to
+# the caller's directory (#113).
+CONTAINER="$(
+  # shellcheck disable=SC2119  # no --capture here; the capture overlay is never in COMPOSE_FILE for certs.sh
+  cd "$SCRIPT_DIR" && stack_export_compose_file \
+    && docker compose --env-file "$(stack_env_file)" ps -q tak-server 2>&1
+)" || {
+  printf 'ERROR: could not ask Compose for the tak-server container:\n%s\n' "$CONTAINER" >&2
+  exit 1
+}
 CERT_DIR="/opt/tak/certs"
 CERT_FILES="/opt/tak/certs/files"
 
