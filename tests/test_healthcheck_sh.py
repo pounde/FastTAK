@@ -106,3 +106,50 @@ def test_no_tls_response_is_unhealthy(container):
 def test_probe_url_is_overridable(container):
     result = run_hc(container, STUB_HTTP_CODE="500", PROBE_URL="https://localhost:8446/")
     assert "https://localhost:8446/ returned HTTP 500" in result.stdout
+
+
+def _log_with(container: Path, *lines: str, padding: int = 0) -> None:
+    """Write takserver.log as the given lines followed by `padding` filler lines."""
+    body = "\n".join(lines) + "\n" + "INFO  filler\n" * padding
+    (container / "logs" / "takserver.log").write_text(body)
+
+
+def test_ignite_disconnect_outside_the_window_is_healthy(container):
+    """The scan is bounded so an old incident cannot pin the container unhealthy."""
+    _log_with(container, "ERROR IgniteClientDisconnectedException", padding=600)
+    result = run_hc(container)
+    assert result.returncode == 0, result.stdout
+
+
+def test_recent_oom_is_unhealthy(container):
+    _log_with(container, "java.lang.OutOfMemoryError: Java heap space", padding=10)
+    result = run_hc(container)
+    assert result.returncode == 1
+    assert (
+        result.stdout.strip()
+        == "UNHEALTHY: OutOfMemoryError in the last 500 lines of takserver.log"
+    )
+
+
+def test_old_oom_is_no_longer_sticky(container):
+    _log_with(container, "java.lang.OutOfMemoryError: Java heap space", padding=600)
+    result = run_hc(container)
+    assert result.returncode == 0, result.stdout
+
+
+@pytest.mark.parametrize(
+    ("line", "match"),
+    [
+        (
+            "ERROR IgniteClientDisconnectedException: Client node disconnected",
+            "IgniteClientDisconnected",
+        ),
+        ("ERROR ClusterTopologyException: topology changed", "ClusterTopologyException"),
+        ("WARN  Failed to connect to node [id=1]", "Failed to connect to node"),
+    ],
+)
+def test_ignite_disconnect_in_recent_log_is_unhealthy(container, line, match):
+    _log_with(container, line, padding=100)
+    result = run_hc(container)
+    assert result.returncode == 1
+    assert result.stdout.strip() == f"UNHEALTHY: {match} in the last 500 lines of takserver.log"
