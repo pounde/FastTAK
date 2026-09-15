@@ -123,7 +123,7 @@ note() { if $VERBOSE; then echo "  – $1"; fi; }
 # some deliberately. Asking compose is the only reading that stays true across
 # both.
 assert_published_port() {
-  _svc="$1"; _cport="$2"; _label="$3"
+  local _svc="$1" _cport="$2" _label="$3" _mapping _hport
   _mapping=$(compose port "$_svc" "$_cport" 2>/dev/null | head -1)
   _hport="${_mapping##*:}"
   # Compose prints "invalid IP:0" (older releases ":0") for a port the image
@@ -140,6 +140,161 @@ assert_published_port() {
   else
     note "$_label not published by this compose configuration"
   fi
+}
+
+# Build, start, and wait for tak-server. Exits the script on a failed build
+# or up, or a tak-server that never reports healthy.
+run_start() {
+  log ""
+  log "Start"
+  log "─────"
+
+  echo "  ⏳ Building containers..."
+  if [ ${#SERVICES[@]} -gt 0 ]; then
+    BUILD_ERR=$(compose build --quiet "${SERVICES[@]}" 2>&1 >/dev/null); BUILD_RC=$?
+  else
+    BUILD_ERR=$(compose build --quiet 2>&1 >/dev/null); BUILD_RC=$?
+  fi
+  if [ "$BUILD_RC" -ne 0 ]; then
+    echo "  ❌ docker compose build failed:" >&2
+    printf '%s\n' "$BUILD_ERR" >&2
+    exit 1
+  fi
+
+  echo "  ⏳ Starting services..."
+  # --remove-orphans: containers for services deleted from the compose file are
+  # NOT removed by a plain `up`; tak-portal kept running for months after
+  # DD-043 removed it. Only for a whole-stack up — a targeted rebuild must not
+  # prune the project, which is what silently removed the capture sidecars.
+  if [ ${#SERVICES[@]} -gt 0 ]; then
+    UP_ERR=$(compose up -d --force-recreate "${SERVICES[@]}" 2>&1 >/dev/null); UP_RC=$?
+  else
+    UP_ERR=$(compose up -d --remove-orphans 2>&1 >/dev/null); UP_RC=$?
+  fi
+  if [ "$UP_RC" -ne 0 ]; then
+    echo "  ❌ docker compose up failed:" >&2
+    printf '%s\n' "$UP_ERR" >&2
+    exit 1
+  fi
+
+  if $WAIT; then
+    echo "  ⏳ Waiting for tak-server..."
+    STATUS="unknown"
+    for _ in $(seq 1 48); do
+      STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo "unknown")
+      if [ "$STATUS" = "healthy" ]; then break; fi
+      if [ "$STATUS" = "unhealthy" ]; then
+        echo "  ❌ tak-server failed — run: docker compose logs tak-server"
+        exit 1
+      fi
+      sleep 10
+    done
+
+    if [ "$STATUS" != "healthy" ]; then
+      echo "  ❌ tak-server timed out — run: docker compose logs tak-server"
+      exit 1
+    fi
+  fi
+}
+
+# The post-start checklist. Every check calls pass/fail/note; the RESULTS
+# section reads PASS and FAIL.
+run_checks() {
+  log ""
+  log "Services"
+  log "────────"
+
+  TAK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo unknown)
+  assert "$TAK_STATUS" "healthy" "TAK Server healthy" "docker compose logs tak-server"
+
+  DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
+  assert "$DB_STATUS" "healthy" "TAK Database healthy" "docker compose logs tak-database"
+
+  INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-config 2>/dev/null)" 2>/dev/null)
+  assert "$INIT_EXIT" "0" "init-config exited 0" "docker compose logs init-config"
+
+  ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
+  assert "$ID_EXIT" "0" "init-identity exited 0" "docker compose logs init-identity"
+
+  LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q lldap 2>/dev/null)" 2>/dev/null)
+  assert "$LLDAP_STATUS" "healthy" "LLDAP healthy" "docker compose logs lldap"
+
+  PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
+  assert "$PROXY_STATE" "running" "ldap-proxy running" "docker compose logs ldap-proxy"
+
+  log ""
+  log "Config"
+  log "──────"
+
+  assert_file "$DEPLOY_DIR/tak/CoreConfig.xml" "CoreConfig.xml" "docker compose logs init-config"
+  CC_PASS=$(grep -o '<connection[^>]*password="[^"]*"' "$DEPLOY_DIR/tak/CoreConfig.xml" | sed 's/.*password="//;s/"//')
+  assert_not "$CC_PASS" "" "DB password set" "grep -n '<connection' tak/CoreConfig.xml"
+  assert_grep "tak-database:5432" "$DEPLOY_DIR/tak/CoreConfig.xml" "DB host" "grep -n 'tak-database:5432' tak/CoreConfig.xml"
+  assert_grep 'enableAdminUI="true"' "$DEPLOY_DIR/tak/CoreConfig.xml" "Admin UI enabled" "grep -n 'enableAdminUI' tak/CoreConfig.xml"
+  assert_grep '<certificateSigning CA="TAKServer">' "$DEPLOY_DIR/tak/CoreConfig.xml" "Certificate signing" "grep -n 'certificateSigning' tak/CoreConfig.xml"
+  assert_grep "adm_ldapservice" "$DEPLOY_DIR/tak/CoreConfig.xml" "LDAP auth" "grep -n 'adm_ldapservice' tak/CoreConfig.xml"
+  assert_grep 'adminGroup="ROLE_ADMIN"' "$DEPLOY_DIR/tak/CoreConfig.xml" "ROLE_ADMIN" "grep -n 'adminGroup' tak/CoreConfig.xml"
+
+  log ""
+  log "Certificates"
+  log "────────────"
+
+  assert_file "$DEPLOY_DIR/tak/certs/files/root-ca.pem" "Root CA" "docker compose logs tak-server"
+  assert_file "$DEPLOY_DIR/tak/certs/files/ca.pem" "Intermediate CA" "docker compose logs tak-server"
+  assert_file "$DEPLOY_DIR/tak/certs/files/takserver.jks" "Server cert" "docker compose logs tak-server"
+  assert_file "$DEPLOY_DIR/tak/certs/files/svc_fasttakapi.p12" "API service cert" "docker compose logs init-identity"
+  # svc_nodered is NOT created at bootstrap — init-identity's SERVICE_ACCOUNTS
+  # is just svc_fasttakapi. The monitor writes these PEMs when a data-mode
+  # service account is created, so on a fresh install the file is absent and
+  # that is correct.
+  if [ -f "$DEPLOY_DIR/tak/certs/files/svc_nodered.p12" ]; then
+    pass "Node-RED service cert"
+  else
+    note "Node-RED service cert not present (created on demand via the Monitor)"
+  fi
+  assert_file "$DEPLOY_DIR/tak/certs/files/ca-signing.jks" "CA signing keystore" "docker compose logs tak-server"
+  if ./certs.sh ca-info > /dev/null 2>&1; then pass "certs.sh ca-info"; else fail "certs.sh ca-info" "exited non-zero" "./certs.sh ca-info"; fi
+  if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs.sh list" "exited non-zero" "./certs.sh list"; fi
+
+  log ""
+  log "Ports"
+  log "─────"
+
+  assert_published_port tak-server 8089 "CoT TLS"
+  assert_published_port tak-server 8443 "Cert HTTPS"
+  assert_published_port tak-server "$TAKSERVER_ADMIN_PORT" "Admin HTTPS"
+  assert_published_port mediamtx "$MEDIAMTX_PORT" "MediaMTX HLS"
+  assert_published_port mediamtx 8554 "MediaMTX RTSP"
+  assert_published_port nodered "$NODERED_PORT" "Node-RED"
+
+  HTTP_8446=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "https://localhost:${TAKSERVER_ADMIN_PORT}" 2>/dev/null)
+  assert_not "$HTTP_8446" "000" "Admin HTTPS TLS on ${TAKSERVER_ADMIN_PORT}" "docker compose logs tak-server"
+
+  log ""
+  log "Health"
+  log "──────"
+
+  # Delegate to the container's own healthcheck rather than counting with
+  # `ps`: the TAK 5.8 hardened image ships no procps, so `ps aux` fails and
+  # every process reads as missing on a perfectly healthy server. The
+  # healthcheck matches /proc/*/cmdline and already knows the five processes.
+  if TAK_HEALTH=$(docker exec "$(compose ps -q tak-server)" /opt/tak/healthcheck.sh 2>&1); then
+    pass "TAK Server processes ($TAK_HEALTH)"
+  else
+    fail "TAK Server processes" "healthcheck.sh said: $TAK_HEALTH" "docker compose logs tak-server"
+  fi
+
+  DB_FAILS=$(docker exec "$(compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+  DB_FAILS="${DB_FAILS:-0}"
+  if [ "$DB_FAILS" -le 2 ] 2>/dev/null; then pass "DB auth (failures: $DB_FAILS)"; else fail "DB auth" "$DB_FAILS \"password authentication failed\" lines in takserver.log" "docker compose logs tak-database"; fi
+
+  OOM=$(docker exec "$(compose ps -q tak-server)" grep -c "OutOfMemoryError" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+  OOM="${OOM:-0}"
+  assert "$OOM" "0" "No OutOfMemoryError" "docker compose logs tak-server"
+
+  SEC_COUNT=$(docker exec "$(compose ps -q tak-server)" grep -c "Security status" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
+  SEC_COUNT="${SEC_COUNT:-0}"
+  if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Single start" "$SEC_COUNT \"Security status\" lines in takserver.log" "docker compose logs tak-server"; fi
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -194,159 +349,14 @@ echo "  Address: $SERVER_ADDRESS"
 echo "  Mode:    $DEPLOY_MODE"
 echo ""
 
-log ""
-log "Start"
-log "─────"
-
-echo "  ⏳ Building containers..."
-if [ ${#SERVICES[@]} -gt 0 ]; then
-  BUILD_ERR=$(compose build --quiet "${SERVICES[@]}" 2>&1 >/dev/null); BUILD_RC=$?
-else
-  BUILD_ERR=$(compose build --quiet 2>&1 >/dev/null); BUILD_RC=$?
-fi
-if [ "$BUILD_RC" -ne 0 ]; then
-  echo "  ❌ docker compose build failed:" >&2
-  printf '%s\n' "$BUILD_ERR" >&2
-  exit 1
-fi
-
-echo "  ⏳ Starting services..."
-# --remove-orphans: containers for services deleted from the compose file are
-# NOT removed by a plain `up`; tak-portal kept running for months after
-# DD-043 removed it. Only for a whole-stack up — a targeted rebuild must not
-# prune the project, which is what silently removed the capture sidecars.
-if [ ${#SERVICES[@]} -gt 0 ]; then
-  UP_ERR=$(compose up -d --force-recreate "${SERVICES[@]}" 2>&1 >/dev/null); UP_RC=$?
-else
-  UP_ERR=$(compose up -d --remove-orphans 2>&1 >/dev/null); UP_RC=$?
-fi
-if [ "$UP_RC" -ne 0 ]; then
-  echo "  ❌ docker compose up failed:" >&2
-  printf '%s\n' "$UP_ERR" >&2
-  exit 1
-fi
-
-if $WAIT; then
-  echo "  ⏳ Waiting for tak-server..."
-  STATUS="unknown"
-  for _ in $(seq 1 48); do
-    STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo "unknown")
-    if [ "$STATUS" = "healthy" ]; then break; fi
-    if [ "$STATUS" = "unhealthy" ]; then
-      echo "  ❌ tak-server failed — run: docker compose logs tak-server"
-      exit 1
-    fi
-    sleep 10
-  done
-
-  if [ "$STATUS" != "healthy" ]; then
-    echo "  ❌ tak-server timed out — run: docker compose logs tak-server"
-    exit 1
-  fi
-fi
+run_start
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CHECKS
 # ═══════════════════════════════════════════════════════════════════════════
 
 if $CHECKS; then
-
-log ""
-log "Services"
-log "────────"
-
-TAK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo unknown)
-assert "$TAK_STATUS" "healthy" "TAK Server healthy" "docker compose logs tak-server"
-
-DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
-assert "$DB_STATUS" "healthy" "TAK Database healthy" "docker compose logs tak-database"
-
-INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-config 2>/dev/null)" 2>/dev/null)
-assert "$INIT_EXIT" "0" "init-config exited 0" "docker compose logs init-config"
-
-ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
-assert "$ID_EXIT" "0" "init-identity exited 0" "docker compose logs init-identity"
-
-LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q lldap 2>/dev/null)" 2>/dev/null)
-assert "$LLDAP_STATUS" "healthy" "LLDAP healthy" "docker compose logs lldap"
-
-PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
-assert "$PROXY_STATE" "running" "ldap-proxy running" "docker compose logs ldap-proxy"
-
-log ""
-log "Config"
-log "──────"
-
-assert_file "$DEPLOY_DIR/tak/CoreConfig.xml" "CoreConfig.xml" "docker compose logs init-config"
-CC_PASS=$(grep -o '<connection[^>]*password="[^"]*"' "$DEPLOY_DIR/tak/CoreConfig.xml" | sed 's/.*password="//;s/"//')
-assert_not "$CC_PASS" "" "DB password set" "grep -n '<connection' tak/CoreConfig.xml"
-assert_grep "tak-database:5432" "$DEPLOY_DIR/tak/CoreConfig.xml" "DB host" "grep -n 'tak-database:5432' tak/CoreConfig.xml"
-assert_grep 'enableAdminUI="true"' "$DEPLOY_DIR/tak/CoreConfig.xml" "Admin UI enabled" "grep -n 'enableAdminUI' tak/CoreConfig.xml"
-assert_grep '<certificateSigning CA="TAKServer">' "$DEPLOY_DIR/tak/CoreConfig.xml" "Certificate signing" "grep -n 'certificateSigning' tak/CoreConfig.xml"
-assert_grep "adm_ldapservice" "$DEPLOY_DIR/tak/CoreConfig.xml" "LDAP auth" "grep -n 'adm_ldapservice' tak/CoreConfig.xml"
-assert_grep 'adminGroup="ROLE_ADMIN"' "$DEPLOY_DIR/tak/CoreConfig.xml" "ROLE_ADMIN" "grep -n 'adminGroup' tak/CoreConfig.xml"
-
-log ""
-log "Certificates"
-log "────────────"
-
-assert_file "$DEPLOY_DIR/tak/certs/files/root-ca.pem" "Root CA" "docker compose logs tak-server"
-assert_file "$DEPLOY_DIR/tak/certs/files/ca.pem" "Intermediate CA" "docker compose logs tak-server"
-assert_file "$DEPLOY_DIR/tak/certs/files/takserver.jks" "Server cert" "docker compose logs tak-server"
-assert_file "$DEPLOY_DIR/tak/certs/files/svc_fasttakapi.p12" "API service cert" "docker compose logs init-identity"
-# svc_nodered is NOT created at bootstrap — init-identity's SERVICE_ACCOUNTS
-# is just svc_fasttakapi. The monitor writes these PEMs when a data-mode
-# service account is created, so on a fresh install the file is absent and
-# that is correct.
-if [ -f "$DEPLOY_DIR/tak/certs/files/svc_nodered.p12" ]; then
-  pass "Node-RED service cert"
-else
-  note "Node-RED service cert not present (created on demand via the Monitor)"
-fi
-assert_file "$DEPLOY_DIR/tak/certs/files/ca-signing.jks" "CA signing keystore" "docker compose logs tak-server"
-if ./certs.sh ca-info > /dev/null 2>&1; then pass "certs.sh ca-info"; else fail "certs.sh ca-info" "exited non-zero" "./certs.sh ca-info"; fi
-if ./certs.sh list > /dev/null 2>&1; then pass "certs.sh list"; else fail "certs.sh list" "exited non-zero" "./certs.sh list"; fi
-
-log ""
-log "Ports"
-log "─────"
-
-assert_published_port tak-server 8089 "CoT TLS"
-assert_published_port tak-server 8443 "Cert HTTPS"
-assert_published_port tak-server "$TAKSERVER_ADMIN_PORT" "Admin HTTPS"
-assert_published_port mediamtx "$MEDIAMTX_PORT" "MediaMTX HLS"
-assert_published_port mediamtx 8554 "MediaMTX RTSP"
-assert_published_port nodered "$NODERED_PORT" "Node-RED"
-
-HTTP_8446=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 5 "https://localhost:${TAKSERVER_ADMIN_PORT}" 2>/dev/null)
-assert_not "$HTTP_8446" "000" "Admin HTTPS TLS on ${TAKSERVER_ADMIN_PORT}" "docker compose logs tak-server"
-
-log ""
-log "Health"
-log "──────"
-
-# Delegate to the container's own healthcheck rather than counting with
-# `ps`: the TAK 5.8 hardened image ships no procps, so `ps aux` fails and
-# every process reads as missing on a perfectly healthy server. The
-# healthcheck matches /proc/*/cmdline and already knows the five processes.
-if TAK_HEALTH=$(docker exec "$(compose ps -q tak-server)" /opt/tak/healthcheck.sh 2>&1); then
-  pass "TAK Server processes ($TAK_HEALTH)"
-else
-  fail "TAK Server processes" "healthcheck.sh said: $TAK_HEALTH" "docker compose logs tak-server"
-fi
-
-DB_FAILS=$(docker exec "$(compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
-DB_FAILS="${DB_FAILS:-0}"
-if [ "$DB_FAILS" -le 2 ] 2>/dev/null; then pass "DB auth (failures: $DB_FAILS)"; else fail "DB auth" "$DB_FAILS \"password authentication failed\" lines in takserver.log" "docker compose logs tak-database"; fi
-
-OOM=$(docker exec "$(compose ps -q tak-server)" grep -c "OutOfMemoryError" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
-OOM="${OOM:-0}"
-assert "$OOM" "0" "No OutOfMemoryError" "docker compose logs tak-server"
-
-SEC_COUNT=$(docker exec "$(compose ps -q tak-server)" grep -c "Security status" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
-SEC_COUNT="${SEC_COUNT:-0}"
-if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Single start" "$SEC_COUNT \"Security status\" lines in takserver.log" "docker compose logs tak-server"; fi
-
+  run_checks
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
