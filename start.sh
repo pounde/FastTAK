@@ -222,19 +222,19 @@ run_checks() {
   TAK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-server 2>/dev/null)" 2>/dev/null || echo unknown)
   assert "$TAK_STATUS" "healthy" "TAK Server healthy" "docker compose logs tak-server"
 
-  DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-database 2>/dev/null)" 2>/dev/null)
+  DB_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q tak-database 2>/dev/null)" 2>/dev/null || echo unknown)
   assert "$DB_STATUS" "healthy" "TAK Database healthy" "docker compose logs tak-database"
 
-  INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-config 2>/dev/null)" 2>/dev/null)
+  INIT_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-config 2>/dev/null)" 2>/dev/null || echo unknown)
   assert "$INIT_EXIT" "0" "init-config exited 0" "docker compose logs init-config"
 
-  ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-identity 2>/dev/null)" 2>/dev/null)
+  ID_EXIT=$(docker inspect --format='{{.State.ExitCode}}' "$(compose ps -aq init-identity 2>/dev/null)" 2>/dev/null || echo unknown)
   assert "$ID_EXIT" "0" "init-identity exited 0" "docker compose logs init-identity"
 
-  LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q lldap 2>/dev/null)" 2>/dev/null)
+  LLDAP_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q lldap 2>/dev/null)" 2>/dev/null || echo unknown)
   assert "$LLDAP_STATUS" "healthy" "LLDAP healthy" "docker compose logs lldap"
 
-  PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null)
+  PROXY_STATE=$(docker inspect --format='{{.State.Status}}' "$(compose ps -q ldap-proxy 2>/dev/null)" 2>/dev/null || echo unknown)
   assert "$PROXY_STATE" "running" "ldap-proxy running" "docker compose logs ldap-proxy"
 
   MONITOR_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$(compose ps -q monitor 2>/dev/null)" 2>/dev/null || echo unknown)
