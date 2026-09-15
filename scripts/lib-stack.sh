@@ -63,7 +63,7 @@ stack_export_version() {
   export FASTTAK_VERSION="${version:-dev}" FASTTAK_COMMIT="$commit"
 }
 
-# stack_expected_published_ports <mode> <admin-port> <nodered-port> <monitor-port> <mediamtx-port>
+# stack_expected_published_ports <mode> <nodered-port> <monitor-port> <mediamtx-port>
 #
 # The host ports this deploy mode binds, one "port/proto" per line. Caddy's
 # 80/443 (443 also over UDP: HTTP/3, #122), TAK Server's CoT, HTTPS and admin
@@ -71,9 +71,16 @@ stack_export_version() {
 # adds the UI ports on Caddy, each with a UDP twin. start.sh --doctor compares
 # `docker compose ps` against this: an extra port is a failure, a missing one
 # a note.
+#
+# 8446 is bound unconditionally by the base compose (tak-server's
+# enrollment/admin port); TAKSERVER_ADMIN_PORT is the client-facing value and
+# nothing publishes it.
+#
+# A --capture stack moves 8443/8089 to the mitm sidecar, so its published set
+# is a subset of this one; nothing here needs to know about capture.
 stack_expected_published_ports() {
-  local mode="$1" admin="$2" nodered="$3" monitor="$4" mediamtx="$5"
-  printf '%s\n' 80/tcp 443/tcp 443/udp 8089/tcp 8443/tcp "${admin}/tcp" 8554/tcp 1935/tcp
+  local mode="$1" nodered="$2" monitor="$3" mediamtx="$4"
+  printf '%s\n' 80/tcp 443/tcp 443/udp 8089/tcp 8443/tcp 8446/tcp 8554/tcp 1935/tcp
   if [ "$mode" = "direct" ]; then
     printf '%s\n' "${nodered}/tcp" "${nodered}/udp" "${monitor}/tcp" "${monitor}/udp" \
       "${mediamtx}/tcp" "${mediamtx}/udp"

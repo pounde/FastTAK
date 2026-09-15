@@ -312,6 +312,78 @@ run_checks() {
   if [ "$SEC_COUNT" -le 4 ] 2>/dev/null; then pass "Single start (status: $SEC_COUNT)"; else fail "Single start" "$SEC_COUNT \"Security status\" lines in takserver.log" "docker compose logs tak-server"; fi
 }
 
+# What this host publishes, against what the deploy mode is expected to bind.
+# Read from `compose ps` so an operator's override file counts. An extra
+# port is a failure (a stray override), a missing one a note (a removed port
+# can be deliberate; "not running" is already caught by the port checks).
+report_published_ports() {
+  local raw published expected svc port parse_rc
+  command -v python3 >/dev/null 2>&1 || {
+    echo "  Published ports: skipped — python3 not found on this host"
+    return
+  }
+  raw=$(compose ps --format '{{.Service}} {{json .Publishers}}' 2>/dev/null) || raw=""
+  if [ -z "$raw" ]; then
+    echo "  Published ports: skipped — docker compose ps --format gave nothing (is the stack running?)"
+    return
+  fi
+  # "svc port/proto" per line, host-bound only, one row per port (Compose
+  # lists IPv4 and IPv6 separately). A line whose Publishers is not a list, or
+  # whose PublishedPort is not an integer, is skipped rather than aborting the
+  # whole report.
+  published=$(printf '%s\n' "$raw" | python3 -c '
+import json, sys
+seen = set()
+for line in sys.stdin:
+    svc, _, rest = line.strip().partition(" ")
+    try:
+        pubs = json.loads(rest or "null") or []
+        for p in pubs:
+            if not p.get("PublishedPort"):
+                continue
+            key = (svc, int(p["PublishedPort"]), p.get("Protocol", "tcp"))
+            if key not in seen:
+                seen.add(key)
+                print(f"{svc} {key[1]}/{key[2]}")
+    except (ValueError, AttributeError, TypeError):
+        continue
+')
+  parse_rc=$?
+  if [ "$parse_rc" -eq 127 ]; then
+    # A python3 on PATH that fails to execute at all reports 127, the shell's
+    # own "command not found" convention — the same as a genuinely absent one.
+    echo "  Published ports: skipped — python3 not found on this host"
+    return
+  elif [ "$parse_rc" -ne 0 ]; then
+    echo "  Published ports: skipped — the parser failed (see above)"
+    return
+  fi
+  expected=$(stack_expected_published_ports "$DEPLOY_MODE" "$NODERED_PORT" "$MONITOR_PORT" "$MEDIAMTX_PORT")
+
+  echo ""
+  echo "  Published ports ($DEPLOY_MODE):"
+  while read -r svc port; do
+    [ -z "$svc" ] && continue
+    if printf '%s\n' "$expected" | grep -qx "$port"; then
+      echo "    $svc  $port"
+    else
+      echo "    $svc  $port  ← not expected"
+      fail "Published port $port on $svc" "not in the $DEPLOY_MODE set" \
+        "ls docker-compose.override.yml compose.override.yml compose.override.yaml"
+    fi
+  done <<EOF
+$published
+EOF
+  while read -r port; do
+    [ -z "$port" ] && continue
+    printf '%s\n' "$published" | grep -q " $port\$" || note "Expected port $port is not published"
+  done <<EOF
+$expected
+EOF
+  echo "    Docker publishes on 0.0.0.0 and bypasses ufw: what the internet reaches is this"
+  echo "    set intersected with the cloud firewall, which this host cannot see."
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # PREFLIGHT
 # ═══════════════════════════════════════════════════════════════════════════
@@ -349,6 +421,8 @@ MEDIAMTX_PORT=$(env_get "$ENV_FILE" MEDIAMTX_PORT)
 MEDIAMTX_PORT="${MEDIAMTX_PORT:-8888}"
 NODERED_PORT=$(env_get "$ENV_FILE" NODERED_PORT)
 NODERED_PORT="${NODERED_PORT:-1880}"
+MONITOR_PORT=$(env_get "$ENV_FILE" MONITOR_PORT)
+MONITOR_PORT="${MONITOR_PORT:-8180}"
 
 if $CAPTURE; then
   FASTAK_ENV_FILE="$ENV_FILE" stack_export_compose_file --capture
@@ -379,6 +453,7 @@ if ! $DOCTOR; then run_start; fi
 
 if $CHECKS; then
   run_checks
+  if $DOCTOR; then report_published_ports; fi
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -411,9 +486,7 @@ echo ""
 echo "  TAK Server:  https://${SERVER_ADDRESS}:${TAKSERVER_ADMIN_PORT}"
 echo "               webadmin / ${WA_MASKED}"
 if [ "$DEPLOY_MODE" = "direct" ]; then
-  MONITOR_PORT_OUT=$(env_get "$ENV_FILE" MONITOR_PORT)
-  MONITOR_PORT_OUT="${MONITOR_PORT_OUT:-8180}"
-  echo "  Monitor:     https://${SERVER_ADDRESS}:${MONITOR_PORT_OUT}"
+  echo "  Monitor:     https://${SERVER_ADDRESS}:${MONITOR_PORT}"
 else
   MONITOR_SUB=$(env_get "$ENV_FILE" MONITOR_SUBDOMAIN)
   MONITOR_SUB="${MONITOR_SUB:-monitor}"
