@@ -85,6 +85,9 @@ class TakServerClient:
         ctx = ssl.create_default_context(cafile=str(ca_path))
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_REQUIRED
+        # ca.pem is TAK's intermediate. Python 3.13 anchors on a trusted
+        # intermediate by default; the image runs 3.12, so ask for it.
+        ctx.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
         ctx.load_cert_chain(self._cert_pem_path, self._key_pem_path)
         self._ssl_context = ctx
 
