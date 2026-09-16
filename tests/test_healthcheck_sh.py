@@ -23,7 +23,7 @@ PROCESSES = [
     "takserver-pm.jar",
 ]
 
-CURL_STUB = "#!/bin/sh\nprintf '%s' \"${STUB_HTTP_CODE:-200}\"\n"
+CURL_STUB = '#!/bin/sh\nprintf %s "${STUB_HTTP_CODE-200}"\nexit "${STUB_CURL_RC:-0}"\n'
 NC_STUB = '#!/bin/sh\nexit "${STUB_NC_RC:-0}"\n'
 
 
@@ -95,11 +95,20 @@ def test_api_server_error_is_unhealthy(container, code):
     )
 
 
-def test_no_tls_response_is_unhealthy(container):
-    result = run_hc(container, STUB_HTTP_CODE="000")
+@pytest.mark.parametrize("code", ["000", ""])
+def test_no_tls_response_is_unhealthy(container, code):
+    result = run_hc(container, STUB_HTTP_CODE=code)
     assert result.returncode == 1
     assert result.stdout.strip() == (
         "UNHEALTHY: no TLS response from https://localhost:8446/Marti/api/version"
+    )
+
+
+def test_probe_timeout_is_named(container):
+    result = run_hc(container, STUB_HTTP_CODE="000", STUB_CURL_RC="28")
+    assert result.returncode == 1
+    assert result.stdout.strip() == (
+        "UNHEALTHY: https://localhost:8446/Marti/api/version did not answer within 5s"
     )
 
 
@@ -153,3 +162,106 @@ def test_ignite_disconnect_in_recent_log_is_unhealthy(container, line, match):
     result = run_hc(container)
     assert result.returncode == 1
     assert result.stdout.strip() == f"UNHEALTHY: {match} in the last 500 lines of takserver.log"
+
+
+def _incidents(container: Path) -> list[Path]:
+    d = container / "logs" / "incident"
+    return sorted(d.glob("*.log")) if d.is_dir() else []
+
+
+def test_first_failure_captures_the_log_tails_once(container):
+    _log_with(container, "line one", "java.lang.OutOfMemoryError: heap", padding=5)
+    (container / "logs" / "takserver-messaging.log").write_text("MSG line\n")
+
+    first = run_hc(container)
+    assert first.returncode == 1
+    files = _incidents(container)
+    assert len(files) == 1
+    assert files[0].name.endswith("-oom.log")
+    body = files[0].read_text()
+    assert "OutOfMemoryError" in body and "MSG line" in body
+    assert (container / "logs" / "incident" / ".tripped").exists()
+
+    second = run_hc(container)
+    assert second.returncode == 1
+    assert _incidents(container) == files, "a second failure in the same incident captures nothing"
+
+
+def test_healthy_pass_clears_the_marker_so_the_next_incident_captures(container):
+    _log_with(container, "java.lang.OutOfMemoryError: heap")
+    run_hc(container)
+    _log_with(container, "INFO  recovered")
+    healthy = run_hc(container)
+    assert healthy.returncode == 0
+    assert not (container / "logs" / "incident" / ".tripped").exists()
+    _log_with(container, "java.lang.OutOfMemoryError: again")
+    run_hc(container)
+    assert len(_incidents(container)) == 2
+
+
+def test_only_the_newest_five_incidents_are_kept(container):
+    d = container / "logs" / "incident"
+    d.mkdir(parents=True)
+    for i in range(6):
+        (d / f"2026010{i}T000000Z-oom.log").write_text("old\n")
+    _log_with(container, "java.lang.OutOfMemoryError: heap")
+    run_hc(container)
+    names = [p.name for p in _incidents(container)]
+    assert len(names) == 5
+    assert "20260100T000000Z-oom.log" not in names and "20260101T000000Z-oom.log" not in names
+
+
+def test_capture_names_the_check_that_tripped(container):
+    result = run_hc(container, STUB_HTTP_CODE="503")
+    assert result.returncode == 1
+    assert _incidents(container)[0].name.endswith("-api-probe.log")
+
+
+def test_unwritable_incident_dir_does_not_change_the_verdict(container):
+    (container / "logs" / "incident").write_text("a file where the directory should be")
+    result = run_hc(container, STUB_HTTP_CODE="503")
+    assert result.returncode == 1
+    assert result.stdout.strip().startswith(
+        "UNHEALTHY: https://localhost:8446/Marti/api/version returned HTTP 503"
+    )
+    assert "cannot write" in result.stderr
+
+
+def test_port_8089_refused_is_unhealthy(container):
+    result = run_hc(container, STUB_NC_RC="1")
+    assert result.returncode == 1
+    assert result.stdout.strip() == "UNHEALTHY: port 8089 not accepting connections"
+    assert _incidents(container)[0].name.endswith("-port-8089.log")
+
+
+def test_expired_cert_is_unhealthy(container):
+    # openssl argv shapes exercised here: `x509 -in <pem> -noout` (the
+    # validity probe; exit 0 means "this is a cert") and
+    # `x509 -enddate -noout -in <pem>` (prints the expiry the script parses).
+    openssl_stub = (
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  *-enddate*) printf "notAfter=Jan 01 00:00:00 2020 GMT\\n" ;;\n'
+        "  *) exit 0 ;;\n"
+        "esac\n"
+    )
+    (container / "bin" / "openssl").write_text(openssl_stub)
+    (container / "bin" / "openssl").chmod(0o755)
+    (container / "certs" / "takserver.pem").write_bytes(b"stub cert bytes")
+    result = run_hc(container)
+    assert result.returncode == 1
+    assert result.stdout.strip() == "UNHEALTHY: cert EXPIRED: takserver.pem"
+    assert _incidents(container)[0].name.endswith("-cert-expired.log")
+
+
+def test_capture_without_a_messaging_log_is_quiet_on_stderr(container):
+    (container / "logs" / "takserver-messaging.log").unlink()
+    _log_with(container, "java.lang.OutOfMemoryError: heap")
+    result = run_hc(container)
+    assert result.returncode == 1
+    files = _incidents(container)
+    assert len(files) == 1
+    body = files[0].read_text()
+    assert "OutOfMemoryError" in body
+    assert "== tail -n 500 " in body and "takserver-messaging.log ==" in body
+    assert result.stderr == ""
