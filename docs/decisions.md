@@ -1145,13 +1145,15 @@ These were chosen based on observed idle/startup footprint plus safety margin, a
 ## DD-022: Health Monitoring Architecture Refactor
 
 **Date:** 2026-03-28
-**Status:** Decided
+**Status:** Decided (amended 2026-09-15 — see below)
 
 **Decision:** Separate health data collection, evaluation, caching, and alerting into distinct layers. Health modules return raw data only (no status). An evaluator applies configurable thresholds from `monitor/config/thresholds.yml` (overridable via `FASTAK_MON_*` env vars) to produce status. The scheduler polls health modules on configured intervals, runs results through the evaluator, and writes to an in-memory cache. `GET /api/health` returns the full cache. Individual health endpoints (`/api/health/database`, etc.) remain live for debugging. Four status levels: ok, note, warning, critical.
 
 **Why:** The previous architecture had health modules computing status with hardcoded thresholds, the scheduler re-querying the same data for alerting, and the dashboard querying a third time. Responsibilities were tangled, thresholds were unchangeable without code edits, and there was no way to distinguish informational changes (update available) from operational concerns (disk full). The refactor gives each layer a single clear responsibility and makes the entire monitoring policy configurable.
 
-**Alert design:** The evaluator determines whether a status warrants alerting (via `should_alert` based on `alert_min_level` per service). The scheduler passes this to the alert engine, which handles deduplication and cooldown only — it does not filter by severity. Recovery transitions (elevated state back to ok) are logged but do not send email/SMS alerts. Alert cooldown is configurable globally via `alert_cooldown` in `thresholds.yml`.
+**Alert design:** The evaluator decides severity and whether a state warrants a notification (`should_alert`, from `alert_min_level` per service). The scheduler calls the alert engine on every poll with that verdict, not only when alerting. The engine tracks state on every call, records every transition (and `recovered` on an elevated → ok transition), and sends email/SMS only on a transition to a non-ok state when `should_alert` is true and the alert cooldown has elapsed. The first observation of a healthy service is not an event. Alert cooldown is configurable globally via `alert_cooldown` in `thresholds.yml`.
+
+**Amended with #77:** the previous shape (call the engine only when alerting) left the engine's state pinned at the last elevated level, which suppressed recoveries and repeat warnings. The remaining escalation-vs-cooldown limit — a still-elevated service that worsens mid-cooldown does not re-alert until the cooldown clears — is tracked as #131.
 
 ---
 

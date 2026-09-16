@@ -1,12 +1,74 @@
 """Tests for app.scheduler — health check job logic."""
 
+import time
 from unittest.mock import MagicMock, patch
+
+from app.api.alerts import engine
+
+
+class TestPollRealEvaluatorAndEngine:
+    """Regression test for #77 through the real evaluator -> real engine path."""
+
+    def setup_method(self):
+        with engine._lock:
+            engine._last_state.clear()
+            engine._last_alert_time.clear()
+
+    def test_real_evaluator_and_engine_record_a_recovery_and_a_repeat(self):
+        """Drives _poll with the real evaluator and the real alert engine.
+
+        This is the test that would have caught #77 as a class: with the old
+        call pattern (engine invoked only when alerting), the second warning
+        below would have been deduplicated against a _last_state pinned at
+        "warning" by the first, and the intervening recovery would never
+        have been recorded.
+        """
+        from app.monitoring_config import load_config
+        from app.scheduler import _poll
+
+        config = load_config()
+        service_config = config.get("tls", {})
+
+        def _tls_raw(days_left):
+            return {
+                "items": [
+                    {
+                        "domain": "takserver.example.com",
+                        "expires": "2026-12-01",
+                        "days_left": days_left,
+                    }
+                ]
+            }
+
+        health_fn = MagicMock(
+            side_effect=[_tls_raw(90), _tls_raw(30), _tls_raw(30), _tls_raw(90), _tls_raw(30)]
+        )
+
+        with (
+            patch("app.scheduler.store"),
+            patch("app.audit.record_event") as mock_audit,
+            patch("app.api.alerts.engine.send_alert_email", return_value=True) as mock_email,
+            patch("app.api.alerts.engine.send_alert_sms", return_value=True),
+        ):
+            for _ in range(4):
+                _poll("tls", health_fn, service_config)
+
+            with engine._lock:
+                engine._last_alert_time["tls"] = time.time() - engine.alert_cooldown - 1
+
+            _poll("tls", health_fn, service_config)
+
+        actions = [c.kwargs["action"] for c in mock_audit.call_args_list]
+        assert actions == ["warning", "ok", "recovered", "warning"]
+        assert mock_email.call_count == 2
 
 
 class TestPoll:
     """Tests for the generic _poll function."""
 
     def test_calls_health_fn_and_updates_store(self):
+        """The engine now sees every poll (#77): evaluated["should_alert"]
+        absent/False still reaches check_and_alert, just with should_alert=False."""
         raw = {"size_bytes": 1000}
         health_fn = MagicMock(return_value=raw)
         service_config = {
@@ -26,8 +88,7 @@ class TestPoll:
         health_fn.assert_called_once()
         mock_eval.assert_called_once_with("database", raw, service_config)
         mock_store.update.assert_called_once()
-        # evaluated["should_alert"] is absent/False, so no alert
-        mock_alert.assert_not_called()
+        mock_alert.assert_called_once_with("database", "ok", "", should_alert=False)
 
     def test_handles_health_fn_exception(self):
         health_fn = MagicMock(side_effect=RuntimeError("connection refused"))
@@ -89,16 +150,16 @@ class TestPoll:
 
             _poll("database", health_fn, service_config)
 
-        mock_alert.assert_called_once_with("database", "warning", "size_bytes is high")
+        mock_alert.assert_called_once_with(
+            "database", "warning", "size_bytes is high", should_alert=True
+        )
 
-    def test_no_alert_below_min_level(self):
+    def test_below_min_level_still_reaches_the_engine(self):
+        """The engine tracks state on every poll (#77): a below-threshold
+        status is passed through with should_alert=False, not withheld."""
         raw = {"update_available": False}
         health_fn = MagicMock(return_value=raw)
-        # alert_min_level is "note" but evaluated status is "ok"
-        service_config = {
-            "thresholds": {},
-            "alert_min_level": "note",
-        }
+        service_config = {"thresholds": {}, "alert_min_level": "note"}
 
         with (
             patch("app.scheduler.store"),
@@ -109,7 +170,20 @@ class TestPoll:
 
             _poll("updates", health_fn, service_config)
 
-        mock_alert.assert_not_called()
+        mock_alert.assert_called_once_with("updates", "ok", "", should_alert=False)
+
+    def test_error_branch_alerts_explicitly(self):
+        health_fn = MagicMock(return_value={"error": "connection refused"})
+        with (
+            patch("app.scheduler.store"),
+            patch("app.scheduler.check_and_alert") as mock_alert,
+        ):
+            from app.scheduler import _poll
+
+            _poll("database", health_fn, {"thresholds": {}})
+        mock_alert.assert_called_once_with(
+            "database", "critical", "connection refused", should_alert=True
+        )
 
 
 class TestStartScheduler:

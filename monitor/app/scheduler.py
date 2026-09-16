@@ -83,14 +83,20 @@ def _poll(service_name, health_fn, service_config):
     if "error" in raw:
         error_eval = {"status": "critical", "message": raw["error"], "should_alert": True}
         store.update(service_name, raw, error_eval, None)
-        check_and_alert(service_name, "critical", raw["error"])
+        check_and_alert(service_name, "critical", raw["error"], should_alert=True)
         return
 
     evaluated = evaluate(service_name, raw, service_config)
     store.update(service_name, raw, evaluated, service_config.get("thresholds"))
 
-    if evaluated.get("should_alert"):
-        check_and_alert(service_name, evaluated["status"], evaluated.get("message", ""))
+    # Every poll reaches the engine so it can track recoveries and repeats;
+    # the evaluator's verdict says whether this state warrants a notification (#77).
+    check_and_alert(
+        service_name,
+        evaluated["status"],
+        evaluated.get("message", ""),
+        should_alert=evaluated.get("should_alert", False),
+    )
 
 
 def _check_user_expiry(
