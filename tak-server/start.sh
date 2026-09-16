@@ -39,6 +39,10 @@ EOF
   echo "[tak-server] Cleared UserAuthenticationFile.xml"
 fi
 
+# Startup is not an incident: hold the healthcheck's marker so a booting
+# server is not snapshotted. Its first healthy pass clears it (#79).
+mkdir -p /opt/tak/logs/incident 2>/dev/null && : > /opt/tak/logs/incident/.tripped
+
 # Register API service cert after TAK Server is ready (background, idempotent)
 /opt/tak/register-api-cert.sh &
 
