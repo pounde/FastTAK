@@ -15,10 +15,16 @@ healthcheck, the alert engine — follows four rules:
    label, what was expected or checked together with what came back, and
    the next command to run — e.g.
    `❌ init-config exited 0: expected "0", got "healthy". Next: docker compose logs init-config`.
-   `--verbose` prints passes and notes.
+   `--verbose` prints passes and notes. An inspection command may print the
+   inventory the operator asked for — `--doctor`'s published-port table is
+   the answer to the question, not a list of passes. Individual check *pass*
+   lines still appear only under `--verbose`.
 3. **Absent is not broken.** A port this deployment deliberately does not
    publish, a cert not yet created, a service outside this deploy mode is a
-   *note*, never a failure. "Not running" is never a note.
+   *note*, never a failure. "Not running" is never a note. "Could not read
+   it" is not "absent": an item carrying an error is a warning with the
+   reason, lowered to a note per service (`error_status`) only when the
+   source is outside the deployment, as for the GitHub update check.
 4. **Checks are re-runnable** against a running stack without touching it.
 
 **Why:** the failures that hurt were the quiet ones. A subdomain-mode start
