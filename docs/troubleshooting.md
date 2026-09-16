@@ -15,8 +15,7 @@ the summary it lists the ports this host publishes, compared with what your
 `docker-compose.override.yml`), a missing one is noted (shown with
 `--verbose`). What the internet can actually reach is that set intersected
 with your cloud firewall, which the host cannot see. Exit status is 1 when
-anything failed, so it works in cron
-and in a shell `&&`.
+anything failed, so it works in cron and in a shell `&&`.
 
 ## No TAK client can connect, and every container used to report healthy
 
@@ -28,8 +27,9 @@ and in a shell `&&`.
 - Client-side logs show `BadCredentialsException: Exception performing TAK
   Server authentication`, wrapping
   `IgniteClientDisconnectedException: Client node disconnected`.
-- `docker compose ps` shows everything **healthy**. Certificates are valid. TLS
-  handshakes succeed.
+- Before this release, `docker compose ps` showed everything **healthy**
+  throughout; the container now goes unhealthy within a few intervals (see
+  below). Certificates are valid. TLS handshakes succeed.
 
 `tak-server`'s healthcheck probes the API and goes unhealthy on any 5xx, and
 it scans the recent log for Ignite disconnects, so the container reports
