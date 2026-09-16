@@ -18,7 +18,7 @@ with your cloud firewall, which the host cannot see. Exit status is 1 when
 anything failed, so it works in cron
 and in a shell `&&`.
 
-## No TAK client can connect, and every container reports healthy
+## No TAK client can connect, and every container used to report healthy
 
 **Symptoms**
 
@@ -30,6 +30,14 @@ and in a shell `&&`.
   `IgniteClientDisconnectedException: Client node disconnected`.
 - `docker compose ps` shows everything **healthy**. Certificates are valid. TLS
   handshakes succeed.
+
+`tak-server`'s healthcheck probes the API and goes unhealthy on any 5xx, and
+it scans the recent log for Ignite disconnects, so the container reports
+**unhealthy** within a few intervals and the Monitor alerts. The first failing
+check also writes the log tails to `tak/logs/incident/<time>-<pid>-<check>.log`
+on the host, once per incident, so the evidence survives rotation; the
+directory keeps the newest five snapshots. `just doctor` names the newest
+file.
 
 **What is actually wrong**
 
