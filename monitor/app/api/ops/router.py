@@ -100,7 +100,7 @@ def test_email():
 
 
 @router.post("/alerts/test-sms", summary="Send test SMS alert")
-async def test_sms():
+def test_sms():
     """Send a test SMS alert to the configured phone number.
 
     Uses the SMS provider settings from the monitor's .env configuration.
@@ -109,5 +109,5 @@ async def test_sms():
     Returns:
         Dict with ``success`` boolean.
     """
-    ok = await send_alert_sms("[FastTAK] Test alert. SMS alerting is working.")
+    ok = send_alert_sms("[FastTAK] Test alert. SMS alerting is working.")
     return {"success": ok}
