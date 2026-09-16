@@ -84,6 +84,8 @@ fi
 # --- Check 2: Port 8089 accepting connections ---
 if command -v nc >/dev/null 2>&1; then
     nc -z -w 2 localhost 8089 2>/dev/null || trip port-8089 "port 8089 not accepting connections"
+else
+    echo "healthcheck: nc not found; port 8089 check skipped" >&2
 fi
 
 # --- Check 3: The API answers without a server error ---
@@ -103,6 +105,8 @@ if command -v curl >/dev/null 2>&1; then
             ;;
         5*)  trip api-probe "$PROBE_URL returned HTTP $HTTP_CODE (the API is up but failing)" ;;
     esac
+else
+    echo "healthcheck: curl not found; API probe skipped" >&2
 fi
 
 # --- Check 4: Certificate expiry ---
