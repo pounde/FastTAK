@@ -38,8 +38,8 @@ def _evaluate_single(service: str, data: dict, thresholds: dict) -> dict:
     message = None
 
     for key, levels in thresholds.items():
-        if key == "min_dead_tuples":
-            continue  # filter param, not a threshold
+        if key in ("min_dead_tuples", "error_status"):
+            continue  # filter/error-severity params, not thresholds
         if key not in data:
             continue
 
@@ -55,6 +55,41 @@ def _evaluate_single(service: str, data: dict, thresholds: dict) -> dict:
     return result
 
 
+def _item_name(item: dict) -> str:
+    return (
+        item.get("name")
+        or item.get("file")
+        or item.get("mount")
+        or item.get("table")
+        or item.get("domain", "")
+    )
+
+
+def item_status(item: dict, thresholds: dict) -> tuple[str, str | None]:
+    """One item's status and message. An item carrying `error` is a warning
+    with the reason (a probe that could not read it must not read as fine);
+    otherwise the worst of its numeric thresholds. The dashboard rows and the
+    service status both come from here, so they cannot disagree.
+    """
+    name = _item_name(item)
+    if item.get("error"):
+        error_status = thresholds.get("error_status", "warning")
+        return error_status, f"{name}: {item['error']}" if name else str(item["error"])
+
+    worst = Status.ok
+    message = None
+    for key, levels in thresholds.items():
+        if key in ("min_dead_tuples", "error_status"):
+            continue
+        if key not in item:
+            continue
+        status, msg = _check_threshold(key, item[key], levels, item)
+        if Status[status] > worst:
+            worst = Status[status]
+            message = f"{name}: {msg}" if name else msg
+    return worst.name, message
+
+
 def _evaluate_list(service: str, items: list, thresholds: dict) -> dict:
     """Evaluate a list of items, return worst status."""
     worst = Status.ok
@@ -62,29 +97,15 @@ def _evaluate_list(service: str, items: list, thresholds: dict) -> dict:
     min_dead = thresholds.get("min_dead_tuples")
 
     for item in items:
-        # Apply min_dead_tuples filter for autovacuum
-        if min_dead is not None and item.get("dead_tuples", 0) < min_dead:
+        # Apply min_dead_tuples filter for autovacuum — but never on an error
+        # item; a probe that could not read a table must not be filtered
+        # away by a threshold about the data it could not read.
+        if "error" not in item and min_dead is not None and item.get("dead_tuples", 0) < min_dead:
             continue
-
-        for key, levels in thresholds.items():
-            if key in ("min_dead_tuples",):
-                continue
-            if key not in item:
-                continue
-
-            value = item[key]
-            status, msg = _check_threshold(key, value, levels, item)
-            if Status[status] > worst:
-                worst = Status[status]
-                # Include item identifier in message
-                item_name = (
-                    item.get("name")
-                    or item.get("file")
-                    or item.get("mount")
-                    or item.get("table")
-                    or item.get("domain", "")
-                )
-                message = f"{item_name}: {msg}" if item_name else msg
+        status, msg = item_status(item, thresholds)
+        if Status[status] > worst:
+            worst = Status[status]
+            message = msg
 
     result = {"status": worst.name}
     if message:

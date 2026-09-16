@@ -1,26 +1,26 @@
+{% if probe_error %}<span class="badge badge-red">critical</span> <span class="text-muted">{{ probe_error }}</span>{% endif %}
 {% if tls_certs %}
 <table>
     <tr>
-        <th>Hostname</th>
-        <th>CN</th>
+        <th>Endpoint</th>
         <th>Expires</th>
         <th>Days Left</th>
         <th>Status</th>
     </tr>
     {% for c in tls_certs %}
     <tr>
-        <td>{{ c.hostname }}</td>
-        <td>{{ c.cn }}</td>
-        <td>{{ c.expires[:10] }}</td>
-        <td>{{ c.days_left }}</td>
+        <td>{{ c.domain }}</td>
+        <td>{{ c.expires if c.expires else '—' }}</td>
+        <td>{{ c.days_left if c.days_left is defined else '—' }}</td>
         <td>
-            <span class="badge {% if c.status == 'ok' %}badge-green{% elif c.status == 'warning' %}badge-yellow{% else %}badge-red{% endif %}">
-                {{ c.status }}
-            </span>
+            <span class="badge {% if c.status == 'ok' %}badge-green{% elif c.status == 'note' %}badge-gray{% elif c.status == 'warning' %}badge-yellow{% else %}badge-red{% endif %}">{{ c.status }}</span>
+            {% if c.reason %}<span class="text-muted" title="{{ c.reason }}">{{ c.reason }}</span>{% endif %}
         </td>
     </tr>
     {% endfor %}
 </table>
 {% else %}
-<span class="text-muted">No TLS endpoints reachable (FQDN may not resolve from container)</span>
+{% if not probe_error %}
+<span class="text-muted">No TLS endpoints probed yet (SERVER_ADDRESS unset, or the first poll has not run)</span>
+{% endif %}
 {% endif %}

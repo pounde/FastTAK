@@ -1,6 +1,7 @@
 """Tests for app.api.health.certs — certificate expiry parsing."""
 
 import re
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -40,12 +41,41 @@ class TestParseCertExpiry:
         assert result["days_left"] < 0
 
     @patch("app.api.health.certs.subprocess.run")
-    def test_returns_none_on_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1, stdout="")
+    def test_openssl_failure_is_an_error_item(self, mock_run):
+        """openssl exiting non-zero used to drop the cert from the list — the
+        dashboard got greener as a cert became unreadable (#57)."""
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="unable to load certificate\n"
+        )
 
         from app.api.health.certs import _parse_cert_expiry
 
-        assert _parse_cert_expiry(Path("/fake/cert.pem")) is None
+        assert _parse_cert_expiry(Path("/fake/ca.pem")) == {
+            "file": "ca.pem",
+            "error": "openssl: unable to load certificate",
+        }
+
+    @patch("app.api.health.certs.subprocess.run")
+    def test_missing_not_after_is_an_error_item(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="subject= CN = x\n", stderr="")
+
+        from app.api.health.certs import _parse_cert_expiry
+
+        assert _parse_cert_expiry(Path("/fake/x.pem")) == {
+            "file": "x.pem",
+            "error": "no notAfter in openssl output",
+        }
+
+    @patch(
+        "app.api.health.certs.subprocess.run",
+        side_effect=subprocess.TimeoutExpired("openssl", 5),
+    )
+    def test_openssl_timeout_is_an_error_item(self, mock_run):
+        from app.api.health.certs import _parse_cert_expiry
+
+        result = _parse_cert_expiry(Path("/fake/x.pem"))
+        assert result["file"] == "x.pem"
+        assert "timed out" in result["error"]
 
 
 class TestCategorize:
@@ -155,3 +185,30 @@ class TestGetCertStatus:
         # User certs should be excluded from health monitoring
         assert len(result["items"]) == 1
         assert result["items"][0]["file"] == "ca.pem"
+
+    @patch("app.api.health.certs.subprocess.run", side_effect=FileNotFoundError("openssl"))
+    @patch("app.api.health.certs.CERT_DIR")
+    def test_missing_openssl_is_a_probe_level_error(self, mock_dir, mock_run, tmp_path):
+        """Nothing can be read: the whole service errors (critical via the
+        scheduler's error branch) rather than every cert quietly vanishing."""
+        (tmp_path / "ca.pem").write_bytes(b"x")
+        mock_dir.exists.return_value = True
+        mock_dir.glob.return_value = [tmp_path / "ca.pem"]
+
+        from app.api.health.certs import get_cert_status
+
+        result = get_cert_status()
+        assert result["error"].startswith("openssl could not run")
+
+    @patch("app.api.health.certs._parse_cert_expiry")
+    @patch("app.api.health.certs.CERT_DIR")
+    def test_error_items_keep_their_category(self, mock_dir, mock_parse):
+        mock_dir.exists.return_value = True
+        mock_dir.glob.return_value = [Path("/c/ca.pem")]
+        mock_parse.return_value = {"file": "ca.pem", "error": "unreadable"}
+
+        from app.api.health.certs import get_cert_status
+
+        assert get_cert_status()["items"] == [
+            {"file": "ca.pem", "error": "unreadable", "category": "infrastructure"}
+        ]
