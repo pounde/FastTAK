@@ -6,6 +6,7 @@ assert on the one line it prints and its exit status — what Docker sees.
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -225,6 +226,42 @@ def test_unwritable_incident_dir_does_not_change_the_verdict(container):
         "UNHEALTHY: https://localhost:8446/Marti/api/version returned HTTP 503"
     )
     assert "cannot write" in result.stderr
+
+
+def _bin_without(tool: str, container: Path) -> Path:
+    """A PATH directory with the usual coreutils healthcheck.sh needs, minus
+    `tool`, plus the curl/nc stubs (again minus `tool` if it is one of them).
+    Used standalone as PATH — no fallback to the real PATH — so `tool` is
+    genuinely unfindable, not just shadowed."""
+    needed = ["mkdir", "date", "tr", "grep", "sed", "tail", "head", "ls", "sort", "rm", "basename"]
+    bin_dir = container / "nopath-bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name in needed:
+        if name == tool:
+            continue
+        found = shutil.which(name)
+        if found:
+            (bin_dir / name).symlink_to(found)
+    for name, body in (("curl", CURL_STUB), ("nc", NC_STUB)):
+        if name == tool:
+            continue
+        (bin_dir / name).write_text(body)
+        (bin_dir / name).chmod(0o755)
+    return bin_dir
+
+
+def test_missing_curl_says_so(container):
+    bin_dir = _bin_without("curl", container)
+    result = run_hc(container, PATH=str(bin_dir))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "healthcheck: curl not found; API probe skipped" in result.stderr
+
+
+def test_missing_nc_says_so(container):
+    bin_dir = _bin_without("nc", container)
+    result = run_hc(container, PATH=str(bin_dir))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "healthcheck: nc not found; port 8089 check skipped" in result.stderr
 
 
 def test_port_8089_refused_is_unhealthy(container):
