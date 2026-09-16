@@ -60,6 +60,31 @@ def _page_context(**extra) -> dict:
     }
 
 
+def _rows_with_status(entry: dict | None) -> list[dict]:
+    """Items from a store snapshot, each with `status` and `reason` from the
+    same thresholds the service status was evaluated with (#57)."""
+    from app.evaluator import item_status
+
+    if not entry:
+        return []
+    thresholds = entry.get("thresholds") or {}
+    rows = []
+    for item in entry.get("data", {}).get("items", []):
+        status, _ = item_status(item, thresholds)
+        rows.append({**item, "status": status, "reason": item.get("error") or ""})
+    return rows
+
+
+def _probe_error(entry: dict | None) -> str:
+    """The probe-level error message (e.g. openssl missing entirely) — as
+    opposed to a per-item error inside `items`. Without this a probe-level
+    error renders as an empty items list, i.e. "no certificates found",
+    which reads as fine (#57)."""
+    if entry and "error" in entry.get("data", {}):
+        return entry["message"]
+    return ""
+
+
 def _backup_view_models(paths):
     import time
 
@@ -206,9 +231,10 @@ def ui_health_grid(request: Request):
 @router.get("/ui/partials/cert-status", dependencies=_admin)
 def ui_cert_status(request: Request):
     entry = store.fetch("certs")
-    data = entry["data"] if entry else {}
     return templates.TemplateResponse(
-        request, "partials/cert_status.html", {"certs": data.get("items", [])}
+        request,
+        "partials/cert_status.html",
+        {"certs": _rows_with_status(entry), "probe_error": _probe_error(entry)},
     )
 
 
@@ -254,9 +280,10 @@ def ui_disk_usage(request: Request):
 @router.get("/ui/partials/tls-status", dependencies=_admin)
 def ui_tls_status(request: Request):
     entry = store.fetch("tls")
-    data = entry["data"] if entry else {}
     return templates.TemplateResponse(
-        request, "partials/tls_status.html", {"tls_certs": data.get("items", [])}
+        request,
+        "partials/tls_status.html",
+        {"tls_certs": _rows_with_status(entry), "probe_error": _probe_error(entry)},
     )
 
 
