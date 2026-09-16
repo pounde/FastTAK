@@ -5,6 +5,10 @@
 # Numeric thresholds: the evaluator infers comparison direction from the values.
 #   warning < critical -> higher is worse (e.g., size, percentage)
 #   warning > critical -> lower is worse (e.g., days remaining)
+#
+# error_status: an item carrying `error` (the probe could not read it) is a
+# "warning" unless a service sets error_status to something else — see
+# updates below, where a GitHub blip is a "note", not a warning.
 
 # Global alert cooldown (seconds). After sending an alert for a service,
 # suppress repeat alerts for that service until this period elapses.
@@ -83,3 +87,4 @@ updates:
     update_available:
       "true": note                       # a newer FastTAK release is available
       "false": ok
+    error_status: note                   # could not ask GitHub — absent is not broken (DD-055)
