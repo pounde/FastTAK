@@ -205,8 +205,8 @@ UNGATED_BASELINE = {
 def _api_routes():
     from app.main import app
 
-    # Only static mounts are skipped. The schema routes are ordinary gated
-    # APIRoutes served by app.main, so the walk covers them (issue #82).
+    # APIRoutes carry a dependant the gate walk can read. Everything else is
+    # covered by test_every_route_the_gate_cannot_see_is_recorded.
     return [r for r in app.routes if isinstance(r, APIRoute)]
 
 
@@ -254,3 +254,73 @@ def test_default_schema_routes_are_not_served(anon_client, path):
     gated ones above. Serving them at the defaults as well would hand the full
     route inventory to any authenticated non-admin (issue #82)."""
     assert anon_client.get(path, headers=ADMIN).status_code == 404
+
+
+# Routes that are not APIRoutes carry no `dependant`, so the gate checks above
+# cannot see them. Anything of that kind must be recorded here on purpose —
+# (route type name, path). Today there are none; the first StaticFiles mount
+# or plain Route lands in this set with a reason, or fails the test (#83).
+#
+# Recording a route here says someone looked at it, not that it is protected.
+# A `Mount` carries no dependency and no middleware in this app authorizes by
+# path (`AuthContextMiddleware` only populates `request.state`), so a mount
+# must be gated by its own means — a sub-app that carries the dependency, or
+# plain `require_admin` routes — before it is recorded, and each entry carries
+# a one-line reason it is safe. The key is `(type name, path)` on purpose: a
+# Starlette rename makes the entry stop matching and the test fail loudly.
+NON_API_ROUTE_ALLOWLIST: set[tuple[str, str]] = set()
+
+
+def _unallowlisted(routes) -> list[tuple[str, str]]:
+    """(type, path) of every route the gate walk cannot inspect and nobody
+    has recorded."""
+    return sorted(
+        (type(r).__name__, getattr(r, "path", "?"))
+        for r in routes
+        if not isinstance(r, APIRoute)
+        and (type(r).__name__, getattr(r, "path", "?")) not in NON_API_ROUTE_ALLOWLIST
+    )
+
+
+def test_every_route_the_gate_cannot_see_is_recorded():
+    """A mount, a sub-app, or a plain Route has no dependant; a websocket route
+    does have one (`APIWebSocketRoute`) but it is not an `APIRoute`, so the gate
+    walk above skips it either way. Inverting the filter makes an unrecorded one
+    fail here instead of vanishing (issue #83)."""
+    from app.main import app
+
+    assert _unallowlisted(app.routes) == []
+    live_routes = {(type(r).__name__, getattr(r, "path", "?")) for r in app.routes}
+    assert NON_API_ROUTE_ALLOWLIST <= live_routes, "stale allowlist entries"
+
+
+def test_a_stale_allowlist_entry_is_caught():
+    """Prove the reverse check above actually works: an allowlist entry for a
+    route that no longer exists shows up in the difference against live
+    routes, rather than silently matching. Uses a local set — the module-level
+    NON_API_ROUTE_ALLOWLIST is never mutated."""
+    from app.main import app
+
+    fake_allowlist = {("Mount", "/no-longer-mounted")}
+    live_routes = {(type(r).__name__, getattr(r, "path", "?")) for r in app.routes}
+    assert fake_allowlist - live_routes, "a stale entry must not be a subset of live routes"
+
+
+def test_the_check_catches_the_routes_the_issue_demonstrated(tmp_path):
+    """Issue #83 mounted StaticFiles at /files and inserted a plain Route at
+    /api/ca-export; both passed the structural tests. Prove they fail now —
+    on a copy of the route list, never the live app."""
+    from app.main import app
+    from starlette.responses import JSONResponse
+    from starlette.routing import Mount, Route
+    from starlette.staticfiles import StaticFiles
+
+    async def secret_handler(request):
+        return JSONResponse({"ca_key": "supersecret"})
+
+    routes = [
+        Mount("/files", app=StaticFiles(directory=str(tmp_path))),
+        Route("/api/ca-export", secret_handler),
+        *app.routes,
+    ]
+    assert _unallowlisted(routes) == [("Mount", "/files"), ("Route", "/api/ca-export")]
