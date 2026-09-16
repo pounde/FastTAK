@@ -188,6 +188,24 @@ def test_first_failure_captures_the_log_tails_once(container):
     assert _incidents(container) == files, "a second failure in the same incident captures nothing"
 
 
+def test_marker_set_by_the_entrypoint_suppresses_the_boot_capture(container):
+    """start.sh sets INCIDENT_DIR/.tripped before TAK starts (#79); a probe
+    that lands during start_period must not snapshot that boot."""
+    incident_dir = container / "logs" / "incident"
+    incident_dir.mkdir(parents=True)
+    (incident_dir / ".tripped").write_text("")
+    (container / "proc" / "102" / "cmdline").write_bytes(b"sleep\0")
+
+    result = run_hc(container)
+    assert result.returncode == 1
+    assert _incidents(container) == []
+
+    (container / "proc" / "102" / "cmdline").write_bytes(f"java\0-D{PROCESSES[2]}\0".encode())
+    healthy = run_hc(container)
+    assert healthy.returncode == 0
+    assert not (incident_dir / ".tripped").exists()
+
+
 def test_healthy_pass_clears_the_marker_so_the_next_incident_captures(container):
     _log_with(container, "java.lang.OutOfMemoryError: heap")
     run_hc(container)

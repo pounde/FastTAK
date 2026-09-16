@@ -19,6 +19,7 @@ services:
     healthcheck:
       test: ["CMD", "/opt/tak/healthcheck.sh"]
       interval: 10s
+      timeout: 20s
       retries: 5
       start_period: 60s
     # Reset volumes to drop per-file bind mounts that overlay onto the TAK
