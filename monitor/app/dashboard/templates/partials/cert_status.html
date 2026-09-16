@@ -1,3 +1,4 @@
+{% if probe_error %}<span class="badge badge-red">critical</span> <span class="text-muted">{{ probe_error }}</span>{% endif %}
 {% if certs %}
 <table>
     <thead>
@@ -13,23 +14,25 @@
         {% for cert in certs %}
         {% if cert.status == 'ok' %}
             {% set badge = 'green' %}
+        {% elif cert.status == 'note' %}
+            {% set badge = 'gray' %}
         {% elif cert.status == 'warning' %}
             {% set badge = 'yellow' %}
-        {% elif cert.status in ('critical', 'expired') %}
-            {% set badge = 'red' %}
         {% else %}
-            {% set badge = 'gray' %}
+            {% set badge = 'red' %}
         {% endif %}
         <tr>
             <td>{{ cert.file }}</td>
-            <td style="font-size: 12px; color: #888; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ cert.subject }}">{{ cert.subject }}</td>
-            <td>{{ cert.expires[:10] if cert.expires else '—' }}</td>
-            <td {% if cert.days_left <= 14 %}class="text-red"{% elif cert.days_left <= 30 %}class="text-yellow"{% endif %}>{{ cert.days_left }}</td>
-            <td><span class="badge badge-{{ badge }}">{{ cert.status }}</span></td>
+            <td style="font-size: 12px; color: #888; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ cert.subject }}">{{ cert.subject if cert.subject else '—' }}</td>
+            <td>{{ cert.expires if cert.expires else '—' }}</td>
+            <td {% if cert.status == 'critical' %}class="text-red"{% elif cert.status == 'warning' %}class="text-yellow"{% endif %}>{{ cert.days_left if cert.days_left is defined else '—' }}</td>
+            <td><span class="badge badge-{{ badge }}">{{ cert.status }}</span>{% if cert.reason %} <span class="text-muted" title="{{ cert.reason }}">{{ cert.reason }}</span>{% endif %}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
 {% else %}
+{% if not probe_error %}
 <span class="text-muted">No certificates found at /opt/tak/certs/files/</span>
+{% endif %}
 {% endif %}
