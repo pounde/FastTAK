@@ -299,7 +299,18 @@ run_checks() {
   if TAK_HEALTH=$(docker exec "$(compose ps -q tak-server)" /opt/tak/healthcheck.sh 2>&1); then
     pass "TAK Server processes ($TAK_HEALTH)"
   else
-    fail "TAK Server processes" "healthcheck.sh said: $TAK_HEALTH" "docker compose logs tak-server"
+    # healthcheck.sh captures the log tails on the first failure of an incident
+    # (tak/logs/incident/) and sets .tripped for its duration; only look for a
+    # snapshot while that marker is present, so a stale *.log left over from a
+    # past, already-cleared incident is never named as if it were this failure.
+    INCIDENT=""
+    if [ -f "$DEPLOY_DIR/tak/logs/incident/.tripped" ]; then
+      # shellcheck disable=SC2012  # filenames are our own generated timestamp-pid-check.log, never adversarial
+      INCIDENT=$(ls -1 "$DEPLOY_DIR/tak/logs/incident"/*.log 2>/dev/null | sort -r | head -n 1)
+    fi
+    fail "TAK Server processes" \
+      "healthcheck.sh said: $TAK_HEALTH${INCIDENT:+; newest incident snapshot: ${INCIDENT#"$DEPLOY_DIR/"}}" \
+      "docker compose logs tak-server"
   fi
 
   DB_FAILS=$(docker exec "$(compose ps -q tak-server)" grep -c "password authentication failed" /opt/tak/logs/takserver.log 2>/dev/null | tr -d '[:space:]')
