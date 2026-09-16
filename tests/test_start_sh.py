@@ -81,7 +81,10 @@ case " $* " in
     ;;
   " exec "*)
     case "$*" in
-      *healthcheck.sh*) echo "HEALTHY: all processes running, ports ok, certs valid" ;;
+      *healthcheck.sh*)
+        echo "${STUB_HEALTHCHECK_OUT:-HEALTHY: all processes running, ports ok, certs valid}"
+        exit "${STUB_HEALTHCHECK_RC:-0}"
+        ;;
       *"grep -c"*)      echo 0 ;;
       *)                echo "5/5" ;;
     esac
@@ -559,3 +562,65 @@ def test_doctor_tolerates_a_malformed_publisher(deployment):
     result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": broken})
     assert result.returncode == 0, result.stdout
     assert "tak-server  8089/tcp" in result.stdout
+
+
+def test_failed_healthcheck_points_at_the_incident_file(deployment):
+    """healthcheck.sh snapshots the log tails on the first failure of an
+    incident and sets the marker; the start check names the newest snapshot
+    so the operator opens evidence, not a rotated stub."""
+    incidents = deployment / "tak" / "logs" / "incident"
+    incidents.mkdir(parents=True)
+    (incidents / "20260915T120000Z-api-probe.log").write_text("== api-probe tripped ==\n")
+    (incidents / "20260915T090000Z-oom.log").write_text("== oom tripped ==\n")
+    (incidents / ".tripped").write_text("")
+    result, _ = run_start(
+        deployment,
+        extra_env={
+            "STUB_HEALTHCHECK_OUT": (
+                "UNHEALTHY: https://localhost:8446/Marti/api/version returned HTTP 503 "
+                "(the API is up but failing)"
+            ),
+            "STUB_HEALTHCHECK_RC": "1",
+        },
+    )
+    assert (
+        "❌ TAK Server processes: healthcheck.sh said: UNHEALTHY: "
+        "https://localhost:8446/Marti/api/version returned HTTP 503 "
+        "(the API is up but failing); newest incident snapshot: "
+        "tak/logs/incident/20260915T120000Z-api-probe.log. "
+        "Next: docker compose logs tak-server" in result.stdout
+    )
+
+
+def test_failed_healthcheck_ignores_stale_snapshots_without_a_marker(deployment):
+    """No .tripped marker means no incident is open — old *.log files are
+    leftovers from a prior incident, not evidence for this failure."""
+    incidents = deployment / "tak" / "logs" / "incident"
+    incidents.mkdir(parents=True)
+    (incidents / "20260915T120000Z-api-probe.log").write_text("== api-probe tripped ==\n")
+    result, _ = run_start(
+        deployment,
+        extra_env={
+            "STUB_HEALTHCHECK_OUT": "UNHEALTHY: missing processes: api",
+            "STUB_HEALTHCHECK_RC": "1",
+        },
+    )
+    assert (
+        "❌ TAK Server processes: healthcheck.sh said: UNHEALTHY: missing processes: api. "
+        "Next: docker compose logs tak-server" in result.stdout
+    )
+    assert "incident snapshot" not in result.stdout
+
+
+def test_failed_healthcheck_without_an_incident_file_says_so_plainly(deployment):
+    result, _ = run_start(
+        deployment,
+        extra_env={
+            "STUB_HEALTHCHECK_OUT": "UNHEALTHY: missing processes: api",
+            "STUB_HEALTHCHECK_RC": "1",
+        },
+    )
+    assert (
+        "❌ TAK Server processes: healthcheck.sh said: UNHEALTHY: missing processes: api. "
+        "Next: docker compose logs tak-server" in result.stdout
+    )
