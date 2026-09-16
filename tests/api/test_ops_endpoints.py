@@ -1,6 +1,6 @@
 """Tests for /api/ops/* endpoints."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 class TestOpsLogs:
@@ -57,8 +57,24 @@ class TestOpsAlertTest:
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
-    @patch("app.api.ops.router.send_alert_sms", new_callable=AsyncMock, return_value=True)
+    @patch("app.api.ops.router.send_alert_sms", return_value=True)
     def test_test_sms(self, mock_sms, client):
+        """A plain MagicMock, not an AsyncMock: send_alert_sms is sync and the
+        AsyncMock was what let `await send_alert_sms(...)` pass in tests (#58)."""
         resp = client.post("/api/ops/alerts/test-sms")
         assert resp.status_code == 200
         assert resp.json()["success"] is True
+        mock_sms.assert_called_once()
+
+    def test_test_sms_unconfigured_returns_false_not_500(self, client, mock_settings, monkeypatch):
+        """No provider configured: the real function returns False without
+        touching the network, and the endpoint must say so.
+
+        Forces sms_provider = "" on the settings the SMS module reads so an
+        SMS_PROVIDER in the runner's environment cannot turn this into a live
+        call (matches tests/unit/test_sms.py's pattern)."""
+        monkeypatch.setattr("app.api.alerts.sms.settings", mock_settings)
+        mock_settings.sms_provider = ""
+        resp = client.post("/api/ops/alerts/test-sms")
+        assert resp.status_code == 200
+        assert resp.json() == {"success": False}
