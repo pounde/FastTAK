@@ -73,3 +73,36 @@ def test_tak_server_started_once(compose_exec):
     """'Security status' logs once per start. Repeats mean a restart loop —
     invisible to docker compose ps, which reports healthy after each one."""
     assert _log_count(compose_exec, "Security status") <= 4
+
+
+def test_healthcheck_probe_answers_without_a_server_error(compose_exec):
+    """healthcheck.sh goes unhealthy on a 5xx from this URL; prove a healthy
+    server answers it with anything else, so the check cannot false-trip."""
+    result = compose_exec(
+        "tak-server",
+        [
+            "curl",
+            "-sk",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--max-time",
+            "5",
+            "https://localhost:8446/Marti/api/version",
+        ],
+    )
+    code = (result.stdout or "").strip()
+    assert code and code != "000" and not code.startswith("5"), f"probe answered {code!r}"
+
+
+def test_healthcheck_passes_and_has_no_open_incident(compose_exec):
+    # A healthy run clears the marker itself (state-mutating, harmless) — this
+    # assertion holds regardless of what the earlier calls in this run left behind.
+    result = compose_exec("tak-server", ["/opt/tak/healthcheck.sh"])
+    assert result.returncode == 0, result.stdout
+    marker = compose_exec(
+        "tak-server",
+        ["sh", "-c", "test -f /opt/tak/logs/incident/.tripped && echo tripped || echo clear"],
+    )
+    assert "clear" in (marker.stdout or "")
