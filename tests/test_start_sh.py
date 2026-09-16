@@ -5,7 +5,9 @@ queries start.sh makes (health status, container ids). Tests assert on the
 recorded argv — which flags reached compose — not on the stack.
 """
 
+import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -13,6 +15,30 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 START = REPO / "start.sh"
+
+
+def _publishers(*entries: tuple[str, int, str]) -> str:
+    """Lines as `docker compose ps --format '{{.Service}} {{json .Publishers}}'`
+    prints them: one per service, each published port listed for IPv4 and IPv6."""
+    by_svc: dict[str, list[dict]] = {}
+    for svc, port, proto in entries:
+        for url in ("0.0.0.0", "::"):
+            by_svc.setdefault(svc, []).append(
+                {"URL": url, "TargetPort": port, "PublishedPort": port, "Protocol": proto}
+            )
+    return "\n".join(f"{svc} {json.dumps(pubs)}" for svc, pubs in by_svc.items())
+
+
+SUBDOMAIN_PUBLISHED = _publishers(
+    ("caddy", 80, "tcp"),
+    ("caddy", 443, "tcp"),
+    ("caddy", 443, "udp"),
+    ("tak-server", 8089, "tcp"),
+    ("tak-server", 8443, "tcp"),
+    ("tak-server", 8446, "tcp"),
+    ("mediamtx", 8554, "tcp"),
+    ("mediamtx", 1935, "tcp"),
+)
 
 STUB = r"""#!/bin/sh
 printf '%s\n' "$*" >> "$DOCKER_LOG"
@@ -38,21 +64,58 @@ case " $* " in
       *)   printf '%s\n' "$entry" ;;
     esac
     ;;
+  *" ps --format "*)
+    printf '%s\n' "${STUB_PS_JSON:-}"
+    ;;
   *" ps "*)
     svc=$(printf '%s\n' "$*" | sed -n 's/.* ps -a\{0,1\}q \([^ ]*\).*/\1/p')
     [ "$svc" = "${STUB_PS_EMPTY:-}" ] || echo stubid
     ;;
-  "inspect "*|" inspect "*) echo healthy ;;
-  " exec "*) echo "5/5" ;;
+  "inspect "*|" inspect "*)
+    case "$*" in
+      *" ") exit 1 ;;  # trailing space: the container id argument was empty
+      *ExitCode*)     echo "${STUB_INSPECT_EXITCODE:-0}" ;;
+      *State.Status*) echo running ;;
+      *)              echo healthy ;;
+    esac
+    ;;
+  " exec "*)
+    case "$*" in
+      *healthcheck.sh*) echo "HEALTHY: all processes running, ports ok, certs valid" ;;
+      *"grep -c"*)      echo 0 ;;
+      *)                echo "5/5" ;;
+    esac
+    ;;
 esac
 exit 0
 """
 
 
+CORECONFIG = """<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+  <repository>
+    <connection url="jdbc:postgresql://tak-database:5432/cot" password="stub-password"/>
+  </repository>
+  <network><connector port="8446" enableAdminUI="true"/></network>
+  <auth><ldap serviceAccountDN="cn=adm_ldapservice,ou=people,dc=takldap"/></auth>
+  <security><certificateSigning CA="TAKServer"></certificateSigning></security>
+  <groups adminGroup="ROLE_ADMIN"/>
+</Configuration>
+"""
+
+CERT_FILES = ["root-ca.pem", "ca.pem", "takserver.jks", "svc_fasttakapi.p12", "ca-signing.jks"]
+
+
 @pytest.fixture
 def deployment(tmp_path):
-    """A scratch deployment: tak/, a valid .env, and the stub on PATH."""
-    (tmp_path / "tak").mkdir()
+    """A scratch deployment that passes every check: tak/ with a CoreConfig
+    and the cert files start.sh looks for, a valid .env, and stubs on PATH
+    that answer healthy unless a STUB_* variable says otherwise."""
+    tak = tmp_path / "tak"
+    (tak / "certs" / "files").mkdir(parents=True)
+    (tak / "CoreConfig.xml").write_text(CORECONFIG)
+    for name in CERT_FILES:
+        (tak / "certs" / "files" / name).write_bytes(b"stub")
     env = (REPO / ".env.example").read_text()
     env = env.replace("SERVER_ADDRESS=tak.example.com", "SERVER_ADDRESS=localhost")
     env = env.replace("TOKENS_API_SECRET=", "TOKENS_API_SECRET=" + "0" * 64)
@@ -67,6 +130,12 @@ def deployment(tmp_path):
         '#!/bin/sh\nprintf \'nc %s\\n\' "$*" >> "$DOCKER_LOG"\nexit "${STUB_NC_RC:-0}"\n'
     )
     nc.chmod(0o755)
+    curl = bin_dir / "curl"
+    curl.write_text(
+        '#!/bin/sh\nprintf \'curl %s\\n\' "$*" >> "$DOCKER_LOG"\n'
+        "printf '%s' \"${STUB_CURL_CODE:-200}\"\n"
+    )
+    curl.chmod(0o755)
     return tmp_path
 
 
@@ -80,6 +149,7 @@ def run_start(
         "PATH": f"{deployment / 'bin'}:{os.environ['PATH']}",
         "DOCKER_LOG": str(log),
         "FASTAK_ENV_FILE": str(deployment / ".env"),
+        "STUB_PS_JSON": SUBDOMAIN_PUBLISHED,
         **(extra_env or {}),
     }
     result = subprocess.run(
@@ -132,7 +202,7 @@ def test_subdomain_mode_leaves_compose_file_unset(deployment):
 
 
 def test_missing_tak_dir_fails_preflight(deployment):
-    (deployment / "tak").rmdir()
+    shutil.rmtree(deployment / "tak")
     result, _ = run_start(deployment)
     assert result.returncode == 1
     assert "tak/ not found" in result.stderr
@@ -259,18 +329,18 @@ def test_help_lists_verbose(deployment):
 
 
 def test_failure_lines_say_what_was_checked_and_what_came_back(deployment):
-    """The stub answers "healthy" to every inspect, so the exit-code checks
-    fail. The line must carry the expectation, the observation and the next
-    command, not just a label (#114)."""
-    result, _ = run_start(deployment)
+    """STUB_INSPECT_EXITCODE makes the exit-code checks fail. The line must
+    carry the expectation, the observation and the next command, not just a
+    label (#114)."""
+    result, _ = run_start(deployment, extra_env={"STUB_INSPECT_EXITCODE": "1"})
     assert (
-        '❌ init-config exited 0: expected "0", got "healthy". '
+        '❌ init-config exited 0: expected "0", got "1". '
         "Next: docker compose logs init-config" in result.stdout
     )
 
 
 def test_summary_points_at_verbose_when_checks_fail(deployment):
-    result, _ = run_start(deployment)
+    result, _ = run_start(deployment, extra_env={"STUB_INSPECT_EXITCODE": "1"})
     assert "checks failed" in result.stdout
     assert "--verbose" in result.stdout
 
@@ -318,3 +388,174 @@ def test_unpublished_port_on_a_stopped_service_fails(deployment):
         extra_env={"STUB_PORT_MAP": "nodered=invalid IP:0", "STUB_PS_EMPTY": "nodered"},
     )
     assert "❌ Node-RED: nodered is not running. Next: docker compose ps nodered" in result.stdout
+
+
+def test_healthy_stack_passes_every_check(deployment):
+    """The spec's headline: a subdomain-mode start on a healthy stack ends
+    green. Every stub answer and fixture file below exists for this line."""
+    result, _ = run_start(deployment)
+    assert result.returncode == 0, result.stderr
+    assert "❌" not in result.stdout, result.stdout
+    assert "✅ All checks passed (32/32)" in result.stdout
+
+
+def test_doctor_runs_only_the_checks(deployment):
+    """--doctor: no build, no up, no wait; the checklist runs; exit 0 when green."""
+    result, calls = run_start(deployment, "--doctor")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(" build" in c for c in calls)
+    assert not any(" up " in c for c in calls)
+    assert any(c.startswith("exec") for c in calls), "the checks exec into tak-server"
+    assert "FastTAK doctor" in result.stdout
+    assert "FastTAK is running" not in result.stdout
+    assert "✅ All checks passed (" in result.stdout
+
+
+def test_doctor_exits_one_when_a_check_fails(deployment):
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_INSPECT_EXITCODE": "1"})
+    assert result.returncode == 1
+    assert "❌ init-config exited 0" in result.stdout
+
+
+def test_doctor_does_not_provision_secrets(deployment):
+    """doctor changes nothing on the host. The fixture's .env has an empty
+    TAK_DB_PASSWORD; a normal start fills it, doctor must not."""
+    before = (deployment / ".env").read_text()
+    assert "\nTAK_DB_PASSWORD=\n" in before
+    run_start(deployment, "--doctor")
+    assert (deployment / ".env").read_text() == before
+    run_start(deployment)
+    assert "\nTAK_DB_PASSWORD=\n" not in (deployment / ".env").read_text()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--doctor", "monitor"),
+        ("--doctor", "--capture"),
+        ("--doctor", "--no-wait"),
+        ("--doctor", "--no-checks"),
+        ("--doctor", "--checks"),
+    ],
+)
+def test_doctor_takes_no_other_option(deployment, args):
+    result, _ = run_start(deployment, *args)
+    assert result.returncode == 2, args
+    assert "--doctor" in result.stderr
+
+
+def test_doctor_with_verbose_prints_passes(deployment):
+    result, _ = run_start(deployment, "--doctor", "--verbose")
+    assert result.returncode == 0
+    assert "✅ TAK Server healthy" in result.stdout
+
+
+def test_doctor_lists_the_published_ports(deployment):
+    result, _ = run_start(deployment, "--doctor")
+    assert result.returncode == 0, result.stdout
+    assert "Published ports (subdomain):" in result.stdout
+    assert "caddy  443/udp" in result.stdout
+    assert "tak-server  8089/tcp" in result.stdout
+    assert "cloud firewall" in result.stdout
+
+
+def test_doctor_fails_on_a_port_outside_the_expected_set(deployment):
+    """The case that catches a stray docker-compose.override.yml."""
+    extra = SUBDOMAIN_PUBLISHED + "\n" + _publishers(("app-db", 5432, "tcp"))
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": extra})
+    assert result.returncode == 1
+    assert (
+        "❌ Published port 5432/tcp on app-db: not in the subdomain set. "
+        "Next: ls docker-compose.override.yml compose.override.yml compose.override.yaml"
+        in result.stdout
+    )
+
+
+def test_doctor_notes_an_expected_port_that_is_not_published(deployment):
+    without_cot = _publishers(
+        ("caddy", 80, "tcp"),
+        ("caddy", 443, "tcp"),
+        ("caddy", 443, "udp"),
+        ("tak-server", 8443, "tcp"),
+        ("tak-server", 8446, "tcp"),
+        ("mediamtx", 8554, "tcp"),
+        ("mediamtx", 1935, "tcp"),
+    )
+    result, _ = run_start(
+        deployment, "--doctor", "--verbose", extra_env={"STUB_PS_JSON": without_cot}
+    )
+    assert result.returncode == 0, result.stdout
+    assert "– Expected port 8089/tcp is not published" in result.stdout
+
+
+def test_doctor_direct_mode_expects_the_ui_ports(deployment):
+    env = (deployment / ".env").read_text().replace("DEPLOY_MODE=subdomain", "DEPLOY_MODE=direct")
+    (deployment / ".env").write_text(env)
+    direct = (
+        SUBDOMAIN_PUBLISHED
+        + "\n"
+        + _publishers(
+            ("caddy", 1880, "tcp"),
+            ("caddy", 1880, "udp"),
+            ("caddy", 8180, "tcp"),
+            ("caddy", 8180, "udp"),
+            ("caddy", 8888, "tcp"),
+            ("caddy", 8888, "udp"),
+        )
+    )
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": direct})
+    assert result.returncode == 0, result.stdout
+    assert "Published ports (direct):" in result.stdout
+
+
+def test_doctor_skips_the_report_when_compose_gives_nothing(deployment):
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": ""})
+    assert result.returncode == 0, result.stdout
+    assert (
+        "Published ports: skipped — docker compose ps --format gave nothing "
+        "(is the stack running?)" in result.stdout
+    )
+
+
+def test_a_normal_start_does_not_print_the_report(deployment):
+    result, _ = run_start(deployment)
+    assert "Published ports" not in result.stdout
+
+
+def test_bare_start_checks_the_monitor(deployment):
+    result, _ = run_start(deployment, extra_env={"STUB_PS_EMPTY": "monitor"})
+    assert (
+        '❌ Monitor healthy: expected "healthy", got "unknown". '
+        "Next: docker compose logs monitor" in result.stdout
+    )
+
+
+def test_stopped_service_reads_unknown_not_empty(deployment):
+    """A container that is not running yields an empty id from `compose ps`;
+    the health-status checks must read that as "unknown", not blank."""
+    result, _ = run_start(deployment, extra_env={"STUB_PS_EMPTY": "tak-database"})
+    assert (
+        '❌ TAK Database healthy: expected "healthy", got "unknown". '
+        "Next: docker compose logs tak-database" in result.stdout
+    )
+
+
+def test_doctor_reports_when_python3_is_missing(deployment):
+    python3 = deployment / "bin" / "python3"
+    python3.write_text("#!/bin/sh\nexit 127\n")
+    python3.chmod(0o755)
+    result, _ = run_start(deployment, "--doctor")
+    assert result.returncode == 0, result.stdout
+    assert "Published ports: skipped — python3 not found" in result.stdout
+    assert "Published ports (subdomain):" not in result.stdout
+
+
+def test_doctor_tolerates_a_malformed_publisher(deployment):
+    broken = (
+        SUBDOMAIN_PUBLISHED
+        + '\nbroken {"not": "a list"}'
+        + '\nodd [{"URL":"0.0.0.0","TargetPort":1,"PublishedPort":"abc","Protocol":"tcp"}]'
+    )
+    result, _ = run_start(deployment, "--doctor", extra_env={"STUB_PS_JSON": broken})
+    assert result.returncode == 0, result.stdout
+    assert "tak-server  8089/tcp" in result.stdout

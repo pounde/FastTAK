@@ -10,11 +10,17 @@
 # tak-server service in the base docker-compose.yml so that enrollment URLs
 # reach TAK Server's own cert chain (TAK CA), not Caddy's internal CA. Do not
 # add 8446 to Caddy here — it would collide with tak-server's binding.
+#
+# Each UI port is published over UDP too: Caddy advertises HTTP/3 on every
+# HTTPS server (#122).
 # =============================================================================
 
 services:
   caddy:
     ports:
       - "${NODERED_PORT:-1880}:${NODERED_PORT:-1880}"
+      - "${NODERED_PORT:-1880}:${NODERED_PORT:-1880}/udp"
       - "${MONITOR_PORT:-8180}:${MONITOR_PORT:-8180}"
+      - "${MONITOR_PORT:-8180}:${MONITOR_PORT:-8180}/udp"
       - "${MEDIAMTX_PORT:-8888}:${MEDIAMTX_PORT:-8888}"
+      - "${MEDIAMTX_PORT:-8888}:${MEDIAMTX_PORT:-8888}/udp"

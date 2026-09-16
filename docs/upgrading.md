@@ -104,8 +104,7 @@ docker compose up -d --remove-orphans
 Confirm the stack is healthy and that you can still get in:
 
 ```bash
-docker compose ps            # every service up; none unexpected
-curl -sf http://localhost:8080/api/ping   # from inside the monitor container
+just doctor                  # every check just up runs, the Monitor included, plus the published-ports report
 ```
 
 Then load the Monitor dashboard in a browser and confirm the pages render. A 403

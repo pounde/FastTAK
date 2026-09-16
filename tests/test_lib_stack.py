@@ -108,3 +108,43 @@ def test_version_falls_back_to_dev(tmp_path):
         env={"PATH": "/usr/bin:/bin"},
     )
     assert result.stdout == "dev"
+
+
+def _expected_ports(mode: str, nodered="1880", monitor="8180", mediamtx="8888"):
+    script = f'. "{LIB}"; stack_expected_published_ports {mode} {nodered} {monitor} {mediamtx}'
+    result = subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return set(result.stdout.split())
+
+
+SUBDOMAIN_PORTS = {
+    "80/tcp",
+    "443/tcp",
+    "443/udp",
+    "8089/tcp",
+    "8443/tcp",
+    "8446/tcp",
+    "8554/tcp",
+    "1935/tcp",
+}
+
+
+def test_subdomain_publishes_caddy_tak_and_mediamtx_only():
+    assert _expected_ports("subdomain") == SUBDOMAIN_PORTS
+
+
+def test_direct_adds_the_ui_ports_with_their_udp_twins():
+    assert _expected_ports("direct") == SUBDOMAIN_PORTS | {
+        "1880/tcp",
+        "1880/udp",
+        "8180/tcp",
+        "8180/udp",
+        "8888/tcp",
+        "8888/udp",
+    }
+
+
+def test_admin_port_is_the_compose_literal():
+    """8446 is bound unconditionally by the base compose file — nothing lets
+    an operator's TAKSERVER_ADMIN_PORT move it."""
+    assert "8446/tcp" in _expected_ports("subdomain")
