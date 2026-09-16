@@ -1,6 +1,9 @@
 """Alert engine — detects state transitions and deduplicates alerts.
 
-Called from scheduler threads and potentially from API endpoints.
+Called from scheduler threads and potentially from API endpoints. The
+scheduler calls this on every poll, passing the evaluator's should_alert
+verdict as a keyword argument, so state tracking (and recovery detection)
+stays accurate even for polls the evaluator judges below alert_min_level.
 All alert sending is synchronous (no async I/O).
 """
 
@@ -74,16 +77,19 @@ def get_activity_log(limit: int = 50) -> list[dict]:
     ]
 
 
-def check_and_alert(service: str, new_state: str, detail: str = ""):
-    """Alert on state transitions. Handles deduplication and cooldown only.
+def check_and_alert(service: str, new_state: str, detail: str = "", *, should_alert: bool = True):
+    """Track state on every call; notify only on a transition worth alerting.
 
-    The evaluator decides whether a state warrants alerting (via should_alert
-    and alert_min_level in thresholds.yml). The scheduler only calls this
-    function when the evaluator says to. This function does not filter by
-    severity — if called, it sends (subject to deduplication and cooldown).
+    The scheduler calls this on every poll and passes the evaluator's verdict
+    as `should_alert`, so `_last_state` follows reality: a recovery (elevated
+    → ok) is recorded even though ok is below alert_min_level, and a
+    condition that recurs after clearing alerts again (#77). Notifications
+    go out only on a transition to a non-ok state with `should_alert` true
+    and the cooldown elapsed. Recovery is logged, never sent.
 
-    Recovery (transition from elevated state back to ok) is logged but does
-    not send alerts.
+    The first observation of a healthy service (no prior state, new state ok)
+    is not an event — every poll reaches here now, and a monitor restart
+    must not log one 'ok' row per service.
 
     Thread-safe: all shared state access is under _lock for the full
     read-compare-update cycle (no TOCTOU gap).
@@ -96,22 +102,23 @@ def check_and_alert(service: str, new_state: str, detail: str = ""):
 
         if old_state == new_state:
             return  # No change — deduplication
+        if old_state is None and new_state == "ok":
+            return  # First sight of a healthy service: nothing happened
 
-        should_alert = False
+        notify = False
         is_recovery = False
 
         if new_state != "ok":
-            # State transition to a non-ok level — alert if not in cooldown
-            if (now - _last_alert_time[service]) >= alert_cooldown:
+            if should_alert and (now - _last_alert_time[service]) >= alert_cooldown:
                 _last_alert_time[service] = now
-                should_alert = True
+                notify = True
         elif old_state is not None and old_state != "ok":
             is_recovery = True
 
     # Record and send outside the lock (IO operations)
     record_event(service, new_state, detail or f"{service}: {old_state} → {new_state}")
 
-    if should_alert:
+    if notify:
         subject = f"{service} is {new_state}"
         body = f"Service: {service}\nState: {old_state} → {new_state}\n{detail}"
         send_alert_email(subject, body)
