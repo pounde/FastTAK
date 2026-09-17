@@ -102,7 +102,22 @@ The device receives a 1-year client cert signed by the CA. No file transfers, no
 
 ### Manual download
 
-For headless devices or situations where QR scanning isn't practical, download the `.p12` from the dashboard. The password is `atakatak` (see [DD-025](decisions.md#dd-025-keep-default-p12-password-atakatak)). Transfer the file to the device and import it into the TAK client.
+For headless devices or situations where QR scanning isn't practical, the dashboard offers two downloads per certificate. The password for every `.p12` is `atakatak` (see [DD-025](decisions.md#dd-025-keep-default-p12-password-atakatak)).
+
+- **Certificate (`.p12`)** — just the client key and cert. For devices that take a keystore and truststore separately, pair it with `certs/truststore.p12` from the data package below.
+- **Data package (`.zip`)** — the client `.p12`, a `truststore.p12` holding the FastTAK CA, and a `config.pref` with the server connection. ATAK and WinTAK import it directly.
+
+#### Importing a data package into ATAK
+
+Use the server connection screen, not the general Import Manager:
+
+1. Settings → Network Preferences → TAK Servers (Manage Server Connections).
+2. Tap **+** (New Connection), then **Data Package**, and pick the `.zip`.
+3. Restart ATAK. The server dot should turn green.
+
+This route stores the truststore and client cert against the server entry only. The general Import Manager also applies the package's `config.pref`, which overwrites ATAK's global default truststore preference — a side effect that affects every other server the device talks to, and the source of a persistent "Unable to validate Truststore" dialog (see [Troubleshooting](troubleshooting.md#atak-reports-unable-to-validate-truststore-but-still-connects)).
+
+To replace a package that was already imported, remove the existing server entry in that screen first, then import the new one.
 
 ## Service Account Modes
 

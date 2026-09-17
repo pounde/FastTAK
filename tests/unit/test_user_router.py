@@ -504,6 +504,36 @@ class TestUserCertDataPackage:
             assert "certs/truststore.p12" in manifest
             assert "config.pref" in manifest
 
+    def test_truststore_has_named_trusted_entry(self, mock_clients, mock_settings, tmp_path):
+        """Java-family loaders (ATAK's truststore validator, keytool) skip cert
+        bags without a friendlyName, so an unnamed CA loads as an empty store."""
+        import zipfile
+        from io import BytesIO
+
+        from cryptography.hazmat.primitives.serialization import pkcs12
+
+        mock_ak, _ = mock_clients
+        mock_ak.get_user.return_value = {
+            "id": 1,
+            "username": "jsmith",
+            "name": "John",
+            "is_active": True,
+            "groups": [],
+        }
+        (tmp_path / "jsmith-tablet.p12").write_bytes(b"fake-p12")
+        (tmp_path / "ca.pem").write_bytes(_make_test_ca_pem())
+
+        with patch("app.api.users.router.CERT_FILES_PATH", tmp_path):
+            r = client.get("/api/users/1/certs/download_data_package/tablet")
+
+        with zipfile.ZipFile(BytesIO(r.content)) as zf:
+            truststore = zf.read("certs/truststore.p12")
+
+        loaded = pkcs12.load_pkcs12(truststore, b"atakatak")
+        assert loaded.key is None
+        assert loaded.cert is None
+        assert [c.friendly_name for c in loaded.additional_certs] == [b"truststore"]
+
     def test_404_when_cert_missing(self, mock_clients, tmp_path):
         mock_ak, _ = mock_clients
         mock_ak.get_user.return_value = {

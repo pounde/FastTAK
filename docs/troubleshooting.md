@@ -67,6 +67,40 @@ docker exec fasttak-tak-server-1 sh -c \
 docker exec fasttak-tak-server-1 sh -c 'ls -la /opt/tak/logs/'
 ```
 
+## ATAK reports "Unable to validate Truststore" but still connects
+
+The dialog reads `TAK Server connectivity issue: Unable to validate
+Truststore. Open network settings now?` on every launch, yet the server dot is
+green and the user sees other users' positions.
+
+ATAK checks the truststore two ways. The native comms layer reads the
+`truststore.p12` with OpenSSL and connects. A separate Java-side check loads
+the same file as a Java keystore, which only counts certificate entries that
+carry a `friendlyName`. A truststore without one loads as empty there, and
+the dialog fires.
+
+Two things produce that state:
+
+- **Data packages built by v0.30.3 or earlier.** Their `truststore.p12` had no
+  friendly name. Regenerate the package from the dashboard; the current
+  builder writes a Java-layout truststore. Check a package with keytool —
+  a good one shows one `trustedCertEntry`:
+
+  ```bash
+  unzip -p package.zip certs/truststore.p12 > truststore.p12
+  keytool -list -storetype PKCS12 -keystore truststore.p12 -storepass atakatak
+  ```
+
+- **Importing through the general Import Manager.** That path applies
+  `config.pref` and points ATAK's global default truststore at the file, which
+  is what the Java-side check validates. Import through Network Preferences →
+  TAK Servers → New Connection → Data Package instead; that route stores the
+  certs against the server entry and skips the global preference. See
+  [Importing a data package into ATAK](certificates.md#importing-a-data-package-into-atak).
+
+Either way, remove the existing server entry in ATAK before re-importing so
+the stale truststore is not left behind.
+
 ## Every Monitor page returns 403
 
 The Monitor is admin-only as of v0.28.1. The account you are logged in with is
