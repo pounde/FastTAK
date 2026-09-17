@@ -421,6 +421,10 @@ def _compute_cert_hash(pem_path: Path) -> str | None:
 def _build_truststore_p12() -> bytes:
     """Build a PKCS#12 truststore containing the CA certificate.
 
+    Uses the Java truststore layout: the CA bag carries a friendlyName and the
+    Oracle trustedKeyUsage attribute. Java-family loaders (ATAK's truststore
+    validator, keytool) skip unnamed cert bags and would see an empty store.
+
     Returns:
         PKCS#12 bytes with friendly name ``truststore``, password ``atakatak``.
 
@@ -431,12 +435,9 @@ def _build_truststore_p12() -> bytes:
     if not ca_pem_path.exists():
         raise HTTPException(500, "CA certificate not found")
     ca_cert = x509.load_pem_x509_certificate(ca_pem_path.read_bytes())
-    return pkcs12.serialize_key_and_certificates(
-        name=b"truststore",
-        key=None,
-        cert=None,
-        cas=[ca_cert],
-        encryption_algorithm=BestAvailableEncryption(b"atakatak"),
+    return pkcs12.serialize_java_truststore(
+        [pkcs12.PKCS12Certificate(ca_cert, b"truststore")],
+        BestAvailableEncryption(b"atakatak"),
     )
 
 
