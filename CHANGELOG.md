@@ -2,6 +2,162 @@
 
 <!-- version list -->
 
+## v0.31.0 (2026-09-22)
+
+### Bug Fixes
+
+- **alerts**: An SMS provider error returns False instead of raising out of the poll
+  ([#58](https://github.com/pounde/FastTAK/pull/58),
+  [`6325eb8`](https://github.com/pounde/FastTAK/commit/6325eb890e7a82113230999410802af9630228e8))
+
+- **alerts**: Track state on every call so recoveries land and a recurring warning alerts again
+  ([#77](https://github.com/pounde/FastTAK/pull/77),
+  [`9bad02b`](https://github.com/pounde/FastTAK/commit/9bad02be4dd3551509fb04e922e77728097ae9d8))
+
+- **caddy**: Publish UDP 443 so the HTTP/3 Caddy advertises is reachable
+  ([#122](https://github.com/pounde/FastTAK/pull/122),
+  [`9b2e206`](https://github.com/pounde/FastTAK/commit/9b2e206035d92990eae3d77f12895a0928908144))
+
+- **certs**: Resolve Compose through FASTAK_ENV_FILE like the other entry points
+  ([#113](https://github.com/pounde/FastTAK/pull/113),
+  [`83dfc51`](https://github.com/pounde/FastTAK/commit/83dfc51985a5c8104dd32969a829c3bf31b03a0b))
+
+- **dashboard**: Cert and TLS rows show a real status and the reason a probe failed
+  ([#57](https://github.com/pounde/FastTAK/pull/57),
+  [`daaaecc`](https://github.com/pounde/FastTAK/commit/daaaecc318d592a888c9cecd594aa5059c9dd710))
+
+- **health**: A cert that cannot be read is an error row, not a missing one
+  ([#57](https://github.com/pounde/FastTAK/pull/57),
+  [`db9fd45`](https://github.com/pounde/FastTAK/commit/db9fd45d07f08bf113d0767642f61a726f0471e6))
+
+- **health**: The TLS probe reads expiry from the DER cert and reports errors instead of vanishing
+  ([#57](https://github.com/pounde/FastTAK/pull/57),
+  [`dde50ac`](https://github.com/pounde/FastTAK/commit/dde50ac795624c145131ba9d7028e2244eff5ad6))
+
+- **healthcheck**: Fail when the API answers 5xx, not only when it does not answer
+  ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`ccf4854`](https://github.com/pounde/FastTAK/commit/ccf4854bae0b1f085fc37c82aa06882019fceeeb))
+
+- **healthcheck**: Say so when curl or nc is missing
+  ([`16b9cab`](https://github.com/pounde/FastTAK/commit/16b9caba2b2ee962ff5d69bb9b4391a8f9230cc9))
+
+- **healthcheck**: Scan the recent log for Ignite disconnects, and stop an old OOM being sticky
+  ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`19bd759`](https://github.com/pounde/FastTAK/commit/19bd7596930851879a96b1604489be54ed478e7b))
+
+- **healthcheck**: Startup is not an incident ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`5fca511`](https://github.com/pounde/FastTAK/commit/5fca511f1f30f01bcc9c966cafd549c88e5bfbda))
+
+- **ops**: The SMS test endpoint returns a bool instead of awaiting one
+  ([#58](https://github.com/pounde/FastTAK/pull/58),
+  [`11bb82f`](https://github.com/pounde/FastTAK/commit/11bb82ff76b1b991f47b01b08bcd8669668b8db2))
+
+- **scheduler**: Call the alert engine on every poll with the evaluator's verdict
+  ([#77](https://github.com/pounde/FastTAK/pull/77),
+  [`6d03203`](https://github.com/pounde/FastTAK/commit/6d03203eb54e6ceddc9c1924b700d394e304d6f0))
+
+- **start**: A stopped service reads "unknown", not an empty string
+  ([`ca480ec`](https://github.com/pounde/FastTAK/commit/ca480ec56f9e3ac9bfb5eb053a0f467d755e2211))
+
+- **start**: Make every failed check say what it checked and what to run
+  ([#114](https://github.com/pounde/FastTAK/pull/114),
+  [`370942f`](https://github.com/pounde/FastTAK/commit/370942f53e24e7a7db2718fdbdb59b9a46f6e1f4))
+
+- **start**: Treat Compose's "invalid IP:0" as an unpublished port, not port 0
+  ([#120](https://github.com/pounde/FastTAK/pull/120),
+  [`7988df2`](https://github.com/pounde/FastTAK/commit/7988df2c27978ac88299f681f00b34b4bd8558ec))
+
+- **users**: Build data package truststore in Java layout
+  ([`8097b19`](https://github.com/pounde/FastTAK/commit/8097b19a8edb8453cfd546e44b28f8b9dcdc6f85))
+
+### Chores
+
+- Sync uv.lock with the v0.30.3 release
+  ([`c75583c`](https://github.com/pounde/FastTAK/commit/c75583c311d3f1e1b1d6b6de65cb0a2b09e81cc8))
+
+### Continuous Integration
+
+- Run pull-request checks for PRs that target dev
+  ([`9ca949c`](https://github.com/pounde/FastTAK/commit/9ca949cd37733a70621cf252c468fc2a3489dfda))
+
+### Documentation
+
+- Point operators at just doctor ([#121](https://github.com/pounde/FastTAK/pull/121),
+  [`c10b00f`](https://github.com/pounde/FastTAK/commit/c10b00f895965f4fd547db92efbf7490be98870d))
+
+- **decisions**: DD-022 alert flow follows the every-poll engine
+  ([#77](https://github.com/pounde/FastTAK/pull/77),
+  [`ca2bfc4`](https://github.com/pounde/FastTAK/commit/ca2bfc41c5b6a60c18bc4da953736e9ca7bd5456))
+
+- **decisions**: DD-055 lets an inspection command print its inventory
+  ([#121](https://github.com/pounde/FastTAK/pull/121),
+  [`d9dbfcf`](https://github.com/pounde/FastTAK/commit/d9dbfcfd8d7e74df01a33fda03548a300b00b69a))
+
+- **decisions**: DD-055 status reporters never fail silent
+  ([`d5d5c3c`](https://github.com/pounde/FastTAK/commit/d5d5c3cdead0e529f651c2c3b73b8f76f5288d67))
+
+- **troubleshooting**: The healthy-looking-container symptom is past tense now
+  ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`42dd471`](https://github.com/pounde/FastTAK/commit/42dd4710fa28de529b4f93974ca92db8c6c11587))
+
+### Features
+
+- **evaluator**: An item carrying an error is a warning with the reason
+  ([#57](https://github.com/pounde/FastTAK/pull/57),
+  [`d430ba1`](https://github.com/pounde/FastTAK/commit/d430ba18ef3871dc75bcad017ca9b36212575b14))
+
+- **healthcheck**: Capture the log tails once per incident, where rotation cannot reach
+  ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`88e2e8f`](https://github.com/pounde/FastTAK/commit/88e2e8fb8bda6f7a7cf2724be4733d241882ed50))
+
+- **just**: Doctor recipe ([#121](https://github.com/pounde/FastTAK/pull/121),
+  [`cffe636`](https://github.com/pounde/FastTAK/commit/cffe636f8198354a3a3aa47c23a3190fea612a35))
+
+- **stack**: The expected published-port set per deploy mode
+  ([#121](https://github.com/pounde/FastTAK/pull/121),
+  [`07a0dde`](https://github.com/pounde/FastTAK/commit/07a0ddec433914fd1bdff47ae3a534cc18293d69))
+
+- **start**: --doctor checks the running stack without touching it
+  ([#121](https://github.com/pounde/FastTAK/pull/121),
+  [`58e1eb2`](https://github.com/pounde/FastTAK/commit/58e1eb2413676ab6069379e32857893562360a4d))
+
+- **start**: A failed TAK healthcheck names the incident snapshot
+  ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`076353f`](https://github.com/pounde/FastTAK/commit/076353fbefec3b4436bf3b17bf6b268c9063d11b))
+
+- **start**: Add --verbose to print every check ([#114](https://github.com/pounde/FastTAK/pull/114),
+  [`f39299d`](https://github.com/pounde/FastTAK/commit/f39299d76f2abb3ffcb6b78dc16882e001dfde4a))
+
+- **start**: Doctor reports the published ports against the deploy mode's set
+  ([#121](https://github.com/pounde/FastTAK/pull/121),
+  [`fecf9c7`](https://github.com/pounde/FastTAK/commit/fecf9c707d2c25a7aafdf2d0f982ada9f4de8214))
+
+- **start**: The checklist includes the monitor ([#121](https://github.com/pounde/FastTAK/pull/121),
+  [`7ffbea4`](https://github.com/pounde/FastTAK/commit/7ffbea416c3dbc703b9fd88cc842399ad56c2b91))
+
+### Refactoring
+
+- **start**: Move the start and checks sections into functions
+  ([`3e900f4`](https://github.com/pounde/FastTAK/commit/3e900f47bbe48ed8b4fa1258bd3eecda9bdf2c3a))
+
+### Testing
+
+- **auth**: Every route the gate walk cannot see must be recorded
+  ([#83](https://github.com/pounde/FastTAK/pull/83),
+  [`c1caf21`](https://github.com/pounde/FastTAK/commit/c1caf21be4207fca9c662843f669b3df8ddc104f))
+
+- **healthcheck**: Drive healthcheck.sh from the environment so it runs outside the container
+  ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`178427b`](https://github.com/pounde/FastTAK/commit/178427bee920811095608627c05da7b0ba23c648))
+
+- **integration**: The healthcheck probe answers non-5xx on a healthy stack; document the new
+  detection ([#79](https://github.com/pounde/FastTAK/pull/79),
+  [`d4929b8`](https://github.com/pounde/FastTAK/commit/d4929b89bd8d334680f1cfce8efe05911e8e1871))
+
+- **start**: A healthy deployment fixture, and prove a healthy stack ends green
+  ([`ded742b`](https://github.com/pounde/FastTAK/commit/ded742b90f8267e7d63d8913d18c5e6e0edf3b7b))
+
+
 ## v0.30.3 (2026-09-15)
 
 ### Bug Fixes
