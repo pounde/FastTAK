@@ -10,9 +10,12 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 
 RTSP_PORT = 28554
+RTMP_PORT = 21935
+HLS_PORT = 28888
 FFMPEG = shutil.which("ffmpeg")
 FFPROBE = shutil.which("ffprobe")
 
@@ -37,6 +40,9 @@ def _url(path: str, user: str | None = None, password: str | None = None) -> str
 
 
 def _publish(url: str, seconds: int = 3) -> subprocess.CompletedProcess:
+    transport = (
+        ["-f", "flv"] if url.startswith("rtmp:") else ["-f", "rtsp", "-rtsp_transport", "tcp"]
+    )
     return subprocess.run(
         [
             FFMPEG,
@@ -55,10 +61,7 @@ def _publish(url: str, seconds: int = 3) -> subprocess.CompletedProcess:
             "ultrafast",
             "-tune",
             "zerolatency",
-            "-f",
-            "rtsp",
-            "-rtsp_transport",
-            "tcp",
+            *transport,
             url,
         ],
         capture_output=True,
@@ -68,13 +71,13 @@ def _publish(url: str, seconds: int = 3) -> subprocess.CompletedProcess:
 
 
 def _probe(url: str) -> subprocess.CompletedProcess:
+    transport = ["-rtsp_transport", "tcp"] if url.startswith("rtsp:") else []
     return subprocess.run(
         [
             FFPROBE,
             "-v",
             "error",
-            "-rtsp_transport",
-            "tcp",
+            *transport,
             "-show_entries",
             "stream=codec_name",
             "-of",
@@ -135,6 +138,51 @@ def test_wrong_viewer_password_refused(live_path):
     result = _probe(_url(live_path, "viewer", "wrong"))
     assert result.returncode != 0
     assert "401" in result.stderr
+
+
+def _rtmp_url(path: str, user: str | None = None, password: str | None = None) -> str:
+    query = f"?user={user}&pass={password}" if user else ""
+    return f"rtmp://localhost:{RTMP_PORT}/{path}{query}"
+
+
+def test_publisher_can_publish_over_rtmp(stack_info, run_id):
+    """The control for the refusals below: RTMP ingest works with the credential."""
+    pw = mediamtx_secret(stack_info, "MEDIAMTX_PUBLISHER_PASSWORD")
+    result = _publish(_rtmp_url(f"rtmp-pub-{run_id}", "publisher", pw))
+    assert result.returncode == 0, result.stderr
+
+
+def test_anonymous_rtmp_publish_refused(run_id):
+    assert _publish(_rtmp_url(f"rtmp-anon-{run_id}")).returncode != 0
+
+
+def test_anonymous_rtmp_read_refused(live_path):
+    assert _probe(_rtmp_url(live_path)).returncode != 0
+
+
+def test_viewer_can_read_over_rtmp(stack_info, live_path):
+    pw = mediamtx_secret(stack_info, "MEDIAMTX_VIEWER_PASSWORD")
+    result = _probe(_rtmp_url(live_path, "viewer", pw))
+    assert result.returncode == 0, result.stderr
+
+
+def _hls_status(path: str, auth: tuple[str, str] | None = None) -> int:
+    url = f"http://localhost:{HLS_PORT}/{path}/index.m3u8"
+    return httpx.get(url, auth=auth, timeout=20).status_code
+
+
+def test_anonymous_hls_read_refused(live_path):
+    assert _hls_status(live_path) == 401
+
+
+def test_wrong_hls_password_refused(live_path):
+    assert _hls_status(live_path, ("viewer", "wrong")) == 401
+
+
+def test_viewer_credential_passes_hls_auth(stack_info, run_id):
+    """The probe path has no stream, so passing auth yields 404, not 401."""
+    pw = mediamtx_secret(stack_info, "MEDIAMTX_VIEWER_PASSWORD")
+    assert _hls_status(f"hls-empty-{run_id}", ("viewer", pw)) == 404
 
 
 def _api_status(compose_exec, auth: str | None) -> str:
