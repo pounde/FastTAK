@@ -6,6 +6,8 @@ Verifies that the API enforces group rules based on fastak_user_type:
 - Groups must exist before assignment
 """
 
+import re
+
 import pytest
 
 pytestmark = pytest.mark.integration
@@ -46,6 +48,11 @@ class TestBootstrapState:
         status, data = api("GET", "/api/users")
         assert status == 200
         usernames = {u["username"] for u in data.get("results", [])}
+        # Tests that ran earlier, in this run or a previous one on the same
+        # stack, leave their accounts behind deactivated: the API has no hard
+        # delete. Each name carries a run id (a Unix time), sometimes with a
+        # numeric suffix after it.
+        usernames = {name for name in usernames if not re.search(r"_\d{9,}(_\d+)?$", name)}
         assert usernames == self.EXPECTED_USERS
 
 
