@@ -2,6 +2,20 @@
 
 Significant architectural and design decisions, with reasoning. Newest first.
 
+## DD-057: Caddy strips identity and credential headers around forward_auth
+
+**Date:** 2026-11-04
+**Status:** Decided
+
+**Decision:** Each `forward_auth` route removes `Remote-User` and `Remote-Groups` from the client's request before calling ldap-proxy, and removes `Authorization` before calling the backend. The Caddy image follows the major version (`caddy:2-alpine`). `/auth/verify` returns 503 when it cannot read a user's groups.
+
+**Why:** `copy_headers` only overwrites a header that ldap-proxy returned with a value. Before Caddy 2.11.2, an empty `Remote-Groups` left the client's copy in place, so a user with no groups could send `Remote-Groups: monitor_admin` and reach the monitor as an admin. Removing the headers first holds whatever Caddy version runs, so the image does not need a pin to stay safe. Basic auth also sends the LDAP password on every request, and neither backend uses it, so leaving it in place gave any flow author the passwords of everyone who opened Node-RED.
+
+**Alternatives considered:**
+- Pinning Caddy alone: rejected, because the guarantee would then rest on an upstream fix with no check in this repo.
+- Pinning Caddy by version and digest as well: rejected. A pinned image receives no Caddy security fix until someone edits the pin, and nothing in this repo opens that update. With `caddy:2-alpine`, `docker compose pull caddy` brings the fixes. The cost: hosts can run different 2.x versions, and a host keeps its cached image until it pulls.
+- Not returning `Remote-Groups` for a user with no groups: rejected, because a lookup failure and an empty membership still could not be told apart.
+
 ## DD-056: MediaMTX has no anonymous access
 
 **Date:** 2026-09-28
