@@ -88,7 +88,11 @@ that worked before stops working.
   [MediaMTX access](configuration.md#mediamtx-access) for how the passwords
   are generated and how `MEDIAMTX_PUBLISH_IPS` works.
 - If you hid the MediaMTX ports in an override because they had no
-  authentication, you can publish 8554 again for viewing; publishing stays off.
+  authentication, leave them hidden until the Node-RED editor is limited to a
+  group ([#149](https://github.com/pounde/FastTAK/issues/149)). Until then, any
+  LDAP user can open the editor, read the MediaMTX API password and turn
+  anonymous access back on. After that you can publish 8554 again for viewing;
+  publishing stays off.
 
 ## What the scripts now handle for you
 
