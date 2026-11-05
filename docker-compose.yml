@@ -298,6 +298,9 @@ services:
 
   # ── Networking (reverse proxy + SSL) ───────────────────────────────────
   caddy:
+    # Follows Caddy 2 so that `docker compose pull caddy` brings its security
+    # fixes. The auth routes do not depend on the version: the Caddyfile
+    # removes client identity headers itself (DD-057).
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
