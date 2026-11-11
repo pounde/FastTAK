@@ -200,6 +200,23 @@ Anything not in `docker compose config --services` is an orphan. Remove it:
 docker compose up -d --remove-orphans
 ```
 
+## Keeping Caddy current
+
+Caddy's image follows major version 2 (`caddy:2-alpine`), and `just up` does
+not download a newer image by itself: a host keeps the one it last pulled. To
+take Caddy's security fixes, run this from time to time, and with every
+FastTAK upgrade:
+
+```bash
+docker pull caddy:2-alpine
+just up
+```
+
+`docker pull` names the image directly, so it works before `just up` has added
+a new release's secrets to `.env`; `docker compose pull` refuses until they
+exist. `just up` restarts Caddy only when the pull brought a new image. Sign-in does
+not depend on the Caddy version ([DD-057](decisions.md)).
+
 ## After you upgrade
 
 Confirm the stack is healthy and that you can still get in:
