@@ -643,6 +643,9 @@ def generate_user_cert(user_id: int, body: GenerateCertRequest):
 def revoke_user_cert(user_id: int, body: RevokeCertRequest):
     """Revoke a certificate and update the CRL so TAK Server rejects it.
 
+    A QR-enrolled cert is refused at once. A cert known only by name is refused
+    from the next ``tak-server`` start, when the CRL is read (DD-063).
+
     Provide exactly one of ``cert_id`` or ``cert_name``:
 
     - **cert_id**: For QR-enrolled certs. Fetches PEM from certadmin, revokes
@@ -686,12 +689,12 @@ def revoke_user_cert(user_id: int, body: RevokeCertRequest):
         if not cert_data.get("certificate_pem"):
             raise HTTPException(500, "Cannot revoke: cert PEM not available from TAK Server")
 
-        # CRL revocation (actual TLS disconnect)
+        # CRL revocation (read by TAK Server at its next start)
         result = revoke_cert_by_pem(cert_data["certificate_pem"])
         if not result["success"]:
             raise HTTPException(500, f"CRL revocation failed: {result.get('error', '')}")
 
-        # Also mark revoked in certadmin database
+        # Mark revoked in certadmin: TAK Server checks this at every connection
         tak.revoke_cert(body.cert_id)
 
         # Delete enrollment tokens to prevent re-enrollment with cached credentials

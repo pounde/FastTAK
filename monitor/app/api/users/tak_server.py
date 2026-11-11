@@ -147,8 +147,8 @@ class TakServerClient:
     def revoke_cert(self, cert_id: int) -> bool:
         """Mark a cert as revoked in certadmin (database flag only).
 
-        NOTE: This does NOT update the CRL. Use revoke_cert_via_crl() for
-        actual TLS-level revocation that disconnects devices.
+        TAK Server checks this record at every connection, so the cert stops
+        at once. It does not update the CRL; callers do that as well (DD-063).
         """
         try:
             self._delete(f"/Marti/api/certadmin/cert/revoke/{cert_id}")
@@ -165,7 +165,7 @@ class TakServerClient:
         2. Certs in TAK certadmin with no on-disk copy (QR-enrolled) — PEM is
            extracted from the certadmin response and fed to CRL revocation.
 
-        CRL is regenerated so TAK Server rejects revoked certs on next connect.
+        The CRL is regenerated; TAK Server reads it at its next start (DD-063).
         Returns True only if every cert was successfully revoked.
         """
         from app.api.service_accounts.cert_gen import (
@@ -209,8 +209,10 @@ class TakServerClient:
                 )
                 all_ok = False
                 continue
-            # The CRL is what stops the cert. This flag keeps the dashboard honest,
-            # so a failure is logged by revoke_cert and picked up by any retry.
+            # Both matter (DD-063). This flag is in TAK Server's database, which
+            # it checks at every connection, so an enrolled cert stops at once.
+            # The CRL is read when TAK Server starts and covers every cert.
+            # A failure is logged by revoke_cert and picked up by any retry.
             self.revoke_cert(cert["id"])
 
         return all_ok
