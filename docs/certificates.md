@@ -214,6 +214,13 @@ FastTAK's healthcheck monitors cert expiry — TAK Server becomes `unhealthy` wh
 ./certs.sh revoke alice
 ```
 
+TAK Server reads the revocation list when it starts. A cert revoked this way, a
+cert downloaded from the dashboard, and a service account's cert are refused
+from the next `tak-server` start; to refuse one now, run
+`docker compose restart tak-server`. A cert a device enrolled by QR code is
+refused at once when you revoke it in the dashboard
+([DD-063](decisions.md)).
+
 ### List all certs
 
 ```bash
