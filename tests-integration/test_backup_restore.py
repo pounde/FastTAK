@@ -7,6 +7,7 @@ stack tear-down + bring-up + bring-up cycle takes ~2 minutes. Run via
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -161,6 +162,15 @@ def test_backup_then_restore_round_trip(tmp_path):
         str(fresh_state_dir / "tak"),
         str(repo_dir),
         str(repo_dir / "docker-compose.test.yml"),
+        # `test-stack.sh run` exported these for the stack that step 5 removed,
+        # and restore.sh keeps a value the caller exported. Left as they were,
+        # the restored monitor would mount the old stack's directory, which
+        # Docker then creates again, empty.
+        env={
+            **os.environ,
+            "BACKUP_DIR": str(fresh_state_dir / "backups"),
+            "HOST_ENV_FILE": str(fresh_state_dir / ".env"),
+        },
     )
 
     try:

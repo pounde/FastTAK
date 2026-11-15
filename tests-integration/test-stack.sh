@@ -57,6 +57,11 @@ cmd_up() {
   project="fastak-test-${ts}"
   test_dir="/tmp/${project}"
 
+  # One stack at a time: tear down anything left from an earlier run. This
+  # comes before anything is created for the new stack, because the teardown
+  # removes every /tmp/fastak-test-* directory it finds.
+  cmd_down >&2
+
   export TAK_HOST_PATH="${test_dir}/tak"
   mkdir -p "${test_dir}/backups"
   export BACKUP_DIR="${test_dir}/backups"
@@ -64,9 +69,6 @@ cmd_up() {
   export HOST_ENV_FILE="${test_dir}/.env"
 
   local compose="docker compose -p ${project} -f ${REPO_DIR}/docker-compose.yml -f ${REPO_DIR}/docker-compose.test.yml --env-file ${test_dir}/.env"
-
-  # One stack at a time: tear down anything left from an earlier run.
-  cmd_down >&2
 
   echo "=== Setting up test stack: ${project} ===" >&2
   local zip

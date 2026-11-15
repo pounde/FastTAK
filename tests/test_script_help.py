@@ -68,3 +68,10 @@ def test_test_stack_down_rejects_a_non_project_name():
 def test_test_stack_down_accepts_a_well_formed_project_name():
     result = _run("tests-integration/test-stack.sh", "down", "fastak-test-123")
     assert result.returncode == 0, result.stderr
+
+
+def test_test_stack_up_tears_down_before_it_creates_anything():
+    """The teardown removes every /tmp/fastak-test-* directory, the new one included."""
+    script = (REPO / "tests-integration" / "test-stack.sh").read_text()
+    up = script[script.index("cmd_up() {") : script.index("cmd_run() {")]
+    assert up.index("cmd_down >&2") < up.index("mkdir -p")
