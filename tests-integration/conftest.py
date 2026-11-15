@@ -319,3 +319,52 @@ def cleanup_test_resources(api, created_resources):
         rid = created_resources.get(key)
         if rid:
             api("DELETE", f"/api/users/{rid}")
+
+
+# ---------------------------------------------------------------------------
+# Container logs for a failed test
+# ---------------------------------------------------------------------------
+
+# The services whose logs explain most API failures. A later test may recreate
+# a container, and its log goes with it, so the log is read when the test fails.
+LOGGED_SERVICES = ("monitor", "ldap-proxy", "lldap")
+LOG_LINES = 60
+
+
+def _container_logs() -> str:
+    # The newest state directory is the live stack; its name is the project.
+    state_files = sorted(glob("/tmp/fastak-test-*/.test-state"), reverse=True)
+    if not state_files:
+        return "no test stack found"
+    project = Path(state_files[0]).parent.name
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-p",
+            project,
+            "logs",
+            "--no-color",
+            "--tail",
+            str(LOG_LINES),
+            *LOGGED_SERVICES,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout + result.stderr
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Attach the last container log lines to the report of a failed test."""
+    outcome = yield
+    report = outcome.get_result()
+    if not report.failed or report.when == "teardown":
+        return
+    try:
+        logs = _container_logs()
+    except Exception as exc:  # A missing log must not hide the test's own failure.
+        logs = f"could not read container logs: {exc}"
+    report.sections.append((f"last {LOG_LINES} log lines per service", logs))
