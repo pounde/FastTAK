@@ -191,8 +191,9 @@ def set_password(base_url, token, username, password):
         token,
         "--username",
         username,
-        "--password",
-        password,
+        # One argument: a password that starts with "-" would otherwise be
+        # read as an option.
+        f"--password={password}",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:

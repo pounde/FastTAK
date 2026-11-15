@@ -521,8 +521,19 @@ class TestSetPassword:
             assert cmd[0] == "/usr/local/bin/lldap_set_password"
             assert "--username" in cmd
             assert cmd[cmd.index("--username") + 1] == "jsmith"
-            assert "--password" in cmd
-            assert cmd[cmd.index("--password") + 1] == "new-pass-123"
+            assert "--password=new-pass-123" in cmd
+
+    def test_a_password_that_starts_with_a_hyphen_stays_one_argument(self, client, mock_http):
+        """lldap_set_password reads a separate "-f..." as an option and fails.
+        Deactivation sets a random password, which starts with "-" one time in 64."""
+        client._user_id_map = {1: "jsmith"}
+        client._jwt = "fake-jwt"
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            client.set_password(1, "-fAbcdefgh12345")
+            cmd = mock_run.call_args[0][0]
+            assert "--password=-fAbcdefgh12345" in cmd
+            assert not any(arg.startswith("-f") for arg in cmd)
 
     def test_raises_on_binary_failure(self, client, mock_http):
         client._user_id_map = {1: "jsmith"}
