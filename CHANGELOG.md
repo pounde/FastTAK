@@ -2,6 +2,97 @@
 
 <!-- version list -->
 
+## v0.33.0 (2026-11-16)
+
+### Bug Fixes
+
+- **app-db**: Rotating APP_DB_PASSWORD reaches the database
+  ([`f4099f5`](https://github.com/pounde/FastTAK/commit/f4099f51c7964ff1a474428569ef7b6af28fc6ea))
+
+- **caddy**: Drop client identity headers, keep passwords from backends
+  ([`c52e70d`](https://github.com/pounde/FastTAK/commit/c52e70dc9c89718f9e4933e36f945ebccb091f82))
+
+- **caddy**: Limit Node-RED to NODERED_ADMIN_GROUP
+  ([#149](https://github.com/pounde/FastTAK/pull/149),
+  [`57cfa27`](https://github.com/pounde/FastTAK/commit/57cfa27930949d681dc7605843d7034b1f1538c9))
+
+- **certs**: Deactivating a service account revokes its cert and admin role
+  ([`04b1195`](https://github.com/pounde/FastTAK/commit/04b1195a76dace8c5f99a697fd88db8b5f1a355c))
+
+- **env**: Private .env, and name the secrets the stack will not start without
+  ([#60](https://github.com/pounde/FastTAK/pull/60),
+  [`3f9f277`](https://github.com/pounde/FastTAK/commit/3f9f2776c2926aa9faf98b30502323610dedfcc7))
+
+- **identity**: A password that starts with a hyphen reaches LLDAP intact
+  ([`17022df`](https://github.com/pounde/FastTAK/commit/17022df24a5fa76a4b989b1f908f9637a889ecd5))
+
+- **ldap-proxy**: Limit password guessing through TAK Server
+  ([`4473cb3`](https://github.com/pounde/FastTAK/commit/4473cb32136f2d39860176b28451d874f8d3eb89))
+
+- **ldap-proxy**: Refuse when groups cannot be read and reject DN metacharacters
+  ([`04179c9`](https://github.com/pounde/FastTAK/commit/04179c9cdc71a1d3969083354f59727f8bed3b0d))
+
+- **lldap**: Stop signing admin sessions with the public default secret
+  ([`bfccdd8`](https://github.com/pounde/FastTAK/commit/bfccdd86ac3c9a42cf809a33eeb33e93767568cd))
+
+- **monitor**: Honor identity headers only with proof they came through Caddy
+  ([#78](https://github.com/pounde/FastTAK/pull/78),
+  [`edfcd5c`](https://github.com/pounde/FastTAK/commit/edfcd5cf6b8abd4034f61c25893e5a1e2ace6127))
+
+- **monitor**: Refuse cross-site changes, cap request bodies, record the real address
+  ([`944abf1`](https://github.com/pounde/FastTAK/commit/944abf1e74008c46a54d240ef757617ec3e712cd))
+
+- **tak**: Tell TAK Server to read the revocation list
+  ([`fa2b9c2`](https://github.com/pounde/FastTAK/commit/fa2b9c28a8a0755bccecdb422af55e285110bb3c))
+
+- **users**: Deactivation cuts logins, tokens and groups
+  ([#59](https://github.com/pounde/FastTAK/pull/59),
+  [`887021b`](https://github.com/pounde/FastTAK/commit/887021bac7567c4ab6da35cdaf8f777834cf683f))
+
+- **users**: Refuse names that land on an existing account or cert file
+  ([`44ad925`](https://github.com/pounde/FastTAK/commit/44ad925e7591a743140940a1e02f7a53c1396041))
+
+### Documentation
+
+- Admin groups are not privilege levels; where the backup key lives; video after off-boarding
+  ([`7d49c7d`](https://github.com/pounde/FastTAK/commit/7d49c7d0b36b377fb8aa040974d97c673fcb9337))
+
+- **auth**: DD-057, header stripping around forward_auth
+  ([`2d1ee5e`](https://github.com/pounde/FastTAK/commit/2d1ee5e6cfc2db572fc16806b5e14171f12585c6))
+
+- **auth**: DD-058, Node-RED group gate and rebuilding its volume after exposure
+  ([`5160b72`](https://github.com/pounde/FastTAK/commit/5160b72ed7dd5ff929cf1e09a19b2d8d39d2cd6f))
+
+- **auth**: DD-059, proxy secret between Caddy and the monitor
+  ([`ffe89d5`](https://github.com/pounde/FastTAK/commit/ffe89d5a006c1c4db0d839b1c326abeb1e34f453))
+
+- **auth**: DD-062, per-account lockout, password minimum, tokens for enrollment only
+  ([`f3d9900`](https://github.com/pounde/FastTAK/commit/f3d9900d05b091ed281967bfb0454f5a69dfc9fc))
+
+- **certs**: DD-063, the revocation list is read when TAK Server starts
+  ([`94e1486`](https://github.com/pounde/FastTAK/commit/94e14867486399984e512cfbf4a912e0accfa9d3))
+
+- **lldap**: DD-060, JWT secret and key seed
+  ([`3dcb507`](https://github.com/pounde/FastTAK/commit/3dcb50798c3b12747bb31050122ecd56a8639c51))
+
+- **monitor**: DD-064, cross-site requests, body limit and recorded address
+  ([`6f3ca62`](https://github.com/pounde/FastTAK/commit/6f3ca6205e2ef5eaef409ae1df3b87f45f9264bf))
+
+- **upgrading**: Name the versions on the MediaMTX steps
+  ([`039b4a9`](https://github.com/pounde/FastTAK/commit/039b4a969c28a73177a14a3c97eccbdbe8742fab))
+
+- **users**: An open TAK session keeps its groups after deactivation
+  ([`cb1967f`](https://github.com/pounde/FastTAK/commit/cb1967fcfbfb1d0614dc8310447052cb5e5911bf))
+
+- **users**: DD-061, deactivation and accounts deactivated earlier
+  ([`7b4cbbf`](https://github.com/pounde/FastTAK/commit/7b4cbbf4c81eb4af62ecd6ca2b1ef13d5f475583))
+
+### Features
+
+- **ldap-proxy**: /auth/verify?group= requires membership of a group
+  ([`358f7d5`](https://github.com/pounde/FastTAK/commit/358f7d5e6a177d83c4462ffd4e7ef093269a03ea))
+
+
 ## v0.32.0 (2026-11-13)
 
 ### Bug Fixes
