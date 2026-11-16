@@ -218,8 +218,13 @@ TAK Server reads the revocation list when it starts. A cert revoked this way, a
 cert downloaded from the dashboard, and a service account's cert are refused
 from the next `tak-server` start; to refuse one now, run
 `docker compose restart tak-server`. A cert a device enrolled by QR code is
-refused at once when you revoke it in the dashboard
-([DD-063](decisions.md)).
+refused at once when you revoke it in the dashboard, and its open session is
+closed ([DD-063](decisions.md)).
+
+The same restart applies after you deactivate a service account, or a user
+who holds a cert downloaded from the dashboard. Deactivation removes the
+account's groups, but a session that is already open keeps them until the
+client reconnects ([DD-061](decisions.md)).
 
 ### List all certs
 

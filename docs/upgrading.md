@@ -131,6 +131,12 @@ starting, and forcing it invalidates every password
 Deactivating an account now removes its password, groups and enrollment tokens,
 and reactivating restores none of them ([DD-061](decisions.md)).
 
+A device that is connected at that moment with a cert downloaded from the
+dashboard, or a service account's cert, keeps its session and its old groups
+until it disconnects. To cut it off at once, run
+`docker compose restart tak-server`. A device enrolled by QR code is
+disconnected at once.
+
 Accounts deactivated **before** v0.33.0 kept their password and groups.
 Within a minute of the upgraded monitor starting, it finds every inactive account
 that is still in a group and cuts it the same way, so there is nothing to do by
