@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.33.1 (2026-11-19)
+
+### Bug Fixes
+
+- **test-stack**: The restored stack mounts its own directory, not the old one
+  ([`df43de0`](https://github.com/pounde/FastTAK/commit/df43de04a766a7fa6cc3b30ccaa5256f91a7dba5))
+
+### Testing
+
+- **integration**: A failed test reports the last container log lines
+  ([`b341f84`](https://github.com/pounde/FastTAK/commit/b341f8427ef3c1d66c8ffd897f659a735986117a))
+
+
 ## v0.33.0 (2026-11-16)
 
 ### Bug Fixes
